@@ -3,12 +3,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use crate::core::Collector;
 use crate::core::devlog;
 use crate::core::model::{
     CpuCounter, DiskCounter, MemorySnapshot, NetworkCounter, ProcessCounter, RawSnapshot,
     TemperatureSnapshot,
 };
-use crate::platform::{Collector, ProbeKind, ProbeReport};
+use crate::platform::{ProbeKind, ProbeReport};
 
 const TEMPERATURE_INTERVAL: Duration = Duration::from_secs(2);
 const MAX_SENSOR_BACKOFF: Duration = Duration::from_secs(300);

@@ -1,5 +1,6 @@
+use crate::core::Collector;
 use crate::core::model::RawSnapshot;
-use crate::platform::{Collector, ProbeKind, ProbeReport};
+use crate::platform::{ProbeKind, ProbeReport};
 
 pub struct Backend;
 

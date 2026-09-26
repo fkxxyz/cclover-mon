@@ -8,22 +8,30 @@
 
 **主要技术栈**：Rust 2024、Cargo、Iced 0.14。Linux Wayland 窗口定位使用 `iced_layershell` 0.19.1。
 
-**依赖方向**：
+**运行时指标流**：
 
 ```text
-app / UI
-  ↓
-core: model + history + aggregation
+OS native interfaces
   ↓
 platform: Linux | Windows
   ↓
-OS native interfaces
+core: sampling + model + history + aggregation
+  ↓
+app / UI
+```
+
+**源码静态依赖边界**：
+
+```text
+app composition root ───────→ core
+        │                     ↑
+        └────────→ platform ──┘
 ```
 
 职责规则：
 
-- `core` 负责平台中立的指标类型、delta/rate 推导、Top-N 聚合、有界历史与采样契约。
-- `platform` 负责操作系统特定的采集与桌面集成。平台 API 类型必须留在该层内部。
+- `core` 负责平台中立的指标类型、delta/rate 推导、Top-N 聚合、有界历史与采样契约，包括 `Collector`。
+- `platform` 负责操作系统特定的采集与桌面集成，实现由 `core` 定义的采样契约，并返回由 `core` 定义的平台中立快照。`core` 不得依赖 `platform`。
 - `ui` 只渲染共享 `MonitorState`；不采集指标，也不调用平台 API。
 - 原生数据保持类型化并在进程内传递。不要为指标流引入内部 JSON 或前后端 IPC。
 - 优先使用原生采集，不使用周期性 subprocess 轮询。Linux 数据源应按场景使用 `/proc`、`/sys`、netlink、ioctl、socket 或 D-Bus。

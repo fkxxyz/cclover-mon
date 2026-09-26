@@ -20,21 +20,34 @@ facets:
 
 # System Decomposition
 
+Runtime metric flow:
+
 ```text
-app/UI
-  ↓
-core: model + history + aggregation
-  ↓
-platform: Linux | Windows
-  ↓
 OS APIs / native libraries
-          ↑
-   optional C++ bridge
+          ↓
+platform: Linux | Windows
+          ↓
+core: sampling + derivation + history
+          ↓
+        app/UI
 ```
 
-- **core** owns platform-neutral metric types, history, aggregation, and sampling contracts.
-- **platform** owns OS-specific collection and desktop integration.
+Static source dependencies use inversion at the collection boundary:
+
+```text
+app composition root ───────→ core
+        │                     ↑
+        └────────→ platform ──┘
+                       │
+                       ↓
+              OS APIs / native libraries
+                       ↑
+                optional C++ bridge
+```
+
+- **core** owns platform-neutral metric types, history, aggregation, and sampling contracts, including `Collector`.
+- **platform** owns OS-specific collection and desktop integration, implements core-owned sampling contracts, and produces core-owned platform-neutral snapshots.
 - **app/UI** consumes shared model types and owns presentation.
 - **native bridge** adapts C++-only dependencies through a small C ABI.
 
-Dependencies point toward lower layers; platform-specific types do not cross into core or shared UI.
+The application composition root selects a platform backend and supplies it to the core sampler. `core` must not depend on `platform`; `platform` may depend on core-owned contracts and model types. Platform-specific types do not cross into core or shared UI.

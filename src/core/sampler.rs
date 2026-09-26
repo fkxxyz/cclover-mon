@@ -4,11 +4,14 @@ use std::time::{Duration, Instant};
 use super::devlog;
 use super::history;
 use super::model::*;
-use crate::platform::Collector;
 
 const TOP_N: usize = 8;
 const HISTORY_CAPACITY: usize = 60;
 pub const SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
+
+pub trait Collector: Send + 'static {
+    fn collect(&mut self) -> RawSnapshot;
+}
 
 pub struct Sampler<C> {
     collector: C,

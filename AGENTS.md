@@ -8,22 +8,30 @@
 
 **Primary stack**: Rust 2024, Cargo, Iced 0.14. Linux Wayland placement uses `iced_layershell` 0.19.1.
 
-**Dependency direction**:
+**Runtime metric flow**:
 
 ```text
-app / UI
-  ↓
-core: model + history + aggregation
+OS native interfaces
   ↓
 platform: Linux | Windows
   ↓
-OS native interfaces
+core: sampling + model + history + aggregation
+  ↓
+app / UI
+```
+
+**Static source dependency boundary**:
+
+```text
+app composition root ───────→ core
+        │                     ↑
+        └────────→ platform ──┘
 ```
 
 Ownership rules:
 
-- `core` owns platform-neutral metric types, delta/rate derivation, Top-N aggregation, bounded history, and sampling contracts.
-- `platform` owns OS-specific collection and desktop integration. Platform API types stay inside this layer.
+- `core` owns platform-neutral metric types, delta/rate derivation, Top-N aggregation, bounded history, and sampling contracts, including `Collector`.
+- `platform` owns OS-specific collection and desktop integration, implements core-owned sampling contracts, and returns core-owned platform-neutral snapshots. `core` must not depend on `platform`.
 - `ui` renders shared `MonitorState`; it does not collect metrics or call platform APIs.
 - Native data stays typed and in-process. Do not introduce internal JSON or frontend/backend IPC for metric flow.
 - Prefer native collection over periodic subprocess polling. Linux sources should use `/proc`, `/sys`, netlink, ioctl, sockets, or D-Bus as appropriate.

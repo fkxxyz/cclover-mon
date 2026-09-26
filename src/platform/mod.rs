@@ -1,11 +1,5 @@
 use std::str::FromStr;
 
-use crate::core::model::RawSnapshot;
-
-pub trait Collector: Send + 'static {
-    fn collect(&mut self) -> RawSnapshot;
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProbeKind {
     Cpu,

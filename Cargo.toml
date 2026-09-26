@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-iced = { version = "0.14.0", default-features = false, features = ["canvas", "crisp", "smol", "tiny-skia", "wayland", "x11"] }
+iced = { version = "0.14.0", default-features = false, features = ["canvas", "crisp", "smol", "wgpu", "wayland", "x11"] }
 smol = "2.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]

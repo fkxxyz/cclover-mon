@@ -28,7 +28,7 @@ fn main() -> Result<(), iced_layershell::Error> {
                 layer: Layer::Bottom,
                 exclusive_zone: 0,
                 size: Some((390, 480)),
-                margin: (16, 0, 0, 16),
+                margin: (16, 16, 0, 0),
                 keyboard_interactivity: KeyboardInteractivity::None,
                 ..LayerShellSettings::default()
             },

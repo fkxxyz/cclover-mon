@@ -4,6 +4,8 @@ use std::collections::VecDeque;
 
 use graph::Graph;
 use iced::border;
+use iced::font::Weight;
+use iced::widget::text::Wrapping;
 use iced::widget::{Column, Space, canvas, column, container, progress_bar, row, text};
 use iced::{Alignment, Border, Color, Element, Fill, Font, Theme};
 
@@ -19,7 +21,28 @@ const ACCENT: Color = Color::from_rgb8(0x7c, 0x9c, 0xff);
 const GREEN: Color = Color::from_rgb8(0x52, 0xe0, 0xc4);
 const ORANGE: Color = Color::from_rgb8(0xff, 0xb8, 0x6b);
 const RED: Color = Color::from_rgb8(0xff, 0x7e, 0x9b);
-const MONO: Font = Font::MONOSPACE;
+const MONO: Font = Font::with_name("Inconsolata");
+const MONO_BOLD: Font = Font {
+    weight: Weight::Bold,
+    ..Font::with_name("Inconsolata")
+};
+
+const PANEL_PADDING: u32 = 10;
+const COLUMN_SPACING: u32 = 8;
+const CARD_PADDING: u32 = 9;
+const METRIC_SPACING: u32 = 5;
+const PROCESS_SPACING: u32 = 2;
+const SMALL_SPACING: u32 = 4;
+const METRIC_HEADER_HEIGHT: u32 = 21;
+const SECONDARY_ROW_HEIGHT: u32 = 15;
+const PROCESS_ROW_HEIGHT: u32 = 17;
+const SMALL_HEADER_HEIGHT: u32 = 17;
+const GRAPH_VALUE_ROW_HEIGHT: u32 = 17;
+const SECTION_HEIGHT: u32 = 14;
+const PROGRESS_HEIGHT: u32 = 6;
+const METRIC_GRAPH_HEIGHT: u32 = 28;
+const SMALL_GRAPH_HEIGHT: u32 = 24;
+const NETWORK_GRAPH_HEIGHT: u32 = 22;
 
 pub fn view(state: &MonitorState) -> Element<'_, Message> {
     let snapshot = &state.snapshot;
@@ -67,7 +90,7 @@ pub fn view(state: &MonitorState) -> Element<'_, Message> {
         memory_processes,
         capacity,
     )]
-    .spacing(8)
+    .spacing(COLUMN_SPACING)
     .width(Fill);
 
     left = left.push(section_label("TEMPERATURE"));
@@ -117,7 +140,7 @@ pub fn view(state: &MonitorState) -> Element<'_, Message> {
         cpu_processes,
         capacity,
     )]
-    .spacing(8)
+    .spacing(COLUMN_SPACING)
     .width(Fill);
 
     right = right.push(section_label("DISK I/O"));
@@ -154,12 +177,12 @@ pub fn view(state: &MonitorState) -> Element<'_, Message> {
     }
 
     let body = row![left, right]
-        .spacing(8)
+        .spacing(COLUMN_SPACING)
         .width(Fill)
         .align_y(Alignment::Start);
 
     container(body)
-        .padding(10)
+        .padding(PANEL_PADDING as u16)
         .width(Fill)
         .style(|_| container::Style {
             background: Some(BG.into()),
@@ -174,15 +197,47 @@ pub fn view(state: &MonitorState) -> Element<'_, Message> {
 }
 
 pub fn panel_height(state: &MonitorState) -> u32 {
-    let memory_card = 110 + state.snapshot.top_memory.len() as u32 * 15;
-    let cpu_card = 110 + state.snapshot.top_cpu.len() as u32 * 15;
-    let left = memory_card + 28 + state.snapshot.temperatures.len() as u32 * 78;
-    let right = cpu_card
-        + 28
-        + state.snapshot.disks.len() as u32 * 78
-        + 28
-        + state.snapshot.networks.len() as u32 * 126;
-    left.max(right).saturating_add(20).max(220)
+    let temperatures = state.snapshot.temperatures.len() as u32;
+    let disks = state.snapshot.disks.len() as u32;
+    let networks = state.snapshot.networks.len() as u32;
+
+    let left = metric_card_height(state.snapshot.top_memory.len() as u32)
+        + SECTION_HEIGHT
+        + temperatures * small_graph_card_height()
+        + (temperatures + 1) * COLUMN_SPACING;
+
+    let right = metric_card_height(state.snapshot.top_cpu.len() as u32)
+        + SECTION_HEIGHT * 2
+        + disks * small_graph_card_height()
+        + networks * network_card_height()
+        + (disks + networks + 2) * COLUMN_SPACING;
+
+    left.max(right).saturating_add(PANEL_PADDING * 2).max(220)
+}
+
+fn metric_card_height(process_count: u32) -> u32 {
+    let process_body =
+        process_count * PROCESS_ROW_HEIGHT + process_count.saturating_sub(1) * PROCESS_SPACING;
+
+    CARD_PADDING * 2
+        + METRIC_HEADER_HEIGHT
+        + SECONDARY_ROW_HEIGHT
+        + PROGRESS_HEIGHT
+        + METRIC_GRAPH_HEIGHT
+        + process_body
+        + METRIC_SPACING * 4
+}
+
+const fn small_graph_card_height() -> u32 {
+    CARD_PADDING * 2 + SMALL_HEADER_HEIGHT + SMALL_GRAPH_HEIGHT + SMALL_SPACING
+}
+
+const fn network_card_height() -> u32 {
+    CARD_PADDING * 2
+        + SMALL_HEADER_HEIGHT
+        + GRAPH_VALUE_ROW_HEIGHT * 2
+        + NETWORK_GRAPH_HEIGHT * 2
+        + SMALL_SPACING * 4
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -202,32 +257,32 @@ fn metric_card<'a>(
     processes: Vec<(String, String)>,
     capacity: usize,
 ) -> Element<'a, Message> {
-    let header = row![
-        label(title, 12, MUTED).width(Fill),
-        label_owned(value, 16, FG),
-    ]
-    .spacing(4)
-    .align_y(Alignment::Center);
+    let mut header = row![
+        bold_label_owned(title.to_owned(), 12, MUTED).width(Fill),
+        bold_label_owned(value, 16, FG),
+    ];
+    if !subtitle.is_empty() {
+        header = header.push(label_owned(subtitle, 11, MUTED));
+    }
+    let header = header
+        .spacing(4)
+        .height(METRIC_HEADER_HEIGHT)
+        .align_y(Alignment::Center);
 
     let secondary = row![
-        label(secondary_label, 11, MUTED).width(Fill),
+        bold_label_owned(secondary_label.to_owned(), 11, MUTED).width(Fill),
         label_owned(secondary_value, 11, MUTED),
     ]
     .spacing(4)
+    .height(SECONDARY_ROW_HEIGHT)
     .align_y(Alignment::Center);
 
-    let mut content = column![header].spacing(5);
-    if !subtitle.is_empty() {
-        content = content.push(
-            row![Space::new().width(Fill), label_owned(subtitle, 11, MUTED)]
-                .align_y(Alignment::Center),
-        );
-    }
+    let mut content = column![header].spacing(METRIC_SPACING);
     content = content.push(secondary);
     if let Some(progress) = progress {
         content = content.push(
             progress_bar(0.0..=1.0, progress.clamp(0.0, 1.0))
-                .girth(6)
+                .girth(PROGRESS_HEIGHT)
                 .style(move |_| iced::widget::progress_bar::Style {
                     background: BORDER.into(),
                     bar: graph_color.into(),
@@ -239,11 +294,13 @@ fn metric_card<'a>(
     let graph = Graph::new(graph_values, capacity, graph_color, fill_color)
         .range(graph_min, graph_max)
         .auto_scale(auto_scale);
-    content = content.push(canvas(graph).width(Fill).height(28));
+    content = content.push(canvas(graph).width(Fill).height(METRIC_GRAPH_HEIGHT));
 
+    let mut process_body = column![].spacing(PROCESS_SPACING).width(Fill);
     for (name, value) in processes {
-        content = content.push(process_row(name, value));
+        process_body = process_body.push(process_row(name, value));
     }
+    content = content.push(process_body);
 
     card(content)
 }
@@ -260,12 +317,21 @@ fn small_graph_card<'a>(
     fill_color: Color,
     capacity: usize,
 ) -> Element<'a, Message> {
-    let header = row![label(name, 13, FG).width(Fill), label_owned(value, 12, FG)]
-        .align_y(Alignment::Center);
+    let header = row![
+        bold_label(name, 13, FG)
+            .wrapping(Wrapping::None)
+            .width(Fill),
+        label_owned(value, 12, FG)
+    ]
+    .height(SMALL_HEADER_HEIGHT)
+    .align_y(Alignment::Center);
     let graph = Graph::new(values, capacity, graph_color, fill_color)
         .range(min, max)
         .auto_scale(auto_scale);
-    card(column![header, canvas(graph).width(Fill).height(24)].spacing(4))
+    card(
+        column![header, canvas(graph).width(Fill).height(SMALL_GRAPH_HEIGHT)]
+            .spacing(SMALL_SPACING),
+    )
 }
 
 fn network_card<'a>(
@@ -293,22 +359,36 @@ fn network_card<'a>(
 
     card(
         column![
-            label(name, 13, FG),
+            container(
+                bold_label(name, 13, FG)
+                    .wrapping(Wrapping::None)
+                    .width(Fill)
+            )
+            .height(SMALL_HEADER_HEIGHT)
+            .width(Fill)
+            .clip(true),
             graph_value_row("↓", down_value, GREEN),
-            canvas(down_graph).width(Fill).height(22),
+            canvas(down_graph).width(Fill).height(NETWORK_GRAPH_HEIGHT),
             graph_value_row("↑", up_value, ORANGE),
-            canvas(up_graph).width(Fill).height(22),
+            canvas(up_graph).width(Fill).height(NETWORK_GRAPH_HEIGHT),
         ]
-        .spacing(4),
+        .spacing(SMALL_SPACING),
     )
 }
 
 fn process_row(name: String, value: String) -> Element<'static, Message> {
     row![
-        label_owned(name, 11, FG).width(Fill),
-        label_owned(value, 11, MUTED)
+        container(
+            label_owned(name, 12, FG)
+                .wrapping(Wrapping::None)
+                .width(Fill)
+        )
+        .width(Fill)
+        .clip(true),
+        label_owned(value, 12, MUTED)
     ]
     .spacing(5)
+    .height(PROCESS_ROW_HEIGHT)
     .align_y(Alignment::Center)
     .into()
 }
@@ -317,23 +397,24 @@ fn graph_value_row<'a>(label_text: &'a str, value: String, color: Color) -> Elem
     row![
         label(label_text, 13, color),
         Space::new().width(Fill),
-        label_owned(value, 11, color),
+        bold_label_owned(value, 11, color),
     ]
     .spacing(4)
+    .height(GRAPH_VALUE_ROW_HEIGHT)
     .align_y(Alignment::Center)
     .into()
 }
 
 fn section_label<'a>(value: &'a str) -> Element<'a, Message> {
-    container(label(value, 12, MUTED))
-        .height(14)
+    container(bold_label(value, 12, MUTED))
+        .height(SECTION_HEIGHT)
         .width(Fill)
         .into()
 }
 
 fn card<'a>(content: Column<'a, Message>) -> Element<'a, Message> {
     container(content)
-        .padding(9)
+        .padding(CARD_PADDING as u16)
         .width(Fill)
         .style(|_| container::Style {
             background: Some(CARD.into()),
@@ -353,6 +434,14 @@ fn label<'a>(value: &'a str, size: u32, color: Color) -> iced::widget::Text<'a> 
 
 fn label_owned(value: String, size: u32, color: Color) -> iced::widget::Text<'static> {
     text(value).font(MONO).size(size).color(color)
+}
+
+fn bold_label<'a>(value: &'a str, size: u32, color: Color) -> iced::widget::Text<'a> {
+    text(value).font(MONO_BOLD).size(size).color(color)
+}
+
+fn bold_label_owned(value: String, size: u32, color: Color) -> iced::widget::Text<'static> {
+    text(value).font(MONO_BOLD).size(size).color(color)
 }
 
 fn unavailable() -> String {

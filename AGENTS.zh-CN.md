@@ -46,7 +46,7 @@ src/app.rs                 应用状态、采样订阅、UI 更新流
 src/core/model.rs          共享类型化快照与历史模型
 src/core/sampler.rs        delta/rate 推导、Top-N、采样状态
 src/core/history.rs        有界历史更新
-src/platform/linux.rs      Linux 原生采集器
+src/platform/linux/        Linux 原生采集器，按指标职责拆分
 src/platform/windows.rs    Windows 后端；当前采集器仍为占位实现
 src/ui/mod.rs              共享 Iced 展示层
 src/ui/graph.rs            历史曲线渲染

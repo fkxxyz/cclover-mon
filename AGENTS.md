@@ -46,7 +46,7 @@ src/app.rs                 application state, sampling subscription, UI update f
 src/core/model.rs          shared typed snapshots and history model
 src/core/sampler.rs        delta/rate derivation, Top-N, sampling state
 src/core/history.rs        bounded history updates
-src/platform/linux.rs      Linux native collectors
+src/platform/linux/        Linux native collectors split by metric responsibility
 src/platform/windows.rs    Windows backend; collector is currently a placeholder
 src/ui/mod.rs              shared Iced presentation
 src/ui/graph.rs            history graph rendering

@@ -24,6 +24,10 @@ Platform backends implement the collection contracts owned by `core` and transla
 
 Prefer direct `/proc`, `/sys`, netlink, ioctl, sockets, and D-Bus interfaces according to the metric source.
 
+Partition native collection by metric responsibility. Each metric collector owns its OS interaction, parsing, and metric-specific mutable state. The Linux `Backend` composes those collectors into the core-owned `RawSnapshot`; it does not own metric-specific collection algorithms or state.
+
+Keep parsing of textual or binary OS formats separable from native IO so representative fixtures can exercise parsers without relying on the developer machine's live `/proc` or `/sys` contents. Development probes must invoke the same production collector path used by normal sampling rather than maintain a parallel collection implementation.
+
 ## Windows
 
 Prefer native Win32, NT APIs, PDH, ETW, IP Helper, COM, and device APIs according to the metric source.

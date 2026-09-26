@@ -1,11 +1,14 @@
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
+use super::devlog;
 use super::history;
 use super::model::*;
 use crate::platform::Collector;
 
 const TOP_N: usize = 8;
 const HISTORY_CAPACITY: usize = 60;
+pub const SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 
 pub struct Sampler<C> {
     collector: C,
@@ -26,6 +29,7 @@ impl<C: Collector> Sampler<C> {
     }
 
     pub fn sample(&mut self) -> MonitorState {
+        let started = devlog::enabled().then(Instant::now);
         let raw = self.collector.collect();
         let snapshot = derive(self.previous.as_ref(), &raw);
         history::push(
@@ -35,7 +39,25 @@ impl<C: Collector> Sampler<C> {
         );
         self.state.snapshot = snapshot;
         self.previous = Some(raw);
-        self.state.clone()
+        let state = self.state.clone();
+
+        if let Some(started) = started {
+            let elapsed = started.elapsed();
+            devlog::log(format_args!(
+                "sampling duration={:.3}ms target={:.3}ms",
+                elapsed.as_secs_f64() * 1_000.0,
+                SAMPLE_INTERVAL.as_secs_f64() * 1_000.0
+            ));
+            if elapsed > SAMPLE_INTERVAL {
+                devlog::log(format_args!(
+                    "sampling overrun actual={:.3}ms target={:.3}ms",
+                    elapsed.as_secs_f64() * 1_000.0,
+                    SAMPLE_INTERVAL.as_secs_f64() * 1_000.0
+                ));
+            }
+        }
+
+        state
     }
 }
 

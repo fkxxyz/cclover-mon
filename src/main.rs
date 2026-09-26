@@ -1,10 +1,15 @@
 mod app;
+mod cli;
 mod core;
 mod platform;
 mod ui;
 
 #[cfg(target_os = "linux")]
 fn main() -> Result<(), iced_layershell::Error> {
+    if cli::run_if_requested() {
+        return Ok(());
+    }
+
     use iced::Color;
     use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
     use iced_layershell::settings::{LayerShellSettings, Settings};
@@ -34,6 +39,10 @@ fn main() -> Result<(), iced_layershell::Error> {
 
 #[cfg(target_os = "windows")]
 fn main() -> iced::Result {
+    if cli::run_if_requested() {
+        return Ok(());
+    }
+
     iced::application(app::boot, app::update, app::view)
         .subscription(app::subscription)
         .theme(app_theme)

@@ -1,11 +1,20 @@
 use crate::core::model::RawSnapshot;
-use crate::platform::Collector;
+use crate::platform::{Collector, ProbeKind, ProbeReport};
 
 pub struct Backend;
 
 impl Backend {
     pub fn new() -> Self {
         Self
+    }
+
+    pub fn probe(&mut self, kind: ProbeKind) -> ProbeReport {
+        ProbeReport {
+            available: false,
+            summary: vec![format!("{} collector is unavailable", kind.as_str())],
+            raw: Vec::new(),
+            notes: vec!["Windows collection is not implemented yet".to_owned()],
+        }
     }
 }
 

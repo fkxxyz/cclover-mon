@@ -1,10 +1,10 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use iced::futures::SinkExt;
 use iced::{Element, Subscription, Task};
 
-use crate::core::Sampler;
 use crate::core::model::MonitorState;
+use crate::core::{SAMPLE_INTERVAL, Sampler};
 use crate::platform::Backend;
 use crate::ui;
 
@@ -64,7 +64,7 @@ fn monitor_stream() -> impl iced::futures::Stream<Item = Message> {
             {
                 break;
             }
-            let remaining = Duration::from_secs(1).saturating_sub(started.elapsed());
+            let remaining = SAMPLE_INTERVAL.saturating_sub(started.elapsed());
             if !remaining.is_zero() {
                 smol::Timer::after(remaining).await;
             }

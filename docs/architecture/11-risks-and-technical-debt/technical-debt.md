@@ -34,7 +34,6 @@ Technical debt here means current structure that makes future reasonable change 
 | --- | --- | --- |
 | [Dynamic-series identity](technical-debt/dynamic-series-identity.md) | Active | Network and disk history still use mutable names as persistent identity. |
 | [Native collector test seams](technical-debt/native-collector-test-seams.md) | Active | Discovery and filesystem/native IO remain expensive to validate without the live host. |
-| [Frontend layout authority](technical-debt/frontend-layout-authority.md) | Active | Rendered widget geometry and manually calculated panel height must remain synchronized. |
 | [Optional capability build coupling](technical-debt/optional-capability-build-coupling.md) | Active | Runtime-optional eBPF and Web capabilities still impose mandatory toolchain and artifact costs on normal native builds. |
 
 ## P3

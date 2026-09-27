@@ -10,10 +10,8 @@ use iced::widget::text::Wrapping;
 use iced::widget::{Column, Space, canvas, column, container, progress_bar, row, text};
 use iced::{Alignment, Border, Color, Element, Fill, Font, Theme};
 use layout::{
-    CARD_PADDING, COLUMN_SPACING, GRAPH_VALUE_ROW_HEIGHT, METRIC_GRAPH_HEIGHT,
-    METRIC_HEADER_HEIGHT, METRIC_SPACING, NETWORK_GRAPH_HEIGHT, PANEL_PADDING, PROCESS_ROW_HEIGHT,
-    PROCESS_SPACING, PROGRESS_HEIGHT, PanelBlock, SECONDARY_ROW_HEIGHT, SECTION_HEIGHT,
-    SMALL_GRAPH_HEIGHT, SMALL_HEADER_HEIGHT, SMALL_SPACING,
+    CARD_FRAME_GEOMETRY, METRIC_CARD_GEOMETRY, NETWORK_CARD_GEOMETRY, PANEL_GEOMETRY, PanelBlock,
+    SMALL_GRAPH_CARD_GEOMETRY,
 };
 
 use crate::presentation::{CpuPanel, Dashboard, MemoryPanel, ProcessRow};
@@ -80,12 +78,12 @@ where
     let right = panel_column(dashboard, layout.right_blocks(), capacity);
 
     let body = row![left, right]
-        .spacing(COLUMN_SPACING)
+        .spacing(PANEL_GEOMETRY.column_spacing)
         .width(Fill)
         .align_y(Alignment::Start);
 
     container(body)
-        .padding(PANEL_PADDING as u16)
+        .padding(PANEL_GEOMETRY.padding as u16)
         .width(Fill)
         .style(|_| container::Style {
             background: Some(BG.into()),
@@ -107,7 +105,7 @@ fn panel_column<'a, Message>(
 where
     Message: 'a,
 {
-    let mut column = column![].spacing(COLUMN_SPACING).width(Fill);
+    let mut column = column![].spacing(PANEL_GEOMETRY.column_spacing).width(Fill);
     for block in blocks {
         column = column.push(block_view(dashboard, block, capacity));
     }
@@ -123,7 +121,7 @@ where
     Message: 'a,
 {
     match block {
-        PanelBlock::Memory { .. } => {
+        PanelBlock::Memory { process_count } => {
             let memory = dashboard.memory();
             metric_card(
                 MemoryPanel::TITLE,
@@ -131,7 +129,7 @@ where
                 memory.subtitle(),
                 MemoryPanel::SECONDARY_LABEL,
                 memory.secondary_value(),
-                Some(memory.fraction()),
+                memory.fraction(),
                 memory.graph_values(),
                 0.0,
                 memory.graph_max(),
@@ -139,10 +137,11 @@ where
                 GREEN,
                 Color::from_rgba8(0x52, 0xe0, 0xc4, 0.13),
                 memory.processes(),
+                process_count,
                 capacity,
             )
         }
-        PanelBlock::Cpu { .. } => {
+        PanelBlock::Cpu { process_count } => {
             let cpu = dashboard.cpu();
             metric_card(
                 CpuPanel::TITLE,
@@ -150,7 +149,7 @@ where
                 String::new(),
                 "",
                 String::new(),
-                Some(cpu.fraction()),
+                cpu.fraction(),
                 cpu.graph_values(),
                 0.0,
                 100.0,
@@ -158,6 +157,7 @@ where
                 ACCENT,
                 Color::from_rgba8(0x7c, 0x9c, 0xff, 0.14),
                 cpu.processes(),
+                process_count,
                 capacity,
             )
         }
@@ -221,7 +221,7 @@ fn metric_card<'a, Message>(
     subtitle: String,
     secondary_label: &'a str,
     secondary_value: String,
-    progress: Option<f32>,
+    progress: f32,
     graph_values: &'a VecDeque<f64>,
     graph_min: f64,
     graph_max: f64,
@@ -229,6 +229,7 @@ fn metric_card<'a, Message>(
     graph_color: Color,
     fill_color: Color,
     processes: impl IntoIterator<Item = ProcessRow<'a>>,
+    process_count: usize,
     capacity: usize,
 ) -> Element<'a, Message>
 where
@@ -243,7 +244,7 @@ where
     }
     let header = header
         .spacing(4)
-        .height(METRIC_HEADER_HEIGHT)
+        .height(METRIC_CARD_GEOMETRY.header_height)
         .align_y(Alignment::Center);
 
     let secondary = row![
@@ -251,35 +252,39 @@ where
         label_owned(secondary_value, 11, MUTED),
     ]
     .spacing(4)
-    .height(SECONDARY_ROW_HEIGHT)
+    .height(METRIC_CARD_GEOMETRY.secondary_row_height)
     .align_y(Alignment::Center);
 
-    let mut content = column![header].spacing(METRIC_SPACING);
+    let mut content = column![header].spacing(METRIC_CARD_GEOMETRY.spacing);
     content = content.push(secondary);
-    if let Some(progress) = progress {
-        content = content.push(
-            progress_bar(0.0..=1.0, progress.clamp(0.0, 1.0))
-                .girth(PROGRESS_HEIGHT)
-                .style(move |_| iced::widget::progress_bar::Style {
-                    background: BORDER.into(),
-                    bar: graph_color.into(),
-                    border: border::rounded(3),
-                }),
-        );
-    }
+    content = content.push(
+        progress_bar(0.0..=1.0, progress.clamp(0.0, 1.0))
+            .girth(METRIC_CARD_GEOMETRY.progress_height)
+            .style(move |_| iced::widget::progress_bar::Style {
+                background: BORDER.into(),
+                bar: graph_color.into(),
+                border: border::rounded(3),
+            }),
+    );
 
     let graph = Graph::new(graph_values, capacity, graph_color, fill_color)
         .range(graph_min, graph_max)
         .auto_scale(auto_scale);
-    content = content.push(canvas(graph).width(Fill).height(METRIC_GRAPH_HEIGHT));
+    content = content.push(
+        canvas(graph)
+            .width(Fill)
+            .height(METRIC_CARD_GEOMETRY.graph_height),
+    );
 
-    let mut process_body = column![].spacing(PROCESS_SPACING).width(Fill);
+    let mut process_body = column![]
+        .spacing(METRIC_CARD_GEOMETRY.process_spacing)
+        .width(Fill);
     for process in processes {
         process_body = process_body.push(process_row(process));
     }
     content = content.push(process_body);
 
-    card(content)
+    card(content, METRIC_CARD_GEOMETRY.height(process_count as u32))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -303,14 +308,20 @@ where
             .width(Fill),
         label_owned(value, 12, FG)
     ]
-    .height(SMALL_HEADER_HEIGHT)
+    .height(SMALL_GRAPH_CARD_GEOMETRY.header_height)
     .align_y(Alignment::Center);
     let graph = Graph::new(values, capacity, graph_color, fill_color)
         .range(min, max)
         .auto_scale(auto_scale);
     card(
-        column![header, canvas(graph).width(Fill).height(SMALL_GRAPH_HEIGHT)]
-            .spacing(SMALL_SPACING),
+        column![
+            header,
+            canvas(graph)
+                .width(Fill)
+                .height(SMALL_GRAPH_CARD_GEOMETRY.graph_height)
+        ]
+        .spacing(SMALL_GRAPH_CARD_GEOMETRY.spacing),
+        SMALL_GRAPH_CARD_GEOMETRY.height(),
     )
 }
 
@@ -347,15 +358,20 @@ where
                     .wrapping(Wrapping::None)
                     .width(Fill)
             )
-            .height(SMALL_HEADER_HEIGHT)
+            .height(NETWORK_CARD_GEOMETRY.header_height)
             .width(Fill)
             .clip(true),
             graph_value_row("↓", down_value, GREEN),
-            canvas(down_graph).width(Fill).height(NETWORK_GRAPH_HEIGHT),
+            canvas(down_graph)
+                .width(Fill)
+                .height(NETWORK_CARD_GEOMETRY.graph_height),
             graph_value_row("↑", up_value, ORANGE),
-            canvas(up_graph).width(Fill).height(NETWORK_GRAPH_HEIGHT),
+            canvas(up_graph)
+                .width(Fill)
+                .height(NETWORK_CARD_GEOMETRY.graph_height),
         ]
-        .spacing(SMALL_SPACING),
+        .spacing(NETWORK_CARD_GEOMETRY.spacing),
+        NETWORK_CARD_GEOMETRY.height(),
     )
 }
 
@@ -374,7 +390,7 @@ where
         label_owned(process.value, 12, MUTED)
     ]
     .spacing(5)
-    .height(PROCESS_ROW_HEIGHT)
+    .height(METRIC_CARD_GEOMETRY.process_row_height)
     .align_y(Alignment::Center)
     .into()
 }
@@ -393,7 +409,7 @@ where
         bold_label_owned(value, 11, color),
     ]
     .spacing(4)
-    .height(GRAPH_VALUE_ROW_HEIGHT)
+    .height(NETWORK_CARD_GEOMETRY.value_row_height)
     .align_y(Alignment::Center)
     .into()
 }
@@ -403,17 +419,18 @@ where
     Message: 'a,
 {
     container(bold_label(value, 12, MUTED))
-        .height(SECTION_HEIGHT)
+        .height(PANEL_GEOMETRY.section_height)
         .width(Fill)
         .into()
 }
 
-fn card<'a, Message>(content: Column<'a, Message>) -> Element<'a, Message>
+fn card<'a, Message>(content: Column<'a, Message>, height: u32) -> Element<'a, Message>
 where
     Message: 'a,
 {
     container(content)
-        .padding(CARD_PADDING as u16)
+        .padding(CARD_FRAME_GEOMETRY.padding as u16)
+        .height(height)
         .width(Fill)
         .style(|_| container::Style {
             background: Some(CARD.into()),

@@ -2,6 +2,7 @@ mod cpu;
 pub mod desktop;
 mod diagnostics;
 mod disk;
+mod ebpf_io;
 mod memory;
 mod network;
 mod process;
@@ -17,6 +18,7 @@ use crate::platform::{ProbeKind, ProbeReport};
 pub struct Backend {
     processes: process::Collector,
     temperatures: temperature::Collector,
+    ebpf_io: ebpf_io::Collector,
 }
 
 impl Backend {
@@ -24,6 +26,7 @@ impl Backend {
         Self {
             processes: process::Collector::new(),
             temperatures: temperature::Collector::new(),
+            ebpf_io: ebpf_io::Collector::new(),
         }
     }
 
@@ -126,6 +129,43 @@ impl Backend {
                     notes,
                 }
             }
+            ProbeKind::NetworkAttribution => {
+                let first = self.ebpf_io.collect_network();
+                if first.is_ok() {
+                    std::thread::sleep(crate::core::SAMPLE_INTERVAL);
+                }
+                match first.and_then(|_| self.ebpf_io.collect_network()) {
+                    Ok(result) => {
+                        if result.unresolved_native_ids > 0 {
+                            notes.push(format!(
+                                "{} network attribution rows skipped: ifindex could not be resolved in the current network namespace",
+                                result.unresolved_native_ids
+                            ));
+                        }
+                        ProbeReport {
+                            available: true,
+                            summary: vec![format!("{} PID×interface rows", result.rows.len())],
+                            raw: result
+                                .rows
+                                .iter()
+                                .map(|row| {
+                                    format!(
+                                        "pid={} interface={} rx_bytes={} tx_bytes={}",
+                                        row.pid, row.interface, row.rx_bytes, row.tx_bytes
+                                    )
+                                })
+                                .collect(),
+                            notes,
+                        }
+                    }
+                    Err(error) => ProbeReport {
+                        available: false,
+                        summary: vec!["network attribution unavailable".to_owned()],
+                        raw: Vec::new(),
+                        notes: vec![error.to_string()],
+                    },
+                }
+            }
             ProbeKind::Disk => {
                 let values = disk::collect(Some(&mut notes));
                 let raw = values
@@ -146,6 +186,43 @@ impl Backend {
                     )],
                     raw,
                     notes,
+                }
+            }
+            ProbeKind::DiskAttribution => {
+                let first = self.ebpf_io.collect_disk();
+                if first.is_ok() {
+                    std::thread::sleep(crate::core::SAMPLE_INTERVAL);
+                }
+                match first.and_then(|_| self.ebpf_io.collect_disk()) {
+                    Ok(result) => {
+                        if result.unresolved_native_ids > 0 {
+                            notes.push(format!(
+                                "{} disk attribution rows skipped: dev_t could not be resolved through sysfs",
+                                result.unresolved_native_ids
+                            ));
+                        }
+                        ProbeReport {
+                            available: true,
+                            summary: vec![format!("{} PID×device rows", result.rows.len())],
+                            raw: result
+                                .rows
+                                .iter()
+                                .map(|row| {
+                                    format!(
+                                        "pid={} device={} read_bytes={} write_bytes={}",
+                                        row.pid, row.device, row.read_bytes, row.write_bytes
+                                    )
+                                })
+                                .collect(),
+                            notes,
+                        }
+                    }
+                    Err(error) => ProbeReport {
+                        available: false,
+                        summary: vec!["disk attribution unavailable".to_owned()],
+                        raw: Vec::new(),
+                        notes: vec![error.to_string()],
+                    },
                 }
             }
             ProbeKind::Temperatures => {
@@ -193,8 +270,14 @@ impl Backend {
             ProbeKind::Network => {
                 std::hint::black_box(network::collect(None));
             }
+            ProbeKind::NetworkAttribution => {
+                let _ = std::hint::black_box(self.ebpf_io.collect_network());
+            }
             ProbeKind::Disk => {
                 std::hint::black_box(disk::collect(None));
+            }
+            ProbeKind::DiskAttribution => {
+                let _ = std::hint::black_box(self.ebpf_io.collect_disk());
             }
             ProbeKind::Temperatures => {
                 std::hint::black_box(self.temperatures.collect(Instant::now(), None));
@@ -217,6 +300,15 @@ impl CoreCollector for Backend {
         let processes = devlog::timed("collector.processes", || self.processes.collect(None));
         let networks = devlog::timed("collector.network", || network::collect(None));
         let disks = devlog::timed("collector.disk", || disk::collect(None));
+        let process_disk_io = devlog::timed("collector.disk-attribution", || {
+            self.ebpf_io.collect_disk().ok().map(|result| result.rows)
+        });
+        let process_network_io = devlog::timed("collector.network-attribution", || {
+            self.ebpf_io
+                .collect_network()
+                .ok()
+                .map(|result| result.rows)
+        });
         let temperatures = devlog::timed("collector.temperatures", || {
             self.temperatures.collect(Instant::now(), None)
         });
@@ -228,6 +320,8 @@ impl CoreCollector for Backend {
             processes,
             networks,
             disks,
+            process_disk_io,
+            process_network_io,
             temperatures,
         }
     }

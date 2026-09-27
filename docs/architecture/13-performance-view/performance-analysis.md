@@ -52,7 +52,7 @@ cclover-mon perf collector <name> [--duration <seconds> | --samples <count>]
 
 `perf headless` keeps the normal one-second sampling cadence and executes native collection, core derivation, Top-N aggregation, and bounded history updates. It does not initialize Iced, create a window, build presentation objects, or render.
 
-`perf collector <name>` executes the selected production collector at the normal one-second cadence and discards its result without formatting it. Collector names are the same controlled set accepted by `probe`: `cpu`, `memory`, `processes`, `network`, `disk`, and `temperatures`.
+`perf collector <name>` executes the selected production collector at the normal one-second cadence and discards its result without formatting it. Collector names are the same controlled set accepted by `probe`: `cpu`, `memory`, `processes`, `network`, `network-attribution`, `disk`, `disk-attribution`, and `temperatures`. The attribution-specific names isolate userspace BPF-map sampling from the existing whole-interface and whole-device collectors.
 
 The default run is unbounded so tools such as `perf record -p <pid>` can attach. `--duration` and `--samples` provide bounded runs for repeatable `perf stat`, `time`, or scripted A/B measurements. These controls change only test termination, not the production sampling cadence.
 
@@ -71,3 +71,10 @@ Further isolation points such as core-only derivation, presentation construction
 ## Validation
 
 Remeasure after the change under the same workload, sampling interval, build profile, and comparable runtime conditions used for the baseline. A performance optimization is accepted only when measurement demonstrates the intended improvement without violating existing correctness or architecture constraints.
+
+For event-driven Linux eBPF collectors, measure two costs separately:
+
+- **event-path overhead** — compare a controlled high-I/O workload with attribution disabled and enabled, using whole-process/system CPU and workload throughput/latency as evidence; `CCLOVER_MON_DISABLE_EBPF_IO=1` is the diagnostic A/B switch for this measurement and is not a separate production collector implementation;
+- **sampling overhead** — measure `perf collector disk-attribution` and `perf collector network-attribution` to isolate BPF-map iteration, native-ID resolution, and output shaping at the configured sampling cadence.
+
+Do not infer low overhead only from the absence of userspace polling. Hook frequency, map contention, per-event work, and map cardinality can dominate. Validate both ordinary desktop traffic and a deliberately high event-rate workload, and keep map sizes/cardinality bounded.

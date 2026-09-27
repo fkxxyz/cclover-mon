@@ -12,6 +12,7 @@ framed_concerns:
   - architecture-coherence
   - performance
   - maintainability
+  - security
 ---
 
 # Dynamic Viewpoint

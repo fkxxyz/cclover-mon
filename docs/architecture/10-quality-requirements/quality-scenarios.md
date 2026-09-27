@@ -5,6 +5,7 @@ concerns:
   - performance
   - portability
   - maintainability
+  - security
 activities:
   - orient
   - change
@@ -30,4 +31,9 @@ facets:
 | Collector isolation | A collector can be exercised independently through the same production collector implementation, with elapsed time and failure/skip reasons visible without starting the GUI. |
 | Sampling health | A sampling cycle that exceeds its configured interval produces an overrun diagnostic containing actual duration and target interval. |
 | Diagnostic overhead | Development observability does not require a background metrics service, persistent logging pipeline, subprocess polling, or a second metric transport. |
+| Event-driven I/O attribution | Per-process disk-device and network-interface attribution is collected without periodic process-wide subprocess polling; kernel-side state and userspace map iteration remain bounded. |
+| Attribution correctness | Concurrent controlled workloads can distinguish which TGID generated disk and network activity and which device/interface receives the attribution; whole-system totals alone are insufficient validation. |
+| Metric semantics | Disk bytes explicitly identify logical-vs-physical semantics and network bytes identify payload/L3/wire-like semantics; values from different layers are not presented as interchangeable. |
+| Privilege minimization | Enabling Linux eBPF I/O attribution does not require unrestricted root authority when the supported kernel exposes sufficient narrower capabilities. |
+| Safe capability failure | Missing BTF, capabilities, verifier acceptance, or attach support makes only the affected metric unavailable and exposes a diagnostic reason; it never fabricates a zero measurement. |
 | UI iteration | Pure visual changes can use reloadable resources when supported by the selected UI toolkit. |

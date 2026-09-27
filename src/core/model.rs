@@ -40,6 +40,38 @@ pub struct TemperatureSnapshot {
     pub celsius: f64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProcessDiskIoCounter {
+    pub pid: u32,
+    pub device: String,
+    pub read_bytes: u64,
+    pub write_bytes: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProcessNetworkIoCounter {
+    pub pid: u32,
+    pub interface: String,
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProcessDiskIo {
+    pub pid: u32,
+    pub device: String,
+    pub read_bytes_per_sec: f64,
+    pub write_bytes_per_sec: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProcessNetworkIo {
+    pub pid: u32,
+    pub interface: String,
+    pub rx_bytes_per_sec: f64,
+    pub tx_bytes_per_sec: f64,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct SystemSnapshot {
     pub cpu_percent: Option<f64>,
@@ -48,6 +80,8 @@ pub struct SystemSnapshot {
     pub top_memory: Vec<ProcessMemory>,
     pub networks: Vec<NetworkSnapshot>,
     pub disks: Vec<DiskSnapshot>,
+    pub process_disk_io: Option<Vec<ProcessDiskIo>>,
+    pub process_network_io: Option<Vec<ProcessNetworkIo>>,
     pub temperatures: Vec<TemperatureSnapshot>,
 }
 
@@ -111,6 +145,8 @@ pub struct RawSnapshot {
     pub processes: Vec<ProcessCounter>,
     pub networks: Vec<NetworkCounter>,
     pub disks: Vec<DiskCounter>,
+    pub process_disk_io: Option<Vec<ProcessDiskIoCounter>>,
+    pub process_network_io: Option<Vec<ProcessNetworkIoCounter>>,
     pub temperatures: Vec<TemperatureSnapshot>,
 }
 
@@ -123,6 +159,8 @@ impl Default for RawSnapshot {
             processes: Vec::new(),
             networks: Vec::new(),
             disks: Vec::new(),
+            process_disk_io: None,
+            process_network_io: None,
             temperatures: Vec::new(),
         }
     }

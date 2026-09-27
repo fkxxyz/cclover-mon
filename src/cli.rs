@@ -11,10 +11,8 @@ pub fn run_if_requested() -> bool {
 
     match command.as_str() {
         "dump" => {
-            if let Some(extra) = args.next() {
-                fail(&format!("unexpected argument for dump: {extra}"));
-            }
-            dump();
+            let samples = parse_dump_samples(args);
+            dump(samples);
         }
         "probe" => {
             let collector = args
@@ -46,6 +44,28 @@ enum PerfLimit {
     Unbounded,
     Duration(Duration),
     Samples(u64),
+}
+
+fn parse_dump_samples(mut args: impl Iterator<Item = String>) -> u64 {
+    let Some(option) = args.next() else {
+        return 2;
+    };
+    if option != "--samples" {
+        fail(&format!(
+            "unexpected dump argument: {option}; expected --samples"
+        ));
+    }
+    let samples = args
+        .next()
+        .unwrap_or_else(|| fail("--samples requires a positive integer"))
+        .parse::<u64>()
+        .ok()
+        .filter(|value| *value > 0)
+        .unwrap_or_else(|| fail("--samples requires a positive integer"));
+    if let Some(extra) = args.next() {
+        fail(&format!("unexpected dump argument: {extra}"));
+    }
+    samples.max(2)
 }
 
 fn perf(mut args: impl Iterator<Item = String>) {
@@ -134,15 +154,17 @@ fn run_perf(limit: PerfLimit, mut work: impl FnMut()) {
     }
 }
 
-fn dump() {
+fn dump(samples: u64) {
     let mut sampler = Sampler::new(Backend::new());
-    let started = Instant::now();
-    sampler.sample();
-    let remaining = SAMPLE_INTERVAL.saturating_sub(started.elapsed());
-    if !remaining.is_zero() {
-        std::thread::sleep(remaining);
+    let mut state = sampler.sample();
+    for _ in 1..samples {
+        let started = Instant::now();
+        let remaining = SAMPLE_INTERVAL.saturating_sub(started.elapsed());
+        if !remaining.is_zero() {
+            std::thread::sleep(remaining);
+        }
+        state = sampler.sample();
     }
-    let state = sampler.sample();
     let snapshot = state.snapshot;
 
     println!("CPU: {}", percent(snapshot.cpu_percent));
@@ -197,6 +219,38 @@ fn dump() {
             .iter()
             .map(|item| format!("{}  {}/s", item.name, bytes(item.bytes_per_sec as u64))),
     );
+    match snapshot.process_disk_io {
+        Some(rows) if rows.is_empty() => println!("Process disk I/O:\n  none"),
+        Some(rows) => print_section(
+            "Process disk I/O",
+            rows.iter().map(|item| {
+                format!(
+                    "pid={}  {}  read {}/s  write {}/s",
+                    item.pid,
+                    item.device,
+                    bytes(item.read_bytes_per_sec as u64),
+                    bytes(item.write_bytes_per_sec as u64)
+                )
+            }),
+        ),
+        None => println!("Process disk I/O:\n  unavailable"),
+    }
+    match snapshot.process_network_io {
+        Some(rows) if rows.is_empty() => println!("Process network I/O:\n  none"),
+        Some(rows) => print_section(
+            "Process network I/O",
+            rows.iter().map(|item| {
+                format!(
+                    "pid={}  {}  rx {}/s  tx {}/s",
+                    item.pid,
+                    item.interface,
+                    bytes(item.rx_bytes_per_sec as u64),
+                    bytes(item.tx_bytes_per_sec as u64)
+                )
+            }),
+        ),
+        None => println!("Process network I/O:\n  unavailable"),
+    }
     print_section(
         "Temperature",
         snapshot
@@ -276,12 +330,12 @@ fn print_help() {
         "cclover-mon\n\n\
          Usage:\n  \
            cclover-mon\n  \
-           cclover-mon dump\n  \
+           cclover-mon dump [--samples <count>]\n  \
            cclover-mon probe <collector> [--raw]\n  \
            cclover-mon perf headless [--duration <seconds> | --samples <count>]\n  \
            cclover-mon perf collector <collector> [--duration <seconds> | --samples <count>]\n\n\
          Collectors:\n  \
-           cpu, memory, processes, network, disk, temperatures\n\n\
+           cpu, memory, processes, network, network-attribution, disk, disk-attribution, temperatures\n\n\
          Development logging:\n  \
            CCLOVER_MON_DEBUG=1 cclover-mon"
     );

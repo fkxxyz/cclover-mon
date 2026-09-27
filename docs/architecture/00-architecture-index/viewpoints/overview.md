@@ -13,6 +13,7 @@ framed_concerns:
   - performance
   - portability
   - maintainability
+  - security
 ---
 
 # Overview Viewpoint

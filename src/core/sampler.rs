@@ -143,7 +143,86 @@ fn derive(previous: Option<&RawSnapshot>, current: &RawSnapshot) -> SystemSnapsh
         })
         .collect();
 
+    out.process_disk_io = derive_process_disk_io(
+        previous.process_disk_io.as_deref(),
+        current.process_disk_io.as_deref(),
+        dt,
+    );
+    out.process_network_io = derive_process_network_io(
+        previous.process_network_io.as_deref(),
+        current.process_network_io.as_deref(),
+        dt,
+    );
+
     out
+}
+
+fn derive_process_disk_io(
+    previous: Option<&[ProcessDiskIoCounter]>,
+    current: Option<&[ProcessDiskIoCounter]>,
+    dt: f64,
+) -> Option<Vec<ProcessDiskIo>> {
+    let current = current?;
+    let previous = previous?;
+    let old: HashMap<(u32, &str), &ProcessDiskIoCounter> = previous
+        .iter()
+        .map(|item| ((item.pid, item.device.as_str()), item))
+        .collect();
+    Some(
+        current
+            .iter()
+            .map(|item| {
+                let (read, write) =
+                    old.get(&(item.pid, item.device.as_str()))
+                        .map_or((0.0, 0.0), |old| {
+                            (
+                                item.read_bytes.saturating_sub(old.read_bytes) as f64 / dt,
+                                item.write_bytes.saturating_sub(old.write_bytes) as f64 / dt,
+                            )
+                        });
+                ProcessDiskIo {
+                    pid: item.pid,
+                    device: item.device.clone(),
+                    read_bytes_per_sec: read,
+                    write_bytes_per_sec: write,
+                }
+            })
+            .collect(),
+    )
+}
+
+fn derive_process_network_io(
+    previous: Option<&[ProcessNetworkIoCounter]>,
+    current: Option<&[ProcessNetworkIoCounter]>,
+    dt: f64,
+) -> Option<Vec<ProcessNetworkIo>> {
+    let current = current?;
+    let previous = previous?;
+    let old: HashMap<(u32, &str), &ProcessNetworkIoCounter> = previous
+        .iter()
+        .map(|item| ((item.pid, item.interface.as_str()), item))
+        .collect();
+    Some(
+        current
+            .iter()
+            .map(|item| {
+                let (rx, tx) =
+                    old.get(&(item.pid, item.interface.as_str()))
+                        .map_or((0.0, 0.0), |old| {
+                            (
+                                item.rx_bytes.saturating_sub(old.rx_bytes) as f64 / dt,
+                                item.tx_bytes.saturating_sub(old.tx_bytes) as f64 / dt,
+                            )
+                        });
+                ProcessNetworkIo {
+                    pid: item.pid,
+                    interface: item.interface.clone(),
+                    rx_bytes_per_sec: rx,
+                    tx_bytes_per_sec: tx,
+                }
+            })
+            .collect(),
+    )
 }
 
 fn top_cpu(
@@ -302,5 +381,124 @@ mod tests {
         assert_eq!(top.len(), TOP_N);
         assert_eq!(top[0].name, "p11");
         assert_eq!(top[TOP_N - 1].name, "p4");
+    }
+
+    #[test]
+    fn derives_process_io_by_pid_and_native_identity() {
+        let t = Instant::now();
+        let old = RawSnapshot {
+            collected_at: t,
+            process_disk_io: Some(vec![ProcessDiskIoCounter {
+                pid: 10,
+                device: "nvme0n1".into(),
+                read_bytes: 100,
+                write_bytes: 200,
+            }]),
+            process_network_io: Some(vec![ProcessNetworkIoCounter {
+                pid: 20,
+                interface: "eth0".into(),
+                rx_bytes: 300,
+                tx_bytes: 400,
+            }]),
+            ..RawSnapshot::default()
+        };
+        let new = RawSnapshot {
+            collected_at: t + Duration::from_secs(2),
+            process_disk_io: Some(vec![ProcessDiskIoCounter {
+                pid: 10,
+                device: "nvme0n1".into(),
+                read_bytes: 500,
+                write_bytes: 1000,
+            }]),
+            process_network_io: Some(vec![ProcessNetworkIoCounter {
+                pid: 20,
+                interface: "eth0".into(),
+                rx_bytes: 900,
+                tx_bytes: 1400,
+            }]),
+            ..RawSnapshot::default()
+        };
+
+        let out = derive(Some(&old), &new);
+        let disk = &out.process_disk_io.unwrap()[0];
+        assert_eq!(disk.pid, 10);
+        assert_eq!(disk.device, "nvme0n1");
+        assert_eq!(disk.read_bytes_per_sec, 200.0);
+        assert_eq!(disk.write_bytes_per_sec, 400.0);
+        let network = &out.process_network_io.unwrap()[0];
+        assert_eq!(network.pid, 20);
+        assert_eq!(network.interface, "eth0");
+        assert_eq!(network.rx_bytes_per_sec, 300.0);
+        assert_eq!(network.tx_bytes_per_sec, 500.0);
+    }
+
+    #[test]
+    fn attribution_counter_reset_does_not_create_a_rate_spike() {
+        let t = Instant::now();
+        let old = RawSnapshot {
+            collected_at: t,
+            process_disk_io: Some(vec![ProcessDiskIoCounter {
+                pid: 10,
+                device: "nvme0n1".into(),
+                read_bytes: 10_000,
+                write_bytes: 20_000,
+            }]),
+            process_network_io: Some(vec![ProcessNetworkIoCounter {
+                pid: 20,
+                interface: "eth0".into(),
+                rx_bytes: 30_000,
+                tx_bytes: 40_000,
+            }]),
+            ..RawSnapshot::default()
+        };
+        let new = RawSnapshot {
+            collected_at: t + Duration::from_secs(1),
+            process_disk_io: Some(vec![ProcessDiskIoCounter {
+                pid: 10,
+                device: "nvme0n1".into(),
+                read_bytes: 5,
+                write_bytes: 7,
+            }]),
+            process_network_io: Some(vec![ProcessNetworkIoCounter {
+                pid: 20,
+                interface: "eth0".into(),
+                rx_bytes: 11,
+                tx_bytes: 13,
+            }]),
+            ..RawSnapshot::default()
+        };
+
+        let out = derive(Some(&old), &new);
+        let disk = &out.process_disk_io.unwrap()[0];
+        assert_eq!(
+            (disk.read_bytes_per_sec, disk.write_bytes_per_sec),
+            (0.0, 0.0)
+        );
+        let network = &out.process_network_io.unwrap()[0];
+        assert_eq!(
+            (network.rx_bytes_per_sec, network.tx_bytes_per_sec),
+            (0.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn preserves_attribution_unavailability() {
+        let t = Instant::now();
+        let old = RawSnapshot {
+            collected_at: t,
+            process_disk_io: Some(Vec::new()),
+            process_network_io: Some(Vec::new()),
+            ..RawSnapshot::default()
+        };
+        let new = RawSnapshot {
+            collected_at: t + Duration::from_secs(1),
+            process_disk_io: None,
+            process_network_io: None,
+            ..RawSnapshot::default()
+        };
+
+        let out = derive(Some(&old), &new);
+        assert!(out.process_disk_io.is_none());
+        assert!(out.process_network_io.is_none());
     }
 }

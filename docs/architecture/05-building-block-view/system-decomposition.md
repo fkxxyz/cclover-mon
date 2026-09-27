@@ -77,3 +77,5 @@ platform backend
 ```
 
 The backend may know every collector so it can assemble a batch snapshot. A metric collector does not depend on the backend or on sibling collectors.
+
+Linux collectors may own long-lived native instrumentation such as eBPF links and BPF maps when required by a metric. Those resources remain implementation details of the Linux platform layer. Disk and network attribution may share userspace lifecycle infrastructure, but their kernel-side observation logic remains independently owned because their attribution mechanisms differ.

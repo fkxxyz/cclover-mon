@@ -11,7 +11,9 @@ pub enum ProbeKind {
     Memory,
     Processes,
     Network,
+    NetworkAttribution,
     Disk,
+    DiskAttribution,
     Temperatures,
 }
 
@@ -22,7 +24,9 @@ impl ProbeKind {
             Self::Memory => "memory",
             Self::Processes => "processes",
             Self::Network => "network",
+            Self::NetworkAttribution => "network-attribution",
             Self::Disk => "disk",
+            Self::DiskAttribution => "disk-attribution",
             Self::Temperatures => "temperatures",
         }
     }
@@ -37,10 +41,12 @@ impl FromStr for ProbeKind {
             "memory" => Ok(Self::Memory),
             "process" | "processes" => Ok(Self::Processes),
             "network" | "networks" => Ok(Self::Network),
+            "network-attribution" => Ok(Self::NetworkAttribution),
             "disk" | "disks" => Ok(Self::Disk),
+            "disk-attribution" => Ok(Self::DiskAttribution),
             "temperature" | "temperatures" => Ok(Self::Temperatures),
             _ => Err(format!(
-                "unknown collector {value:?}; expected cpu, memory, processes, network, disk, or temperatures"
+                "unknown collector {value:?}; expected cpu, memory, processes, network, network-attribution, disk, disk-attribution, or temperatures"
             )),
         }
     }

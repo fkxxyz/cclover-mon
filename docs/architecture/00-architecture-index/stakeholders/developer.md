@@ -13,6 +13,7 @@ available_concerns:
   - performance
   - portability
   - maintainability
+  - security
 ---
 
 # Developer

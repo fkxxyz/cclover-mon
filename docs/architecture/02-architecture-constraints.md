@@ -5,6 +5,7 @@ concerns:
   - performance
   - portability
   - maintainability
+  - security
 activities:
   - orient
   - change
@@ -21,6 +22,8 @@ facets:
 - Linux and Windows native APIs stay behind platform backends.
 - C++ exists only for APIs or SDKs that require C++ and is linked into the same executable.
 - Native collection is preferred over periodic subprocess polling.
+- Linux privileged collection must request only the authority required by its native mechanism; privileged integration failure must degrade the affected metric to unavailable rather than silently broadening privilege or fabricating zero.
+- Production Linux eBPF collection must not require a runtime BCC/Python/clang toolchain or a helper monitoring daemon.
 - Shared model and presentation contain no platform handles, platform API types, or renderer toolkit types.
 - Frontend-specific layout stays in the frontend that renders it; desktop pixel layout is not a shared contract for a future terminal frontend.
 - The desktop monitor surface is non-interactive: it must not consume pointer input or block interaction with the desktop or windows beneath it. Native desktop integration must provide pointer pass-through without relying on window-manager-specific rules.

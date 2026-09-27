@@ -20,4 +20,5 @@ facets:
 - Native metric parity will vary by operating system; the shared model must preserve common semantics without flattening meaningful platform-specific data.
 - Third-party C++ SDKs may impose runtime or packaging costs that must be measured before adoption.
 - Probe availability is partly inferred from diagnostic text in the Linux backend. Diagnostic wording must not carry program semantics; collector status should become typed before probe reporting grows further.
-- Platform desktop integration ownership does not yet match the declared architecture: Linux layer-shell and Windows window bootstrap remain in `main.rs` rather than the platform boundary. Move this when platform-specific window behavior expands, especially as the Windows backend becomes real.
+- X11 window-manager behavior varies across EWMH implementations; top-right placement, skip-taskbar/pager, focus avoidance, transparency, and desktop-like stacking require runtime validation on representative window managers.
+- Windows desktop integration still remains in `main.rs`; move it behind the platform desktop-integration boundary when the Windows backend becomes real.

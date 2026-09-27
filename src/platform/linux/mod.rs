@@ -1,4 +1,5 @@
 mod cpu;
+pub mod desktop;
 mod diagnostics;
 mod disk;
 mod memory;

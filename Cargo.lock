@@ -451,6 +451,7 @@ dependencies = [
  "smol",
  "winit-common",
  "winit-core",
+ "x11rb",
 ]
 
 [[package]]

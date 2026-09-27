@@ -24,6 +24,8 @@ Platform backends implement the collection contracts owned by `core` and transla
 
 Prefer direct `/proc`, `/sys`, netlink, ioctl, sockets, and D-Bus interfaces according to the metric source.
 
+Linux desktop integration is a platform responsibility separate from shared Iced drawing. It selects Wayland layer-shell or X11 at runtime from the available display environment. Wayland owns layer-shell anchoring/layer/exclusive-zone behavior; X11 owns X11/EWMH window-manager semantics. X11 requests `SKIP_TASKBAR`, `SKIP_PAGER`, and `BELOW` through standard `_NET_WM_STATE` client messages after mapping, while also publishing the corresponding property values as a compatibility hint; do not branch on individual window-manager names. Neither protocol may leak into `ui`, `presentation`, or core metric types.
+
 Partition native collection by metric responsibility. Each metric collector owns its OS interaction, parsing, and metric-specific mutable state. The Linux `Backend` composes those collectors into the core-owned `RawSnapshot`; it does not own metric-specific collection algorithms or state.
 
 Keep parsing of textual or binary OS formats separable from native IO so representative fixtures can exercise parsers without relying on the developer machine's live `/proc` or `/sys` contents. Development probes must invoke the same production collector path used by normal sampling rather than maintain a parallel collection implementation.

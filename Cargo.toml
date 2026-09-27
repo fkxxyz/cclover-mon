@@ -10,5 +10,6 @@ smol = "2.0"
 [target.'cfg(target_os = "linux")'.dependencies]
 iced_layershell = "0.19.1"
 libc = "0.2"
+x11rb = "0.13.2"
 winit-common = "=0.31.0-beta.2"
 winit-core = "=0.31.0-beta.2"

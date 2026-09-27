@@ -52,7 +52,7 @@ app composition root ───────→ frontend
 ```
 
 - **core** owns platform-neutral metric types, history, aggregation, and sampling contracts, including `Collector`.
-- **platform** owns OS-specific collection and desktop integration, implements core-owned sampling contracts, and produces core-owned platform-neutral snapshots. A platform backend is the batch composition point; metric-specific native IO, parsing, and mutable state belong to the corresponding metric responsibility rather than the backend itself.
+- **platform** owns OS-specific collection and desktop integration, implements core-owned sampling contracts, and produces core-owned platform-neutral snapshots. Linux desktop integration selects Wayland layer-shell or X11 hosting without changing shared drawing. A platform backend is the batch composition point; metric-specific native IO, parsing, and mutable state belong to the corresponding metric responsibility rather than the backend itself.
 - **presentation** converts `MonitorState` into renderer-neutral dashboard semantics: panel meaning, display values, shared formatting, and access to the corresponding history. It depends on core model types but not on Iced, terminal libraries, platform APIs, or application messages.
 - **frontend** owns renderer-specific widgets, interaction, and layout. The Iced frontend is shared by Linux and Windows desktop builds. A future terminal frontend may consume the same presentation model while owning terminal-specific layout and interaction.
 - **app** composes the selected platform collector, shared presentation, and frontend lifecycle. Frontends do not depend back on application message types when they only render data.
@@ -60,7 +60,7 @@ app composition root ───────→ frontend
 
 The application composition root selects a platform backend and supplies it to the core sampler. `core` must not depend on `platform`; `platform` may depend on core-owned contracts and model types. Platform-specific types do not cross into core, presentation, or shared frontends.
 
-Renderer-specific layout has one authority inside each frontend. For the Iced desktop panel, one `PanelLayout` structure determines both which blocks render and the requested layer-surface height. Pixel dimensions do not belong to the renderer-neutral presentation model.
+Renderer-specific layout has one authority inside each frontend. For the Iced desktop panel, one `PanelLayout` structure determines both which blocks render and the requested desktop-window height. Linux Wayland and X11 hosts consume that same size; protocol-specific placement remains outside the UI. Pixel dimensions do not belong to the renderer-neutral presentation model.
 
 Within a platform backend, dependencies point from the backend to independent metric collectors:
 

@@ -6,11 +6,21 @@ mod presentation;
 mod ui;
 
 #[cfg(target_os = "linux")]
-fn main() -> Result<(), iced_layershell::Error> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     if cli::run_if_requested() {
         return Ok(());
     }
 
+    match platform::desktop::display_server()? {
+        platform::desktop::DisplayServer::Wayland => run_wayland()?,
+        platform::desktop::DisplayServer::X11 => run_x11()?,
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn run_wayland() -> Result<(), iced_layershell::Error> {
     use iced::Color;
     use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
     use iced_layershell::settings::{LayerShellSettings, Settings};
@@ -38,6 +48,24 @@ fn main() -> Result<(), iced_layershell::Error> {
         .run()
 }
 
+#[cfg(target_os = "linux")]
+fn run_x11() -> iced::Result {
+    use iced::Color;
+
+    iced::application(app::boot_x11, app::update, app::view)
+        .subscription(app::subscription)
+        .theme(app_theme)
+        .style(|_, _| iced::theme::Style {
+            background_color: Color::TRANSPARENT,
+            text_color: Color::WHITE,
+        })
+        .window(platform::desktop::x11_window_settings(
+            ui::PANEL_WIDTH,
+            ui::INITIAL_PANEL_HEIGHT,
+        ))
+        .run()
+}
+
 #[cfg(target_os = "windows")]
 fn main() -> iced::Result {
     if cli::run_if_requested() {
@@ -52,7 +80,7 @@ fn main() -> iced::Result {
         .run()
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 fn app_theme(_: &app::App) -> iced::Theme {
     ui::theme()
 }

@@ -31,6 +31,11 @@ pub fn boot() -> App {
     }
 }
 
+#[cfg(target_os = "linux")]
+pub fn boot_x11() -> (App, Task<Message>) {
+    (boot(), crate::platform::desktop::configure_x11_task())
+}
+
 pub fn update(app: &mut App, message: Message) -> Task<Message> {
     match message {
         Message::Monitor(state) => {
@@ -41,7 +46,15 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             if next_height != app.surface_height {
                 app.surface_height = next_height;
                 #[cfg(target_os = "linux")]
-                return Task::done(Message::SizeChange((ui::PANEL_WIDTH, next_height)));
+                {
+                    if crate::platform::desktop::is_x11() {
+                        return crate::platform::desktop::resize_x11_task(
+                            ui::PANEL_WIDTH,
+                            next_height,
+                        );
+                    }
+                    return Task::done(Message::SizeChange((ui::PANEL_WIDTH, next_height)));
+                }
             }
             Task::none()
         }

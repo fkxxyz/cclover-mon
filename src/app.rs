@@ -1,10 +1,8 @@
-use std::time::Instant;
-
 use iced::futures::SinkExt;
 use iced::{Element, Subscription, Task};
 
 use crate::core::model::MonitorState;
-use crate::core::{SAMPLE_INTERVAL, Sampler};
+use crate::core::{SampleCycle, Sampler};
 use crate::platform::{Backend, DesktopCommand};
 use crate::presentation::Dashboard;
 use crate::ui;
@@ -88,7 +86,7 @@ fn monitor_stream() -> impl iced::futures::Stream<Item = Message> {
     iced::stream::channel(1, async move |mut output| {
         let mut monitor = Sampler::new(Backend::new());
         loop {
-            let started = Instant::now();
+            let cycle = SampleCycle::begin();
             if output
                 .send(Message::Monitor(monitor.sample()))
                 .await
@@ -96,7 +94,7 @@ fn monitor_stream() -> impl iced::futures::Stream<Item = Message> {
             {
                 break;
             }
-            let remaining = SAMPLE_INTERVAL.saturating_sub(started.elapsed());
+            let remaining = cycle.remaining();
             if !remaining.is_zero() {
                 smol::Timer::after(remaining).await;
             }

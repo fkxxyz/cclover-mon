@@ -84,3 +84,19 @@ fn main() -> iced::Result {
 fn app_theme(_: &app::App) -> iced::Theme {
     ui::theme()
 }
+
+#[cfg(test)]
+mod architecture_tests {
+    #[test]
+    fn execution_adapters_do_not_own_sampling_interval_arithmetic() {
+        for (path, source) in [
+            ("src/app.rs", include_str!("app.rs")),
+            ("src/cli.rs", include_str!("cli.rs")),
+        ] {
+            assert!(
+                !source.contains("SAMPLE_INTERVAL"),
+                "{path} must consume core sampling policy through SampleCycle instead of depending on SAMPLE_INTERVAL directly"
+            );
+        }
+    }
+}

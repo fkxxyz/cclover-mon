@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::core::{SAMPLE_INTERVAL, Sampler};
+use crate::core::{SampleCycle, Sampler};
 use crate::platform::{Backend, ProbeKind};
 use crate::presentation::{format_bytes, format_percent, format_rate, unavailable};
 
@@ -134,7 +134,7 @@ fn run_perf(limit: PerfLimit, mut work: impl FnMut()) {
     let mut samples = 0_u64;
 
     loop {
-        let sample_started = Instant::now();
+        let cycle = SampleCycle::begin();
         work();
         samples += 1;
 
@@ -145,7 +145,7 @@ fn run_perf(limit: PerfLimit, mut work: impl FnMut()) {
             break;
         }
 
-        let remaining_interval = SAMPLE_INTERVAL.saturating_sub(sample_started.elapsed());
+        let remaining_interval = cycle.remaining();
         let sleep_for = deadline.map_or(remaining_interval, |deadline| {
             remaining_interval.min(deadline.saturating_duration_since(Instant::now()))
         });
@@ -157,13 +157,14 @@ fn run_perf(limit: PerfLimit, mut work: impl FnMut()) {
 
 fn dump(samples: u64) {
     let mut sampler = Sampler::new(Backend::new());
+    let mut cycle = SampleCycle::begin();
     let mut state = sampler.sample();
     for _ in 1..samples {
-        let started = Instant::now();
-        let remaining = SAMPLE_INTERVAL.saturating_sub(started.elapsed());
+        let remaining = cycle.remaining();
         if !remaining.is_zero() {
             std::thread::sleep(remaining);
         }
+        cycle = SampleCycle::begin();
         state = sampler.sample();
     }
     let snapshot = state.snapshot;

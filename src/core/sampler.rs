@@ -9,6 +9,27 @@ const TOP_N: usize = 8;
 const HISTORY_CAPACITY: usize = 60;
 pub const SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 
+#[derive(Debug, Clone, Copy)]
+pub struct SampleCycle {
+    started: Instant,
+}
+
+impl SampleCycle {
+    pub fn begin() -> Self {
+        Self {
+            started: Instant::now(),
+        }
+    }
+
+    pub fn remaining(self) -> Duration {
+        remaining_sample_wait(self.started.elapsed())
+    }
+}
+
+fn remaining_sample_wait(elapsed: Duration) -> Duration {
+    SAMPLE_INTERVAL.saturating_sub(elapsed)
+}
+
 pub trait Collector: Send + 'static {
     fn collect(&mut self) -> RawSnapshot;
 }
@@ -304,6 +325,23 @@ mod tests {
 
     fn process_id(pid: u32, birth_marker: u64) -> ProcessInstanceId {
         ProcessInstanceId { pid, birth_marker }
+    }
+
+    #[test]
+    fn sample_wait_fills_only_the_remaining_interval() {
+        assert_eq!(
+            remaining_sample_wait(Duration::from_millis(250)),
+            Duration::from_millis(750)
+        );
+    }
+
+    #[test]
+    fn sample_wait_is_zero_at_or_after_the_interval() {
+        assert_eq!(remaining_sample_wait(SAMPLE_INTERVAL), Duration::ZERO);
+        assert_eq!(
+            remaining_sample_wait(SAMPLE_INTERVAL + Duration::from_millis(1)),
+            Duration::ZERO
+        );
     }
 
     #[test]

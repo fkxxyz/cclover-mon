@@ -34,7 +34,6 @@ Technical debt here means current structure that makes future reasonable change 
 | --- | --- | --- |
 | [Dynamic-series identity](technical-debt/dynamic-series-identity.md) | Active | Network and disk history still use mutable names as persistent identity. |
 | [eBPF userspace responsibility concentration](technical-debt/ebpf-userspace-responsibility.md) | Active | Shared libbpf runtime and unrelated disk/network attribution semantics accumulate in one module. |
-| [Sampling scheduler duplication](technical-debt/sampling-scheduler-duplication.md) | Active | GUI, dump, and perf independently implement cadence and sleep behavior. |
 | [Native collector test seams](technical-debt/native-collector-test-seams.md) | Active | Discovery and filesystem/native IO remain expensive to validate without the live host. |
 | [BPF ABI schema duplication](technical-debt/bpf-abi-schema-duplication.md) | Active | C and Rust independently define map key/value layouts that must stay synchronized. |
 | [Native FFI safety boundary](technical-debt/native-ffi-safety-boundary.md) | Active | Raw FFI and unsafe lifecycle code are mixed with metric semantics. |

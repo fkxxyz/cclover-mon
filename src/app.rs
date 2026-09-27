@@ -6,6 +6,7 @@ use iced::{Element, Subscription, Task};
 use crate::core::model::MonitorState;
 use crate::core::{SAMPLE_INTERVAL, Sampler};
 use crate::platform::Backend;
+use crate::presentation::Dashboard;
 use crate::ui;
 
 #[cfg_attr(target_os = "linux", iced_layershell::to_layer_message)]
@@ -14,28 +15,33 @@ pub enum Message {
     Monitor(MonitorState),
 }
 
-#[derive(Default)]
 pub struct App {
     state: MonitorState,
-    panel_height: u32,
+    layout: ui::PanelLayout,
+    surface_height: u32,
 }
 
 pub fn boot() -> App {
+    let state = MonitorState::default();
+    let layout = ui::PanelLayout::new(Dashboard::new(&state));
     App {
-        state: MonitorState::default(),
-        panel_height: 480,
+        state,
+        layout,
+        surface_height: ui::INITIAL_PANEL_HEIGHT,
     }
 }
 
 pub fn update(app: &mut App, message: Message) -> Task<Message> {
     match message {
         Message::Monitor(state) => {
-            let next_height = ui::panel_height(&state);
+            let layout = ui::PanelLayout::new(Dashboard::new(&state));
+            let next_height = layout.height();
             app.state = state;
-            if next_height != app.panel_height {
-                app.panel_height = next_height;
+            app.layout = layout;
+            if next_height != app.surface_height {
+                app.surface_height = next_height;
                 #[cfg(target_os = "linux")]
-                return Task::done(Message::SizeChange((390, next_height)));
+                return Task::done(Message::SizeChange((ui::PANEL_WIDTH, next_height)));
             }
             Task::none()
         }
@@ -45,7 +51,7 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
 }
 
 pub fn view(app: &App) -> Element<'_, Message> {
-    ui::view(&app.state)
+    ui::view(Dashboard::new(&app.state), &app.layout)
 }
 
 pub fn subscription(_app: &App) -> Subscription<Message> {

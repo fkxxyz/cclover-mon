@@ -21,7 +21,7 @@ facets:
 ## Drivers
 
 1. Minimize steady-state CPU, memory, wakeups, allocation, and data movement.
-2. Keep one shared data model and one shared UI across platforms.
+2. Keep one shared metric model and renderer-neutral presentation semantics across frontends, with one shared Iced desktop frontend across Linux and Windows.
 3. Add new metrics through native system interfaces without coupling them to presentation.
 4. Keep high-frequency UI iteration independent from recompiling system logic where the UI toolkit permits reloadable resources.
 
@@ -29,4 +29,5 @@ facets:
 
 - Native collection of CPU, memory, process, disk, network, sensor, and future system metrics.
 - Linux first; Windows is a first-class platform backend.
+- Desktop Iced frontend today; a future terminal frontend reuses core and presentation semantics without reusing desktop pixel layout.
 - One application process and one final executable artifact per target platform.

@@ -2,7 +2,7 @@
 
 ## 本项目做什么
 
-`cclover-mon` 是一个面向 Linux 和 Windows 的低开销原生桌面系统监控器。项目保持一套共享的 Rust 数据模型和 Iced UI，同时把原生采集与桌面集成隔离在平台后端中。
+`cclover-mon` 是一个面向 Linux 和 Windows 的低开销原生系统监控器。项目保持一套共享的 Rust 指标模型、渲染器中立的展示语义和共享 Iced 桌面前端，同时把原生采集与桌面集成隔离在平台后端中。
 
 ## 架构
 
@@ -17,22 +17,27 @@ platform: Linux | Windows
   ↓
 core: sampling + model + history + aggregation
   ↓
-app / UI
+presentation
+  ↓
+frontend
 ```
 
 **源码静态依赖边界**：
 
 ```text
-app composition root ───────→ core
-        │                     ↑
-        └────────→ platform ──┘
+app composition root ───────→ ui frontend ───────→ presentation ───────→ core
+        │                                                               ↑
+        ├──────────────────────────→ presentation ───────────────────────┘
+        ├──────────────────────────────────────────────────────────────→ core
+        └──────────────────────────→ platform ──────────────────────────┘
 ```
 
 职责规则：
 
 - `core` 负责平台中立的指标类型、delta/rate 推导、Top-N 聚合、有界历史与采样契约，包括 `Collector`。
 - `platform` 负责操作系统特定的采集与桌面集成，实现由 `core` 定义的采样契约，并返回由 `core` 定义的平台中立快照。`core` 不得依赖 `platform`。
-- `ui` 只渲染共享 `MonitorState`；不采集指标，也不调用平台 API。
+- `presentation` 从共享 `MonitorState` 推导渲染器中立的 dashboard 展示语义；不依赖 Iced、终端库、平台 API 或 app 消息。
+- `ui` 是共享 Iced 桌面前端，负责像素布局和渲染，不拥有指标语义，也不调用平台 API。
 - 原生数据保持类型化并在进程内传递。不要为指标流引入内部 JSON 或前后端 IPC。
 - 优先使用原生采集，不使用周期性 subprocess 轮询。Linux 数据源应按场景使用 `/proc`、`/sys`、netlink、ioctl、socket 或 D-Bus。
 - 采样节奏与渲染节奏保持独立。
@@ -48,7 +53,9 @@ src/core/sampler.rs        delta/rate 推导、Top-N、采样状态
 src/core/history.rs        有界历史更新
 src/platform/linux/        Linux 原生采集器，按指标职责拆分
 src/platform/windows.rs    Windows 后端；当前采集器仍为占位实现
-src/ui/mod.rs              共享 Iced 展示层
+src/presentation.rs        渲染器中立的 dashboard 展示模型与格式化
+src/ui/mod.rs              共享 Iced 桌面前端
+src/ui/layout.rs           Iced 面板结构与单一来源的面板尺寸计算
 src/ui/graph.rs            历史曲线渲染
 docs/architecture/         架构 Views 与治理数据
 archdoc.ts                 架构文档导航与校验工具

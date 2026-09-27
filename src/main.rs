@@ -2,6 +2,7 @@ mod app;
 mod cli;
 mod core;
 mod platform;
+mod presentation;
 mod ui;
 
 #[cfg(target_os = "linux")]
@@ -27,7 +28,7 @@ fn main() -> Result<(), iced_layershell::Error> {
                 anchor: Anchor::Top | Anchor::Right,
                 layer: Layer::Bottom,
                 exclusive_zone: 0,
-                size: Some((390, 480)),
+                size: Some((ui::PANEL_WIDTH, ui::INITIAL_PANEL_HEIGHT)),
                 margin: (16, 16, 0, 0),
                 keyboard_interactivity: KeyboardInteractivity::None,
                 ..LayerShellSettings::default()
@@ -46,7 +47,7 @@ fn main() -> iced::Result {
     iced::application(app::boot, app::update, app::view)
         .subscription(app::subscription)
         .theme(app_theme)
-        .window_size((390.0, 480.0))
+        .window_size((ui::PANEL_WIDTH as f32, ui::INITIAL_PANEL_HEIGHT as f32))
         .transparent(true)
         .run()
 }

@@ -2,7 +2,7 @@
 
 ## What This Project Does
 
-`cclover-mon` is a low-overhead native desktop system monitor for Linux and Windows. It keeps one shared Rust model and Iced UI while isolating native collection and desktop integration behind platform backends.
+`cclover-mon` is a low-overhead native system monitor for Linux and Windows. It keeps one shared Rust metric model, renderer-neutral presentation semantics, and a shared Iced desktop frontend while isolating native collection and desktop integration behind platform backends.
 
 ## Architecture
 
@@ -17,22 +17,27 @@ platform: Linux | Windows
   ↓
 core: sampling + model + history + aggregation
   ↓
-app / UI
+presentation
+  ↓
+frontend
 ```
 
 **Static source dependency boundary**:
 
 ```text
-app composition root ───────→ core
-        │                     ↑
-        └────────→ platform ──┘
+app composition root ───────→ ui frontend ───────→ presentation ───────→ core
+        │                                                               ↑
+        ├──────────────────────────→ presentation ───────────────────────┘
+        ├──────────────────────────────────────────────────────────────→ core
+        └──────────────────────────→ platform ──────────────────────────┘
 ```
 
 Ownership rules:
 
 - `core` owns platform-neutral metric types, delta/rate derivation, Top-N aggregation, bounded history, and sampling contracts, including `Collector`.
 - `platform` owns OS-specific collection and desktop integration, implements core-owned sampling contracts, and returns core-owned platform-neutral snapshots. `core` must not depend on `platform`.
-- `ui` renders shared `MonitorState`; it does not collect metrics or call platform APIs.
+- `presentation` derives renderer-neutral dashboard semantics from shared `MonitorState`; it does not depend on Iced, terminal libraries, platform APIs, or app messages.
+- `ui` is the shared Iced desktop frontend. It owns pixel layout and rendering, not metric semantics or platform APIs.
 - Native data stays typed and in-process. Do not introduce internal JSON or frontend/backend IPC for metric flow.
 - Prefer native collection over periodic subprocess polling. Linux sources should use `/proc`, `/sys`, netlink, ioctl, sockets, or D-Bus as appropriate.
 - Keep sampling cadence independent from rendering cadence.
@@ -48,7 +53,9 @@ src/core/sampler.rs        delta/rate derivation, Top-N, sampling state
 src/core/history.rs        bounded history updates
 src/platform/linux/        Linux native collectors split by metric responsibility
 src/platform/windows.rs    Windows backend; collector is currently a placeholder
-src/ui/mod.rs              shared Iced presentation
+src/presentation.rs        renderer-neutral dashboard presentation model and formatting
+src/ui/mod.rs              shared Iced desktop frontend
+src/ui/layout.rs           Iced panel structure and single-source panel sizing
 src/ui/graph.rs            history graph rendering
 docs/architecture/         architecture Views and governance data
 archdoc.ts                 architecture documentation navigator and validator

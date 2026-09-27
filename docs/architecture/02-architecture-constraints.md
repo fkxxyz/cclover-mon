@@ -16,9 +16,10 @@ facets:
 
 # Architecture Constraints
 
-- Rust owns application logic, shared model, sampling, history, UI behavior, and the top-level build.
+- Rust owns application logic, shared model, sampling, history, presentation semantics, frontend behavior, and the top-level build.
 - Cargo is the top-level build system.
 - Linux and Windows native APIs stay behind platform backends.
 - C++ exists only for APIs or SDKs that require C++ and is linked into the same executable.
 - Native collection is preferred over periodic subprocess polling.
-- Shared UI and model contain no platform handles or platform API types.
+- Shared model and presentation contain no platform handles, platform API types, or renderer toolkit types.
+- Frontend-specific layout stays in the frontend that renders it; desktop pixel layout is not a shared contract for a future terminal frontend.

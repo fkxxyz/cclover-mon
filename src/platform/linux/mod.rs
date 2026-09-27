@@ -96,7 +96,7 @@ impl Backend {
                     .map(|process| {
                         format!(
                             "pid={} name={:?} cpu_ticks={} rss_bytes={}",
-                            process.pid, process.name, process.cpu_ticks, process.rss_bytes
+                            process.process.pid, process.name, process.cpu_ticks, process.rss_bytes
                         )
                     })
                     .collect();
@@ -151,7 +151,7 @@ impl Backend {
                                 .map(|row| {
                                     format!(
                                         "pid={} interface={} rx_bytes={} tx_bytes={}",
-                                        row.pid, row.interface, row.rx_bytes, row.tx_bytes
+                                        row.process.pid, row.interface, row.rx_bytes, row.tx_bytes
                                     )
                                 })
                                 .collect(),
@@ -210,7 +210,10 @@ impl Backend {
                                 .map(|row| {
                                     format!(
                                         "pid={} device={} read_bytes={} write_bytes={}",
-                                        row.pid, row.device, row.read_bytes, row.write_bytes
+                                        row.process.pid,
+                                        row.device,
+                                        row.read_bytes,
+                                        row.write_bytes
                                     )
                                 })
                                 .collect(),

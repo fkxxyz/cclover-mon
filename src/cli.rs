@@ -226,7 +226,7 @@ fn dump(samples: u64) {
             rows.iter().map(|item| {
                 format!(
                     "pid={}  {}  read {}/s  write {}/s",
-                    item.pid,
+                    item.process.pid,
                     item.device,
                     bytes(item.read_bytes_per_sec as u64),
                     bytes(item.write_bytes_per_sec as u64)
@@ -242,7 +242,7 @@ fn dump(samples: u64) {
             rows.iter().map(|item| {
                 format!(
                     "pid={}  {}  rx {}/s  tx {}/s",
-                    item.pid,
+                    item.process.pid,
                     item.interface,
                     bytes(item.rx_bytes_per_sec as u64),
                     bytes(item.tx_bytes_per_sec as u64)

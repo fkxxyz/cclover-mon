@@ -3,14 +3,16 @@ use std::fs;
 use std::io::Read;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
+use std::sync::OnceLock;
 
-use crate::core::model::ProcessCounter;
+use crate::core::model::{ProcessCounter, ProcessInstanceId};
 
 use super::diagnostics::{probe_note, report_issue};
 
 const PROC_PREFIX: &[u8] = b"/proc/";
 const PROC_STAT_UTIME_FIELD: usize = 14;
 const PROC_STAT_STIME_FIELD: usize = 15;
+const PROC_STAT_STARTTIME_FIELD: usize = 22;
 const PROC_STAT_RSS_FIELD: usize = 24;
 const PROC_STAT_FIRST_FIELD_AFTER_COMM: usize = 3;
 
@@ -111,28 +113,48 @@ fn parse_stat(pid: u32, text: &str, page_size: u64) -> Option<ProcessCounter> {
     if right <= left {
         return None;
     }
-    let (user, system, rss_pages) = parse_stat_counters(&text[right + 1..])?;
+    let (user, system, starttime, rss_pages) = parse_stat_counters(&text[right + 1..])?;
     Some(ProcessCounter {
-        pid,
+        process: ProcessInstanceId {
+            pid,
+            birth_marker: starttime,
+        },
         name: text[left + 1..right].to_owned(),
         cpu_ticks: user.saturating_add(system),
         rss_bytes: rss_pages.saturating_mul(page_size),
     })
 }
 
-fn parse_stat_counters(tail: &str) -> Option<(u64, u64, u64)> {
+fn parse_stat_counters(tail: &str) -> Option<(u64, u64, u64, u64)> {
     let mut fields = tail.split_ascii_whitespace();
     let user = fields
         .nth(PROC_STAT_UTIME_FIELD - PROC_STAT_FIRST_FIELD_AFTER_COMM)?
         .parse::<u64>()
         .ok()?;
     let system = fields.next()?.parse::<u64>().ok()?;
+    let starttime = fields
+        .nth(PROC_STAT_STARTTIME_FIELD - PROC_STAT_STIME_FIELD - 1)?
+        .parse::<u64>()
+        .ok()?;
     let rss_pages = fields
-        .nth(PROC_STAT_RSS_FIELD - PROC_STAT_STIME_FIELD - 1)?
+        .nth(PROC_STAT_RSS_FIELD - PROC_STAT_STARTTIME_FIELD - 1)?
         .parse::<u64>()
         .ok()?;
 
-    Some((user, system, rss_pages))
+    Some((user, system, starttime, rss_pages))
+}
+
+pub(super) fn birth_marker_from_start_boottime_ns(start_boottime_ns: u64) -> u64 {
+    static TICKS_PER_SECOND: OnceLock<u64> = OnceLock::new();
+    let ticks_per_second = *TICKS_PER_SECOND.get_or_init(|| {
+        let value = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+        if value > 0 { value as u64 } else { 100 }
+    });
+    let whole_seconds = start_boottime_ns / 1_000_000_000;
+    let remainder_ns = start_boottime_ns % 1_000_000_000;
+    whole_seconds
+        .saturating_mul(ticks_per_second)
+        .saturating_add(remainder_ns.saturating_mul(ticks_per_second) / 1_000_000_000)
 }
 
 #[cfg(test)]
@@ -146,6 +168,8 @@ mod tests {
         let process = parse_stat(42, text, 4096).unwrap();
         assert_eq!(process.name, "name with space");
         assert_eq!(process.cpu_ticks, 23);
+        assert_eq!(process.process.pid, 42);
+        assert_eq!(process.process.birth_marker, 19);
     }
 
     #[test]
@@ -165,6 +189,15 @@ mod tests {
         assert_eq!(
             process_stat_path(&mut buffer, b"7"),
             Path::new("/proc/7/stat")
+        );
+    }
+
+    #[test]
+    fn canonicalizes_start_boottime_to_proc_clock_ticks() {
+        let ticks_per_second = unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as u64;
+        assert_eq!(
+            birth_marker_from_start_boottime_ns(2_500_000_000),
+            2 * ticks_per_second + ticks_per_second / 2
         );
     }
 }

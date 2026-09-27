@@ -21,6 +21,12 @@ pub struct ProcessMemory {
     pub bytes: u64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ProcessInstanceId {
+    pub pid: u32,
+    pub birth_marker: u64,
+}
+
 #[derive(Clone, Debug)]
 pub struct NetworkSnapshot {
     pub name: String,
@@ -43,7 +49,7 @@ pub struct TemperatureSnapshot {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProcessDiskIoCounter {
-    pub pid: u32,
+    pub process: ProcessInstanceId,
     pub device: String,
     pub read_bytes: u64,
     pub write_bytes: u64,
@@ -51,7 +57,7 @@ pub struct ProcessDiskIoCounter {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProcessNetworkIoCounter {
-    pub pid: u32,
+    pub process: ProcessInstanceId,
     pub interface: String,
     pub rx_bytes: u64,
     pub tx_bytes: u64,
@@ -59,7 +65,7 @@ pub struct ProcessNetworkIoCounter {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProcessDiskIo {
-    pub pid: u32,
+    pub process: ProcessInstanceId,
     pub device: String,
     pub read_bytes_per_sec: f64,
     pub write_bytes_per_sec: f64,
@@ -67,7 +73,7 @@ pub struct ProcessDiskIo {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProcessNetworkIo {
-    pub pid: u32,
+    pub process: ProcessInstanceId,
     pub interface: String,
     pub rx_bytes_per_sec: f64,
     pub tx_bytes_per_sec: f64,
@@ -118,7 +124,7 @@ pub struct CpuCounter {
 
 #[derive(Clone, Debug)]
 pub struct ProcessCounter {
-    pub pid: u32,
+    pub process: ProcessInstanceId,
     pub name: String,
     pub cpu_ticks: u64,
     pub rss_bytes: u64,

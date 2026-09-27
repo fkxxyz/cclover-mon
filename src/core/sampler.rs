@@ -164,16 +164,16 @@ fn derive_process_disk_io(
 ) -> Option<Vec<ProcessDiskIo>> {
     let current = current?;
     let previous = previous?;
-    let old: HashMap<(u32, &str), &ProcessDiskIoCounter> = previous
+    let old: HashMap<(ProcessInstanceId, &str), &ProcessDiskIoCounter> = previous
         .iter()
-        .map(|item| ((item.pid, item.device.as_str()), item))
+        .map(|item| ((item.process, item.device.as_str()), item))
         .collect();
     Some(
         current
             .iter()
             .map(|item| {
                 let (read, write) =
-                    old.get(&(item.pid, item.device.as_str()))
+                    old.get(&(item.process, item.device.as_str()))
                         .map_or((0.0, 0.0), |old| {
                             (
                                 item.read_bytes.saturating_sub(old.read_bytes) as f64 / dt,
@@ -181,7 +181,7 @@ fn derive_process_disk_io(
                             )
                         });
                 ProcessDiskIo {
-                    pid: item.pid,
+                    process: item.process,
                     device: item.device.clone(),
                     read_bytes_per_sec: read,
                     write_bytes_per_sec: write,
@@ -198,16 +198,16 @@ fn derive_process_network_io(
 ) -> Option<Vec<ProcessNetworkIo>> {
     let current = current?;
     let previous = previous?;
-    let old: HashMap<(u32, &str), &ProcessNetworkIoCounter> = previous
+    let old: HashMap<(ProcessInstanceId, &str), &ProcessNetworkIoCounter> = previous
         .iter()
-        .map(|item| ((item.pid, item.interface.as_str()), item))
+        .map(|item| ((item.process, item.interface.as_str()), item))
         .collect();
     Some(
         current
             .iter()
             .map(|item| {
                 let (rx, tx) =
-                    old.get(&(item.pid, item.interface.as_str()))
+                    old.get(&(item.process, item.interface.as_str()))
                         .map_or((0.0, 0.0), |old| {
                             (
                                 item.rx_bytes.saturating_sub(old.rx_bytes) as f64 / dt,
@@ -215,7 +215,7 @@ fn derive_process_network_io(
                             )
                         });
                 ProcessNetworkIo {
-                    pid: item.pid,
+                    process: item.process,
                     interface: item.interface.clone(),
                     rx_bytes_per_sec: rx,
                     tx_bytes_per_sec: tx,
@@ -231,13 +231,14 @@ fn top_cpu(
     total_delta: u64,
     cpu_count: usize,
 ) -> Vec<ProcessCpu> {
-    let old: HashMap<u32, &ProcessCounter> = previous.iter().map(|x| (x.pid, x)).collect();
+    let old: HashMap<ProcessInstanceId, &ProcessCounter> =
+        previous.iter().map(|x| (x.process, x)).collect();
     let scale = cpu_count.max(1) as f64 * 100.0 / total_delta.max(1) as f64;
     let mut values: Vec<_> = current
         .iter()
         .map(|item| {
             let delta = old
-                .get(&item.pid)
+                .get(&item.process)
                 .map_or(0, |prev| item.cpu_ticks.saturating_sub(prev.cpu_ticks));
             (item, delta as f64 * scale)
         })
@@ -281,6 +282,10 @@ mod tests {
     use super::*;
     use std::time::{Duration, Instant};
 
+    fn process_id(pid: u32, birth_marker: u64) -> ProcessInstanceId {
+        ProcessInstanceId { pid, birth_marker }
+    }
+
     #[test]
     fn derives_rates_and_cpu() {
         let t = Instant::now();
@@ -292,7 +297,7 @@ mod tests {
                 logical_cpu_count: 4,
             }),
             processes: vec![ProcessCounter {
-                pid: 1,
+                process: process_id(1, 1),
                 name: "a".into(),
                 cpu_ticks: 100,
                 rss_bytes: 10,
@@ -317,7 +322,7 @@ mod tests {
                 logical_cpu_count: 4,
             }),
             processes: vec![ProcessCounter {
-                pid: 1,
+                process: process_id(1, 1),
                 name: "a".into(),
                 cpu_ticks: 110,
                 rss_bytes: 20,
@@ -346,7 +351,7 @@ mod tests {
     fn top_memory_keeps_only_highest_processes_in_order() {
         let processes: Vec<_> = (0..12)
             .map(|index| ProcessCounter {
-                pid: index,
+                process: process_id(index, 1),
                 name: format!("p{index}"),
                 cpu_ticks: 0,
                 rss_bytes: u64::from(index),
@@ -363,7 +368,7 @@ mod tests {
     fn top_cpu_keeps_only_highest_processes_in_order() {
         let previous: Vec<_> = (0..12)
             .map(|index| ProcessCounter {
-                pid: index,
+                process: process_id(index, 1),
                 name: format!("p{index}"),
                 cpu_ticks: 100,
                 rss_bytes: 0,
@@ -372,7 +377,7 @@ mod tests {
         let current: Vec<_> = previous
             .iter()
             .map(|process| ProcessCounter {
-                cpu_ticks: process.cpu_ticks + u64::from(process.pid),
+                cpu_ticks: process.cpu_ticks + u64::from(process.process.pid),
                 ..process.clone()
             })
             .collect();
@@ -389,13 +394,13 @@ mod tests {
         let old = RawSnapshot {
             collected_at: t,
             process_disk_io: Some(vec![ProcessDiskIoCounter {
-                pid: 10,
+                process: process_id(10, 1),
                 device: "nvme0n1".into(),
                 read_bytes: 100,
                 write_bytes: 200,
             }]),
             process_network_io: Some(vec![ProcessNetworkIoCounter {
-                pid: 20,
+                process: process_id(20, 1),
                 interface: "eth0".into(),
                 rx_bytes: 300,
                 tx_bytes: 400,
@@ -405,13 +410,13 @@ mod tests {
         let new = RawSnapshot {
             collected_at: t + Duration::from_secs(2),
             process_disk_io: Some(vec![ProcessDiskIoCounter {
-                pid: 10,
+                process: process_id(10, 1),
                 device: "nvme0n1".into(),
                 read_bytes: 500,
                 write_bytes: 1000,
             }]),
             process_network_io: Some(vec![ProcessNetworkIoCounter {
-                pid: 20,
+                process: process_id(20, 1),
                 interface: "eth0".into(),
                 rx_bytes: 900,
                 tx_bytes: 1400,
@@ -421,12 +426,12 @@ mod tests {
 
         let out = derive(Some(&old), &new);
         let disk = &out.process_disk_io.unwrap()[0];
-        assert_eq!(disk.pid, 10);
+        assert_eq!(disk.process.pid, 10);
         assert_eq!(disk.device, "nvme0n1");
         assert_eq!(disk.read_bytes_per_sec, 200.0);
         assert_eq!(disk.write_bytes_per_sec, 400.0);
         let network = &out.process_network_io.unwrap()[0];
-        assert_eq!(network.pid, 20);
+        assert_eq!(network.process.pid, 20);
         assert_eq!(network.interface, "eth0");
         assert_eq!(network.rx_bytes_per_sec, 300.0);
         assert_eq!(network.tx_bytes_per_sec, 500.0);
@@ -438,13 +443,13 @@ mod tests {
         let old = RawSnapshot {
             collected_at: t,
             process_disk_io: Some(vec![ProcessDiskIoCounter {
-                pid: 10,
+                process: process_id(10, 1),
                 device: "nvme0n1".into(),
                 read_bytes: 10_000,
                 write_bytes: 20_000,
             }]),
             process_network_io: Some(vec![ProcessNetworkIoCounter {
-                pid: 20,
+                process: process_id(20, 1),
                 interface: "eth0".into(),
                 rx_bytes: 30_000,
                 tx_bytes: 40_000,
@@ -454,13 +459,13 @@ mod tests {
         let new = RawSnapshot {
             collected_at: t + Duration::from_secs(1),
             process_disk_io: Some(vec![ProcessDiskIoCounter {
-                pid: 10,
+                process: process_id(10, 1),
                 device: "nvme0n1".into(),
                 read_bytes: 5,
                 write_bytes: 7,
             }]),
             process_network_io: Some(vec![ProcessNetworkIoCounter {
-                pid: 20,
+                process: process_id(20, 1),
                 interface: "eth0".into(),
                 rx_bytes: 11,
                 tx_bytes: 13,
@@ -477,6 +482,70 @@ mod tests {
         let network = &out.process_network_io.unwrap()[0];
         assert_eq!(
             (network.rx_bytes_per_sec, network.tx_bytes_per_sec),
+            (0.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn pid_reuse_does_not_inherit_cpu_delta() {
+        let previous = vec![ProcessCounter {
+            process: process_id(42, 100),
+            name: "old".into(),
+            cpu_ticks: 1_000,
+            rss_bytes: 0,
+        }];
+        let current = vec![ProcessCounter {
+            process: process_id(42, 200),
+            name: "new".into(),
+            cpu_ticks: 25,
+            rss_bytes: 0,
+        }];
+
+        let top = top_cpu(&previous, &current, 100, 1);
+        assert_eq!(top.len(), 1);
+        assert_eq!(top[0].name, "new");
+        assert_eq!(top[0].percent, 0.0);
+    }
+
+    #[test]
+    fn pid_reuse_does_not_inherit_process_io_delta() {
+        let old_disk = [ProcessDiskIoCounter {
+            process: process_id(42, 100),
+            device: "sda".into(),
+            read_bytes: 10_000,
+            write_bytes: 20_000,
+        }];
+        let new_disk = [ProcessDiskIoCounter {
+            process: process_id(42, 200),
+            device: "sda".into(),
+            read_bytes: 100,
+            write_bytes: 200,
+        }];
+        let old_network = [ProcessNetworkIoCounter {
+            process: process_id(42, 100),
+            interface: "eth0".into(),
+            rx_bytes: 30_000,
+            tx_bytes: 40_000,
+        }];
+        let new_network = [ProcessNetworkIoCounter {
+            process: process_id(42, 200),
+            interface: "eth0".into(),
+            rx_bytes: 300,
+            tx_bytes: 400,
+        }];
+
+        let disk = derive_process_disk_io(Some(&old_disk), Some(&new_disk), 1.0).unwrap();
+        let network =
+            derive_process_network_io(Some(&old_network), Some(&new_network), 1.0).unwrap();
+
+        assert_eq!(disk[0].process, process_id(42, 200));
+        assert_eq!(
+            (disk[0].read_bytes_per_sec, disk[0].write_bytes_per_sec),
+            (0.0, 0.0)
+        );
+        assert_eq!(network[0].process, process_id(42, 200));
+        assert_eq!(
+            (network[0].rx_bytes_per_sec, network[0].tx_bytes_per_sec),
             (0.0, 0.0)
         );
     }

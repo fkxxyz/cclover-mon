@@ -51,6 +51,8 @@ Source absence does not synthesize zero values. If NVML is unavailable or enumer
 
 Event-driven native collectors may accumulate state continuously between sampling deadlines. For Linux eBPF I/O attribution, kernel programs update bounded BPF maps when I/O occurs and the sampling cycle reads already-aggregated counters. Sampling remains coordinated even when native observation itself is event-driven rather than initiated by the deadline.
 
+Cross-sample association is identity-driven. Delta derivation, history, joins, caches, and deduplication may reuse prior state only when the current observation carries the same stable semantic identity. Matching PID, device name, display label, enumeration position, or another incidental value is insufficient unless its stability is part of the declared identity contract. If a process reuses a PID with a different `ProcessInstanceId`, it is a new entity and inherits no CPU or I/O counters from the earlier process instance.
+
 Development observability attaches to this same path rather than creating a parallel collector:
 
 ```text

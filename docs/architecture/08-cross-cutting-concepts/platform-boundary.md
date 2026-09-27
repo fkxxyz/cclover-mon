@@ -21,9 +21,13 @@ facets:
 
 Platform backends implement the collection contracts owned by `core` and translate native state into core-owned, platform-neutral snapshot types. `core` never imports a platform backend; the application composition root wires the selected backend into the core sampler.
 
+Stable identity is translated at this boundary as well. Native locators or timestamps may be used to construct a core-owned identity, but their platform-specific representation and units must not leak into shared code. A platform must canonicalize all native sources that describe the same entity into the same core identity before crossing the boundary; otherwise cross-source joins would create conflicting identities for one entity.
+
 ## Linux
 
 Prefer direct `/proc`, `/sys`, netlink, ioctl, sockets, and D-Bus interfaces according to the metric source.
+
+Linux process identity uses PID plus a process birth marker. `/proc/<pid>/stat` field 22 (`starttime`) is the canonical Linux birth marker domain. Native sources that expose the same kernel birth time in another unit, including eBPF `task_struct::start_boottime`, must normalize it to the same clock-tick domain before constructing `ProcessInstanceId`. PID by itself is never a cross-sample process identity.
 
 eBPF/libbpf is an allowed Linux-native source when the required semantic cannot be obtained cheaply and correctly from simpler stable interfaces. eBPF is a platform implementation detail, not a core abstraction. Build-time BPF objects, libbpf handles, kernel structs, BPF map descriptors, `dev_t`, and `ifindex` stay inside the Linux platform boundary.
 

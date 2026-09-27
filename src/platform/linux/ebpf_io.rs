@@ -5,7 +5,9 @@ use std::mem::MaybeUninit;
 use std::path::Path;
 use std::ptr;
 
-use crate::core::model::{ProcessDiskIoCounter, ProcessNetworkIoCounter};
+use crate::core::model::{ProcessDiskIoCounter, ProcessInstanceId, ProcessNetworkIoCounter};
+
+use super::process::birth_marker_from_start_boottime_ns;
 
 const DISK_OBJECT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/disk_attribution.bpf.o"));
 const NETWORK_OBJECT: &[u8] =
@@ -298,7 +300,10 @@ impl Collector {
                 continue;
             };
             rows.push(ProcessDiskIoCounter {
-                pid: key.tgid,
+                process: ProcessInstanceId {
+                    pid: key.tgid,
+                    birth_marker: birth_marker_from_start_boottime_ns(value.process_start_time),
+                },
                 device,
                 read_bytes: if key.direction == 0 { value.bytes } else { 0 },
                 write_bytes: if key.direction == 1 { value.bytes } else { 0 },
@@ -323,7 +328,10 @@ impl Collector {
                 continue;
             };
             rows.push(ProcessNetworkIoCounter {
-                pid: key.tgid,
+                process: ProcessInstanceId {
+                    pid: key.tgid,
+                    birth_marker: birth_marker_from_start_boottime_ns(value.process_start_time),
+                },
                 interface,
                 rx_bytes: if key.direction == 0 { value.bytes } else { 0 },
                 tx_bytes: if key.direction == 1 { value.bytes } else { 0 },
@@ -420,11 +428,11 @@ fn resolve_interface(ifindex: u32) -> Option<String> {
 }
 
 fn merge_disk_rows(rows: &mut Vec<ProcessDiskIoCounter>) {
-    rows.sort_by(|a, b| (a.pid, &a.device).cmp(&(b.pid, &b.device)));
+    rows.sort_by(|a, b| (a.process, &a.device).cmp(&(b.process, &b.device)));
     let mut merged: Vec<ProcessDiskIoCounter> = Vec::with_capacity(rows.len());
     for row in rows.drain(..) {
         if let Some(last) = merged.last_mut()
-            && last.pid == row.pid
+            && last.process == row.process
             && last.device == row.device
         {
             last.read_bytes = last.read_bytes.saturating_add(row.read_bytes);
@@ -437,11 +445,11 @@ fn merge_disk_rows(rows: &mut Vec<ProcessDiskIoCounter>) {
 }
 
 fn merge_network_rows(rows: &mut Vec<ProcessNetworkIoCounter>) {
-    rows.sort_by(|a, b| (a.pid, &a.interface).cmp(&(b.pid, &b.interface)));
+    rows.sort_by(|a, b| (a.process, &a.interface).cmp(&(b.process, &b.interface)));
     let mut merged: Vec<ProcessNetworkIoCounter> = Vec::with_capacity(rows.len());
     for row in rows.drain(..) {
         if let Some(last) = merged.last_mut()
-            && last.pid == row.pid
+            && last.process == row.process
             && last.interface == row.interface
         {
             last.rx_bytes = last.rx_bytes.saturating_add(row.rx_bytes);
@@ -461,19 +469,28 @@ mod tests {
     fn merges_disk_directions_without_crossing_pid_or_device() {
         let mut rows = vec![
             ProcessDiskIoCounter {
-                pid: 7,
+                process: ProcessInstanceId {
+                    pid: 7,
+                    birth_marker: 1,
+                },
                 device: "sda".into(),
                 read_bytes: 10,
                 write_bytes: 0,
             },
             ProcessDiskIoCounter {
-                pid: 7,
+                process: ProcessInstanceId {
+                    pid: 7,
+                    birth_marker: 1,
+                },
                 device: "sda".into(),
                 read_bytes: 0,
                 write_bytes: 20,
             },
             ProcessDiskIoCounter {
-                pid: 8,
+                process: ProcessInstanceId {
+                    pid: 8,
+                    birth_marker: 1,
+                },
                 device: "sda".into(),
                 read_bytes: 30,
                 write_bytes: 0,
@@ -482,26 +499,35 @@ mod tests {
         merge_disk_rows(&mut rows);
         assert_eq!(rows.len(), 2);
         assert_eq!((rows[0].read_bytes, rows[0].write_bytes), (10, 20));
-        assert_eq!(rows[1].pid, 8);
+        assert_eq!(rows[1].process.pid, 8);
     }
 
     #[test]
     fn merges_network_directions_without_crossing_pid_or_interface() {
         let mut rows = vec![
             ProcessNetworkIoCounter {
-                pid: 7,
+                process: ProcessInstanceId {
+                    pid: 7,
+                    birth_marker: 1,
+                },
                 interface: "lo".into(),
                 rx_bytes: 11,
                 tx_bytes: 0,
             },
             ProcessNetworkIoCounter {
-                pid: 7,
+                process: ProcessInstanceId {
+                    pid: 7,
+                    birth_marker: 1,
+                },
                 interface: "lo".into(),
                 rx_bytes: 0,
                 tx_bytes: 22,
             },
             ProcessNetworkIoCounter {
-                pid: 7,
+                process: ProcessInstanceId {
+                    pid: 7,
+                    birth_marker: 1,
+                },
                 interface: "eth0".into(),
                 rx_bytes: 33,
                 tx_bytes: 0,
@@ -513,6 +539,33 @@ mod tests {
             rows.iter()
                 .any(|row| row.interface == "lo" && row.rx_bytes == 11 && row.tx_bytes == 22)
         );
+    }
+
+    #[test]
+    fn merge_does_not_cross_process_instances_that_reuse_a_pid() {
+        let mut rows = vec![
+            ProcessDiskIoCounter {
+                process: ProcessInstanceId {
+                    pid: 7,
+                    birth_marker: 1,
+                },
+                device: "sda".into(),
+                read_bytes: 10,
+                write_bytes: 0,
+            },
+            ProcessDiskIoCounter {
+                process: ProcessInstanceId {
+                    pid: 7,
+                    birth_marker: 2,
+                },
+                device: "sda".into(),
+                read_bytes: 0,
+                write_bytes: 20,
+            },
+        ];
+
+        merge_disk_rows(&mut rows);
+        assert_eq!(rows.len(), 2);
     }
 
     #[test]

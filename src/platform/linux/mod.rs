@@ -4,6 +4,7 @@ mod diagnostics;
 mod disk;
 mod ebpf_io;
 mod memory;
+mod native;
 mod network;
 mod process;
 mod temperature;

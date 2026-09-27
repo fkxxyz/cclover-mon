@@ -8,6 +8,7 @@ use std::sync::OnceLock;
 use crate::core::model::{ProcessCounter, ProcessInstanceId};
 
 use super::diagnostics::{probe_note, report_issue};
+use super::native;
 
 const PROC_PREFIX: &[u8] = b"/proc/";
 const PROC_STAT_UTIME_FIELD: usize = 14;
@@ -23,13 +24,8 @@ pub(super) struct Collector {
 
 impl Collector {
     pub(super) fn new() -> Self {
-        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
         Self {
-            page_size: if page_size > 0 {
-                page_size as u64
-            } else {
-                4096
-            },
+            page_size: native::page_size().unwrap_or(4096),
             stat_buffer: String::with_capacity(512),
         }
     }
@@ -146,10 +142,8 @@ fn parse_stat_counters(tail: &str) -> Option<(u64, u64, u64, u64)> {
 
 pub(super) fn birth_marker_from_start_boottime_ns(start_boottime_ns: u64) -> u64 {
     static TICKS_PER_SECOND: OnceLock<u64> = OnceLock::new();
-    let ticks_per_second = *TICKS_PER_SECOND.get_or_init(|| {
-        let value = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
-        if value > 0 { value as u64 } else { 100 }
-    });
+    let ticks_per_second =
+        *TICKS_PER_SECOND.get_or_init(|| native::clock_ticks_per_second().unwrap_or(100));
     let whole_seconds = start_boottime_ns / 1_000_000_000;
     let remainder_ns = start_boottime_ns % 1_000_000_000;
     whole_seconds
@@ -194,7 +188,7 @@ mod tests {
 
     #[test]
     fn canonicalizes_start_boottime_to_proc_clock_ticks() {
-        let ticks_per_second = unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as u64;
+        let ticks_per_second = native::clock_ticks_per_second().unwrap();
         assert_eq!(
             birth_marker_from_start_boottime_ns(2_500_000_000),
             2 * ticks_per_second + ticks_per_second / 2

@@ -4,6 +4,7 @@ use crate::core::model::{ProcessInstanceId, ProcessNetworkIoCounter};
 
 use super::runtime::{LoadedObject, read_map};
 use super::{AttributionFailure, AttributionRows, FailureKind};
+use crate::platform::linux::native;
 use crate::platform::linux::process::birth_marker_from_start_boottime_ns;
 
 const OBJECT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/network_attribution.bpf.o"));
@@ -45,7 +46,7 @@ impl Collector {
         let mut rows = Vec::new();
         let mut unresolved_native_ids = 0;
         for (key, value) in read_map::<Key, CounterValue>(object.map_fd(MAP)?)? {
-            let Some(interface) = resolve_interface(key.ifindex) else {
+            let Some(interface) = native::interface_name(key.ifindex) else {
                 unresolved_native_ids += 1;
                 continue;
             };
@@ -83,19 +84,6 @@ impl Collector {
             .as_ref()
             .map_err(Clone::clone)
     }
-}
-
-fn resolve_interface(ifindex: u32) -> Option<String> {
-    let mut name = [0_i8; libc::IF_NAMESIZE];
-    let ptr = unsafe { libc::if_indextoname(ifindex, name.as_mut_ptr()) };
-    if ptr.is_null() {
-        return None;
-    }
-    Some(
-        unsafe { CStr::from_ptr(ptr) }
-            .to_string_lossy()
-            .into_owned(),
-    )
 }
 
 fn merge_rows(rows: &mut Vec<ProcessNetworkIoCounter>) {
@@ -160,6 +148,6 @@ mod tests {
 
     #[test]
     fn unresolved_native_ids_are_unavailable_not_fabricated_names() {
-        assert_eq!(resolve_interface(u32::MAX), None);
+        assert_eq!(native::interface_name(u32::MAX), None);
     }
 }

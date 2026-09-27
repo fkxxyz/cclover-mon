@@ -21,6 +21,8 @@ facets:
 
 Platform backends implement the collection contracts owned by `core` and translate native state into core-owned, platform-neutral snapshot types. `core` never imports a platform backend; the application composition root wires the selected backend into the core sampler.
 
+Rust source is safe by default: the crate denies `unsafe_code`. Raw FFI, pointer manipulation, dynamic symbol loading, and native lifetime mechanics may opt out only inside narrowly scoped native adapter modules. Every unsafe block or unsafe trait implementation in those adapters documents its local `SAFETY` invariant. Metric policy, shaping, availability semantics, and cross-sample logic stay on the safe side of that boundary.
+
 Stable identity is translated at this boundary as well. Native locators or timestamps may be used to construct a core-owned identity, but their platform-specific representation and units must not leak into shared code. A platform must canonicalize all native sources that describe the same entity into the same core identity before crossing the boundary; otherwise cross-source joins would create conflicting identities for one entity.
 
 ## Linux
@@ -41,7 +43,11 @@ One metric collector may own multiple peer native sources when the OS exposes th
 
 The NVML source is loaded dynamically at runtime rather than linked as a mandatory process dependency. Missing `libnvidia-ml.so.1`, NVML initialization failure, zero discovered NVIDIA devices, or an individual device lacking a readable temperature are degradable source conditions: omit the unavailable NVIDIA temperature entries and continue collecting all unrelated temperatures. Production collection must call NVML in-process; it must not spawn `nvidia-smi` or another helper process. Enumerate all NVML devices, retain stable per-device identity, and keep reusable NVML state/handles for repeated sampling rather than rediscovering devices every cycle.
 
+NVML dynamic-loader handles, function pointers, device handles, C strings, and shutdown ordering belong to the NVML runtime adapter. The temperature collector consumes only its safe session/device API and owns the policy for diagnostics and translation into `TemperatureSnapshot`.
+
 Long-lived event-driven collectors own their attach/detach lifecycle and bounded native state. Disk and network eBPF attribution may reuse a small userspace loader/map-access layer, but shared infrastructure must not merge their distinct attribution semantics into one generic kernel-hook abstraction.
+
+The libbpf runtime adapter owns raw libbpf object/link/map handles and the unsafe map-access calls. Disk and network attribution collectors consume safe loader/map operations and keep attribution semantics outside that adapter. Small direct libc queries used by otherwise-safe Linux collectors likewise pass through the dedicated Linux native helper rather than introducing local unsafe blocks.
 
 Keep parsing of textual or binary OS formats separable from native IO so representative fixtures can exercise parsers without relying on the developer machine's live `/proc` or `/sys` contents. Development probes must invoke the same production collector path used by normal sampling rather than maintain a parallel collection implementation.
 

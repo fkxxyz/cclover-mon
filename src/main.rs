@@ -1,3 +1,5 @@
+#![deny(unsafe_code)]
+
 use cclover_mon::{app, cli, platform, ui, web};
 
 #[cfg(target_os = "linux")]

@@ -24,6 +24,7 @@ facets:
 | Portability | Linux and Windows produce the same shared semantic model without leaking native API types into shared code. |
 | Extensibility | A new native metric source is added behind the platform or bridge boundary without changing unrelated collectors or UI contracts. |
 | Architecture boundary enforcement | A forbidden top-level source dependency between `core`, `platform`, `presentation`, and `ui` is rejected by a millisecond-scale repository gate without invoking Cargo or compiling the application. |
+| Native safety boundary | Rust code denies unsafe operations by default; required native unsafety is confined to explicit adapter modules with documented local safety invariants, while metric collectors consume safe APIs. |
 | Temperature source fan-in | Linux hwmon and optional NVIDIA NVML temperature sources produce one platform-neutral temperature sequence; adding/removing one source does not create a source-specific core or UI contract. |
 | Stable semantic identity | Any delta, history, cross-sample join, cache, or deduplication that survives one observation is keyed by an explicit stable core identity rather than PID, display text, enumeration order, or another incidental locator. |
 | Process identity | Reusing a PID for a new process instance must not inherit CPU or per-process I/O counters from the prior process; collectors that observe the same process through different native sources must canonicalize to the same `ProcessInstanceId`. |

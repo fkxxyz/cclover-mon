@@ -1,3 +1,5 @@
+#![allow(unsafe_code)]
+
 use std::ffi::{CStr, c_int, c_long, c_void};
 use std::mem::MaybeUninit;
 use std::path::Path;
@@ -37,7 +39,8 @@ pub(super) struct LoadedObject {
     links: Vec<*mut BpfLink>,
 }
 
-// libbpf handles are owned by Backend's collector thread and never escape the Linux backend.
+// SAFETY: LoadedObject uniquely owns the libbpf object and links. Moving ownership to another
+// thread does not create concurrent access; callers can only access it through owned collectors.
 unsafe impl Send for LoadedObject {}
 
 impl LoadedObject {
@@ -49,6 +52,8 @@ impl LoadedObject {
             ));
         }
 
+        // SAFETY: bytes remains valid for this call and libbpf consumes it synchronously. A null
+        // options pointer is explicitly accepted by bpf_object__open_mem.
         let object =
             unsafe { bpf_object__open_mem(bytes.as_ptr().cast(), bytes.len(), ptr::null()) };
         check_ptr(
@@ -61,6 +66,7 @@ impl LoadedObject {
             links: Vec::new(),
         };
 
+        // SAFETY: loaded.object is a successfully opened object uniquely owned by loaded.
         let rc = unsafe { bpf_object__load(loaded.object) };
         if rc != 0 {
             return Err(AttributionFailure::errno(
@@ -76,10 +82,12 @@ impl LoadedObject {
     fn attach_all(&mut self) -> Result<(), AttributionFailure> {
         let mut previous = ptr::null_mut();
         loop {
+            // SAFETY: self.object remains live and previous is null or a program from this object.
             let program = unsafe { bpf_object__next_program(self.object, previous) };
             if program.is_null() {
                 break;
             }
+            // SAFETY: program belongs to the live loaded object.
             let link = unsafe { bpf_program__attach(program) };
             check_ptr(link.cast(), FailureKind::AttachPoint, "attach BPF program")?;
             self.links.push(link);
@@ -95,6 +103,7 @@ impl LoadedObject {
     }
 
     pub(super) fn map_fd(&self, name: &CStr) -> Result<c_int, AttributionFailure> {
+        // SAFETY: self.object is live and name is a valid NUL-terminated C string.
         let map = unsafe { bpf_object__find_map_by_name(self.object, name.as_ptr()) };
         if map.is_null() {
             return Err(AttributionFailure::new(
@@ -102,6 +111,7 @@ impl LoadedObject {
                 format!("BPF map {:?} is missing", name),
             ));
         }
+        // SAFETY: map was returned from the live object and is non-null.
         let fd = unsafe { bpf_map__fd(map) };
         if fd < 0 {
             Err(AttributionFailure::errno(
@@ -118,8 +128,10 @@ impl LoadedObject {
 impl Drop for LoadedObject {
     fn drop(&mut self) {
         for link in self.links.drain(..).rev() {
+            // SAFETY: every link is uniquely owned by self and destroyed exactly once here.
             unsafe { bpf_link__destroy(link) };
         }
+        // SAFETY: object is uniquely owned by self and closed exactly once after its links.
         unsafe { bpf_object__close(self.object) };
     }
 }
@@ -133,6 +145,8 @@ where
     let mut current: Option<K> = None;
     loop {
         let mut next = MaybeUninit::<K>::uninit();
+        // SAFETY: next points to writable K-sized storage; current, when present, points to a live
+        // K. Callers select K to match the map key ABI.
         let rc = unsafe {
             bpf_map_get_next_key(
                 fd,
@@ -153,8 +167,11 @@ where
             ));
         }
 
+        // SAFETY: successful bpf_map_get_next_key initializes the complete next key.
         let next = unsafe { next.assume_init() };
         let mut value = V::default();
+        // SAFETY: next is a live key and value points to writable V-sized storage. Callers select
+        // K and V to match the map ABI.
         let rc = unsafe {
             bpf_map_lookup_elem(
                 fd,
@@ -190,6 +207,7 @@ fn check_ptr(
             format!("{operation}: null libbpf handle"),
         ));
     }
+    // SAFETY: ptr came directly from a libbpf pointer-returning API and is non-null.
     let error = unsafe { libbpf_get_error(ptr) };
     if error == 0 {
         Ok(())

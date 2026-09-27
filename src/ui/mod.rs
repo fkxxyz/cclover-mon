@@ -123,76 +123,84 @@ where
     match block {
         PanelBlock::Memory { process_count } => {
             let memory = dashboard.memory();
-            metric_card(
-                MemoryPanel::TITLE,
-                memory.value(),
-                memory.subtitle(),
-                MemoryPanel::SECONDARY_LABEL,
-                memory.secondary_value(),
-                memory.fraction(),
-                memory.graph_values(),
-                0.0,
-                memory.graph_max(),
-                false,
-                GREEN,
-                Color::from_rgba8(0x52, 0xe0, 0xc4, 0.13),
-                memory.processes(),
+            metric_card(MetricCardParams {
+                title: MemoryPanel::TITLE,
+                value: memory.value(),
+                subtitle: memory.subtitle(),
+                secondary_label: MemoryPanel::SECONDARY_LABEL,
+                secondary_value: memory.secondary_value(),
+                progress: memory.fraction(),
+                graph: GraphParams {
+                    values: memory.graph_values(),
+                    min: 0.0,
+                    max: memory.graph_max(),
+                    auto_scale: false,
+                    color: GREEN,
+                    fill_color: Color::from_rgba8(0x52, 0xe0, 0xc4, 0.13),
+                    capacity,
+                },
+                processes: memory.processes().collect(),
                 process_count,
-                capacity,
-            )
+            })
         }
         PanelBlock::Cpu { process_count } => {
             let cpu = dashboard.cpu();
-            metric_card(
-                CpuPanel::TITLE,
-                cpu.value(),
-                String::new(),
-                "",
-                String::new(),
-                cpu.fraction(),
-                cpu.graph_values(),
-                0.0,
-                100.0,
-                false,
-                ACCENT,
-                Color::from_rgba8(0x7c, 0x9c, 0xff, 0.14),
-                cpu.processes(),
+            metric_card(MetricCardParams {
+                title: CpuPanel::TITLE,
+                value: cpu.value(),
+                subtitle: String::new(),
+                secondary_label: "",
+                secondary_value: String::new(),
+                progress: cpu.fraction(),
+                graph: GraphParams {
+                    values: cpu.graph_values(),
+                    min: 0.0,
+                    max: 100.0,
+                    auto_scale: false,
+                    color: ACCENT,
+                    fill_color: Color::from_rgba8(0x7c, 0x9c, 0xff, 0.14),
+                    capacity,
+                },
+                processes: cpu.processes().collect(),
                 process_count,
-                capacity,
-            )
+            })
         }
         PanelBlock::Section(section) => section_label(section.title()),
         PanelBlock::Temperature(index) => {
             let temperature = dashboard
                 .temperature(index)
                 .expect("panel layout must match dashboard temperature entries");
-            small_graph_card(
-                temperature.name(),
-                temperature.value(),
-                temperature.history().unwrap_or(&EMPTY_GRAPH_VALUES),
-                20.0,
-                100.0,
-                false,
-                RED,
-                Color::from_rgba8(0xff, 0x7e, 0x9b, 0.13),
-                capacity,
-            )
+            small_graph_card(SmallGraphCardParams {
+                name: temperature.name(),
+                value: temperature.value(),
+                graph: GraphParams {
+                    values: temperature.history().unwrap_or(&EMPTY_GRAPH_VALUES),
+                    min: 20.0,
+                    max: 100.0,
+                    auto_scale: false,
+                    color: RED,
+                    fill_color: Color::from_rgba8(0xff, 0x7e, 0x9b, 0.13),
+                    capacity,
+                },
+            })
         }
         PanelBlock::Disk(index) => {
             let disk = dashboard
                 .disk(index)
                 .expect("panel layout must match dashboard disk entries");
-            small_graph_card(
-                disk.name(),
-                disk.value(),
-                disk.history().unwrap_or(&EMPTY_GRAPH_VALUES),
-                0.0,
-                1.0,
-                true,
-                ORANGE,
-                Color::from_rgba8(0xff, 0xb8, 0x6b, 0.13),
-                capacity,
-            )
+            small_graph_card(SmallGraphCardParams {
+                name: disk.name(),
+                value: disk.value(),
+                graph: GraphParams {
+                    values: disk.history().unwrap_or(&EMPTY_GRAPH_VALUES),
+                    min: 0.0,
+                    max: 1.0,
+                    auto_scale: true,
+                    color: ORANGE,
+                    fill_color: Color::from_rgba8(0xff, 0xb8, 0x6b, 0.13),
+                    capacity,
+                },
+            })
         }
         PanelBlock::Network(index) => {
             let network = dashboard
@@ -214,27 +222,43 @@ where
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn metric_card<'a, Message>(
+struct GraphParams<'a> {
+    values: &'a VecDeque<f64>,
+    min: f64,
+    max: f64,
+    auto_scale: bool,
+    color: Color,
+    fill_color: Color,
+    capacity: usize,
+}
+
+struct MetricCardParams<'a> {
     title: &'a str,
     value: String,
     subtitle: String,
     secondary_label: &'a str,
     secondary_value: String,
     progress: f32,
-    graph_values: &'a VecDeque<f64>,
-    graph_min: f64,
-    graph_max: f64,
-    auto_scale: bool,
-    graph_color: Color,
-    fill_color: Color,
-    processes: impl IntoIterator<Item = ProcessRow<'a>>,
+    graph: GraphParams<'a>,
+    processes: Vec<ProcessRow<'a>>,
     process_count: usize,
-    capacity: usize,
-) -> Element<'a, Message>
+}
+
+fn metric_card<'a, Message>(params: MetricCardParams<'a>) -> Element<'a, Message>
 where
     Message: 'a,
 {
+    let MetricCardParams {
+        title,
+        value,
+        subtitle,
+        secondary_label,
+        secondary_value,
+        progress,
+        graph,
+        processes,
+        process_count,
+    } = params;
     let mut header = row![
         bold_label_owned(title.to_owned(), 12, MUTED).width(Fill),
         bold_label_owned(value, 16, FG),
@@ -262,14 +286,14 @@ where
             .girth(METRIC_CARD_GEOMETRY.progress_height)
             .style(move |_| iced::widget::progress_bar::Style {
                 background: BORDER.into(),
-                bar: graph_color.into(),
+                bar: graph.color.into(),
                 border: border::rounded(3),
             }),
     );
 
-    let graph = Graph::new(graph_values, capacity, graph_color, fill_color)
-        .range(graph_min, graph_max)
-        .auto_scale(auto_scale);
+    let graph = Graph::new(graph.values, graph.capacity, graph.color, graph.fill_color)
+        .range(graph.min, graph.max)
+        .auto_scale(graph.auto_scale);
     content = content.push(
         canvas(graph)
             .width(Fill)
@@ -287,21 +311,17 @@ where
     card(content, METRIC_CARD_GEOMETRY.height(process_count as u32))
 }
 
-#[allow(clippy::too_many_arguments)]
-fn small_graph_card<'a, Message>(
+struct SmallGraphCardParams<'a> {
     name: &'a str,
     value: String,
-    values: &'a VecDeque<f64>,
-    min: f64,
-    max: f64,
-    auto_scale: bool,
-    graph_color: Color,
-    fill_color: Color,
-    capacity: usize,
-) -> Element<'a, Message>
+    graph: GraphParams<'a>,
+}
+
+fn small_graph_card<'a, Message>(params: SmallGraphCardParams<'a>) -> Element<'a, Message>
 where
     Message: 'a,
 {
+    let SmallGraphCardParams { name, value, graph } = params;
     let header = row![
         bold_label(name, 13, FG)
             .wrapping(Wrapping::None)
@@ -310,9 +330,9 @@ where
     ]
     .height(SMALL_GRAPH_CARD_GEOMETRY.header_height)
     .align_y(Alignment::Center);
-    let graph = Graph::new(values, capacity, graph_color, fill_color)
-        .range(min, max)
-        .auto_scale(auto_scale);
+    let graph = Graph::new(graph.values, graph.capacity, graph.color, graph.fill_color)
+        .range(graph.min, graph.max)
+        .auto_scale(graph.auto_scale);
     card(
         column![
             header,

@@ -116,7 +116,7 @@ fn parse_stat(pid: u32, text: &str, page_size: u64) -> Option<ProcessCounter> {
             birth_marker: starttime,
         },
         name: text[left + 1..right].to_owned(),
-        cpu_ticks: user.saturating_add(system),
+        cpu_time_units: user.saturating_add(system),
         rss_bytes: rss_pages.saturating_mul(page_size),
     })
 }
@@ -161,7 +161,7 @@ mod tests {
             "42 (name with space) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22";
         let process = parse_stat(42, text, 4096).unwrap();
         assert_eq!(process.name, "name with space");
-        assert_eq!(process.cpu_ticks, 23);
+        assert_eq!(process.cpu_time_units, 23);
         assert_eq!(process.process.pid, 42);
         assert_eq!(process.process.birth_marker, 19);
     }

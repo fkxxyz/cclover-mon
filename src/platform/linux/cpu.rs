@@ -38,8 +38,8 @@ fn parse_stat(text: &str) -> Result<CpuCounter, String> {
             values.len()
         ));
     }
-    let total_jiffies = values.iter().copied().sum();
-    let idle_jiffies = values.get(3).copied().unwrap_or(0) + values.get(4).copied().unwrap_or(0);
+    let total_time_units = values.iter().copied().sum();
+    let idle_time_units = values.get(3).copied().unwrap_or(0) + values.get(4).copied().unwrap_or(0);
     let logical_cpu_count = lines
         .filter_map(|line| line.split_whitespace().next())
         .filter(|name| {
@@ -51,8 +51,8 @@ fn parse_stat(text: &str) -> Result<CpuCounter, String> {
         .max(1);
 
     Ok(CpuCounter {
-        total_jiffies,
-        idle_jiffies,
+        total_time_units,
+        idle_time_units,
         logical_cpu_count,
     })
 }
@@ -66,8 +66,8 @@ mod tests {
         let text = "cpu  10 2 3 20 5 1 1 0 0 0\ncpu0 1 0 0 1 0 0 0 0 0 0\ncpu1 1 0 0 1 0 0 0 0 0 0\nintr 0\n";
         let counter = parse_stat(text).unwrap();
 
-        assert_eq!(counter.total_jiffies, 42);
-        assert_eq!(counter.idle_jiffies, 25);
+        assert_eq!(counter.total_time_units, 42);
+        assert_eq!(counter.idle_time_units, 25);
         assert_eq!(counter.logical_cpu_count, 2);
     }
 }

@@ -86,94 +86,18 @@ impl<C: Collector> Sampler<C> {
 }
 
 fn derive(previous: Option<&RawSnapshot>, current: &RawSnapshot) -> SystemSnapshot {
+    let (cpu_percent, top_cpu) = derive_cpu(previous, current);
+    let dt = sample_interval_seconds(previous, current);
     let mut out = SystemSnapshot {
+        cpu_percent,
         memory: current.memory.clone(),
+        top_cpu,
+        top_memory: top_memory(&current.processes),
+        networks: derive_networks(previous, current, dt),
+        disks: derive_disks(previous, current, dt),
         temperatures: current.temperatures.clone(),
         ..SystemSnapshot::default()
     };
-
-    if let Some(new) = &current.cpu {
-        let previous_cpu =
-            previous.and_then(|snapshot| snapshot.cpu.as_ref().map(|counter| (snapshot, counter)));
-        if let Some((previous, old)) = previous_cpu {
-            let total = new.total_jiffies.saturating_sub(old.total_jiffies);
-            if total > 0 {
-                let idle = new.idle_jiffies.saturating_sub(old.idle_jiffies);
-                out.cpu_percent = Some(
-                    (100.0 * (total.saturating_sub(idle)) as f64 / total as f64).clamp(0.0, 100.0),
-                );
-                out.top_cpu = top_cpu(
-                    &previous.processes,
-                    &current.processes,
-                    total,
-                    new.logical_cpu_count,
-                );
-            } else {
-                out.cpu_percent = Some(0.0);
-                out.top_cpu = baseline_top_cpu(&current.processes);
-            }
-        } else {
-            out.cpu_percent = Some(0.0);
-            out.top_cpu = baseline_top_cpu(&current.processes);
-        }
-    }
-    out.top_memory = top_memory(&current.processes);
-
-    let dt = previous
-        .map(|snapshot| {
-            current
-                .collected_at
-                .saturating_duration_since(snapshot.collected_at)
-                .as_secs_f64()
-                .max(0.001)
-        })
-        .unwrap_or(1.0);
-
-    let old_net: HashMap<&NetworkId, &NetworkCounter> = previous
-        .into_iter()
-        .flat_map(|snapshot| snapshot.networks.iter())
-        .map(|x| (&x.id, x))
-        .collect();
-    out.networks = current
-        .networks
-        .iter()
-        .map(|item| {
-            let (down, up) = old_net.get(&item.id).map_or((0.0, 0.0), |old| {
-                (
-                    item.rx_bytes.saturating_sub(old.rx_bytes) as f64 / dt,
-                    item.tx_bytes.saturating_sub(old.tx_bytes) as f64 / dt,
-                )
-            });
-            NetworkSnapshot {
-                id: item.id.clone(),
-                name: item.name.clone(),
-                down_bytes_per_sec: down,
-                up_bytes_per_sec: up,
-            }
-        })
-        .collect();
-
-    let old_disk: HashMap<&DiskId, &DiskCounter> = previous
-        .into_iter()
-        .flat_map(|snapshot| snapshot.disks.iter())
-        .map(|x| (&x.id, x))
-        .collect();
-    out.disks = current
-        .disks
-        .iter()
-        .map(|item| {
-            let rate = old_disk.get(&item.id).map_or(0.0, |old| {
-                let old_total = old.read_bytes.saturating_add(old.write_bytes);
-                let new_total = item.read_bytes.saturating_add(item.write_bytes);
-                new_total.saturating_sub(old_total) as f64 / dt
-            });
-            DiskSnapshot {
-                id: item.id.clone(),
-                name: item.name.clone(),
-                bytes_per_sec: rate,
-            }
-        })
-        .collect();
 
     out.process_disk_io = derive_process_disk_io(
         previous.and_then(|snapshot| snapshot.process_disk_io.as_deref()),
@@ -187,6 +111,107 @@ fn derive(previous: Option<&RawSnapshot>, current: &RawSnapshot) -> SystemSnapsh
     );
 
     out
+}
+
+fn derive_cpu(
+    previous: Option<&RawSnapshot>,
+    current: &RawSnapshot,
+) -> (Option<f64>, Vec<ProcessCpuUsage>) {
+    let Some(new) = &current.cpu else {
+        return (None, Vec::new());
+    };
+    let Some((previous, old)) =
+        previous.and_then(|snapshot| snapshot.cpu.as_ref().map(|counter| (snapshot, counter)))
+    else {
+        return (Some(0.0), baseline_top_cpu(&current.processes));
+    };
+
+    let total = new.total_time_units.saturating_sub(old.total_time_units);
+    if total == 0 {
+        return (Some(0.0), baseline_top_cpu(&current.processes));
+    }
+
+    let idle = new.idle_time_units.saturating_sub(old.idle_time_units);
+    let percent = (100.0 * (total.saturating_sub(idle)) as f64 / total as f64).clamp(0.0, 100.0);
+    (
+        Some(percent),
+        top_cpu(
+            &previous.processes,
+            &current.processes,
+            total,
+            new.logical_cpu_count,
+        ),
+    )
+}
+
+fn sample_interval_seconds(previous: Option<&RawSnapshot>, current: &RawSnapshot) -> f64 {
+    previous
+        .map(|snapshot| {
+            current
+                .collected_at
+                .saturating_duration_since(snapshot.collected_at)
+                .as_secs_f64()
+                .max(0.001)
+        })
+        .unwrap_or(1.0)
+}
+
+fn derive_networks(
+    previous: Option<&RawSnapshot>,
+    current: &RawSnapshot,
+    dt: f64,
+) -> Vec<NetworkSnapshot> {
+    let old: HashMap<&NetworkId, &NetworkCounter> = previous
+        .into_iter()
+        .flat_map(|snapshot| snapshot.networks.iter())
+        .map(|item| (&item.id, item))
+        .collect();
+    current
+        .networks
+        .iter()
+        .map(|item| {
+            let (down, up) = old.get(&item.id).map_or((0.0, 0.0), |old| {
+                (
+                    item.rx_bytes.saturating_sub(old.rx_bytes) as f64 / dt,
+                    item.tx_bytes.saturating_sub(old.tx_bytes) as f64 / dt,
+                )
+            });
+            NetworkSnapshot {
+                id: item.id.clone(),
+                name: item.name.clone(),
+                down_bytes_per_sec: down,
+                up_bytes_per_sec: up,
+            }
+        })
+        .collect()
+}
+
+fn derive_disks(
+    previous: Option<&RawSnapshot>,
+    current: &RawSnapshot,
+    dt: f64,
+) -> Vec<DiskSnapshot> {
+    let old: HashMap<&DiskId, &DiskCounter> = previous
+        .into_iter()
+        .flat_map(|snapshot| snapshot.disks.iter())
+        .map(|item| (&item.id, item))
+        .collect();
+    current
+        .disks
+        .iter()
+        .map(|item| {
+            let rate = old.get(&item.id).map_or(0.0, |old| {
+                let old_total = old.read_bytes.saturating_add(old.write_bytes);
+                let new_total = item.read_bytes.saturating_add(item.write_bytes);
+                new_total.saturating_sub(old_total) as f64 / dt
+            });
+            DiskSnapshot {
+                id: item.id.clone(),
+                name: item.name.clone(),
+                bytes_per_sec: rate,
+            }
+        })
+        .collect()
 }
 
 fn derive_process_disk_io(
@@ -257,11 +282,11 @@ fn derive_process_network_io(
     )
 }
 
-fn baseline_top_cpu(current: &[ProcessCounter]) -> Vec<ProcessCpu> {
+fn baseline_top_cpu(current: &[ProcessCounter]) -> Vec<ProcessCpuUsage> {
     current
         .iter()
         .take(TOP_N)
-        .map(|item| ProcessCpu {
+        .map(|item| ProcessCpuUsage {
             name: item.name.clone(),
             percent: 0.0,
         })
@@ -273,35 +298,35 @@ fn top_cpu(
     current: &[ProcessCounter],
     total_delta: u64,
     cpu_count: usize,
-) -> Vec<ProcessCpu> {
+) -> Vec<ProcessCpuUsage> {
     let old: HashMap<ProcessInstanceId, &ProcessCounter> =
         previous.iter().map(|x| (x.process, x)).collect();
     let scale = cpu_count.max(1) as f64 * 100.0 / total_delta.max(1) as f64;
     let mut values: Vec<_> = current
         .iter()
         .map(|item| {
-            let delta = old
-                .get(&item.process)
-                .map_or(0, |prev| item.cpu_ticks.saturating_sub(prev.cpu_ticks));
+            let delta = old.get(&item.process).map_or(0, |prev| {
+                item.cpu_time_units.saturating_sub(prev.cpu_time_units)
+            });
             (item, delta as f64 * scale)
         })
         .collect();
     keep_top_n_by(&mut values, TOP_N, |a, b| b.1.total_cmp(&a.1));
     values
         .into_iter()
-        .map(|(item, percent)| ProcessCpu {
+        .map(|(item, percent)| ProcessCpuUsage {
             name: item.name.clone(),
             percent,
         })
         .collect()
 }
 
-fn top_memory(current: &[ProcessCounter]) -> Vec<ProcessMemory> {
+fn top_memory(current: &[ProcessCounter]) -> Vec<ProcessMemoryUsage> {
     let mut values: Vec<_> = current.iter().collect();
     keep_top_n_by(&mut values, TOP_N, |a, b| b.rss_bytes.cmp(&a.rss_bytes));
     values
         .into_iter()
-        .map(|item| ProcessMemory {
+        .map(|item| ProcessMemoryUsage {
             name: item.name.clone(),
             bytes: item.rss_bytes,
         })
@@ -358,8 +383,8 @@ mod tests {
     fn first_sample_publishes_observed_entities_with_zero_baseline_rates() {
         let current = RawSnapshot {
             cpu: Some(CpuCounter {
-                total_jiffies: 1_000,
-                idle_jiffies: 600,
+                total_time_units: 1_000,
+                idle_time_units: 600,
                 logical_cpu_count: 4,
             }),
             memory: Some(MemorySnapshot {
@@ -371,7 +396,7 @@ mod tests {
             processes: vec![ProcessCounter {
                 process: process_id(10, 1),
                 name: "worker".into(),
-                cpu_ticks: 100,
+                cpu_time_units: 100,
                 rss_bytes: 4096,
             }],
             networks: vec![NetworkCounter {
@@ -446,14 +471,14 @@ mod tests {
         let old = RawSnapshot {
             collected_at: t,
             cpu: Some(CpuCounter {
-                total_jiffies: 1000,
-                idle_jiffies: 600,
+                total_time_units: 1000,
+                idle_time_units: 600,
                 logical_cpu_count: 4,
             }),
             processes: vec![ProcessCounter {
                 process: process_id(1, 1),
                 name: "a".into(),
-                cpu_ticks: 100,
+                cpu_time_units: 100,
                 rss_bytes: 10,
             }],
             networks: vec![NetworkCounter {
@@ -473,14 +498,14 @@ mod tests {
         let new = RawSnapshot {
             collected_at: t + Duration::from_secs(1),
             cpu: Some(CpuCounter {
-                total_jiffies: 1100,
-                idle_jiffies: 650,
+                total_time_units: 1100,
+                idle_time_units: 650,
                 logical_cpu_count: 4,
             }),
             processes: vec![ProcessCounter {
                 process: process_id(1, 1),
                 name: "a".into(),
-                cpu_ticks: 110,
+                cpu_time_units: 110,
                 rss_bytes: 20,
             }],
             networks: vec![NetworkCounter {
@@ -599,7 +624,7 @@ mod tests {
             .map(|index| ProcessCounter {
                 process: process_id(index, 1),
                 name: format!("p{index}"),
-                cpu_ticks: 0,
+                cpu_time_units: 0,
                 rss_bytes: u64::from(index),
             })
             .collect();
@@ -616,14 +641,14 @@ mod tests {
             .map(|index| ProcessCounter {
                 process: process_id(index, 1),
                 name: format!("p{index}"),
-                cpu_ticks: 100,
+                cpu_time_units: 100,
                 rss_bytes: 0,
             })
             .collect();
         let current: Vec<_> = previous
             .iter()
             .map(|process| ProcessCounter {
-                cpu_ticks: process.cpu_ticks + u64::from(process.process.pid),
+                cpu_time_units: process.cpu_time_units + u64::from(process.process.pid),
                 ..process.clone()
             })
             .collect();
@@ -737,13 +762,13 @@ mod tests {
         let previous = vec![ProcessCounter {
             process: process_id(42, 100),
             name: "old".into(),
-            cpu_ticks: 1_000,
+            cpu_time_units: 1_000,
             rss_bytes: 0,
         }];
         let current = vec![ProcessCounter {
             process: process_id(42, 200),
             name: "new".into(),
-            cpu_ticks: 25,
+            cpu_time_units: 25,
             rss_bytes: 0,
         }];
 

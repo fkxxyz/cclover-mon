@@ -20,11 +20,11 @@ Active — P3.
 
 ## Problem
 
-Process data is currently projected primarily by metric (`ProcessCpu`, `ProcessMemory`, process disk I/O, process network I/O) rather than through a coherent process-oriented view. Top CPU/memory projections also discard stable process identity because the current desktop only needs display rows.
+Process data is currently projected primarily by metric (`ProcessCpuUsage`, `ProcessMemoryUsage`, process disk I/O, process network I/O) rather than through a coherent process-oriented view. Top CPU/memory projections also discard stable process identity because the current desktop only needs display rows.
 
 ## Evidence
 
-The core has a stable `ProcessInstanceId`, but `ProcessCpu` and `ProcessMemory` contain only name plus value, while I/O projections retain process identity independently. Presentation consumes separate Top-N lists rather than a joined process entity model.
+The core has a stable `ProcessInstanceId`, but `ProcessCpuUsage` and `ProcessMemoryUsage` contain only name plus value, while I/O projections retain process identity independently. Presentation consumes separate Top-N lists rather than a joined process entity model.
 
 ## Maintenance impact
 

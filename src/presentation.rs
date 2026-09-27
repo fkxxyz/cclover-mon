@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 
 use crate::core::model::{
-    DirectionHistory, DiskSnapshot, MemorySnapshot, MonitorState, NetworkSnapshot, ProcessCpu,
-    ProcessMemory, TemperatureSnapshot,
+    DiskSnapshot, MemorySnapshot, MonitorState, NetworkDirectionHistory, NetworkSnapshot,
+    ProcessCpuUsage, ProcessMemoryUsage, TemperatureSnapshot,
 };
 
 pub const TEMPERATURE_SECTION: &str = "TEMPERATURE";
@@ -79,7 +79,7 @@ impl<'a> Dashboard<'a> {
 #[derive(Clone, Copy)]
 pub struct MemoryPanel<'a> {
     memory: Option<&'a MemorySnapshot>,
-    processes: &'a [ProcessMemory],
+    processes: &'a [ProcessMemoryUsage],
     history: &'a VecDeque<f64>,
 }
 
@@ -145,7 +145,7 @@ impl<'a> MemoryPanel<'a> {
 #[derive(Clone, Copy)]
 pub struct CpuPanel<'a> {
     percent: Option<f64>,
-    processes: &'a [ProcessCpu],
+    processes: &'a [ProcessCpuUsage],
     history: &'a VecDeque<f64>,
 }
 
@@ -229,7 +229,7 @@ impl<'a> DiskPanel<'a> {
 #[derive(Clone, Copy)]
 pub struct NetworkPanel<'a> {
     value: &'a NetworkSnapshot,
-    history: Option<&'a DirectionHistory>,
+    history: Option<&'a NetworkDirectionHistory>,
 }
 
 impl<'a> NetworkPanel<'a> {
@@ -245,7 +245,7 @@ impl<'a> NetworkPanel<'a> {
         format_rate(self.value.up_bytes_per_sec)
     }
 
-    pub fn history(self) -> Option<&'a DirectionHistory> {
+    pub fn history(self) -> Option<&'a NetworkDirectionHistory> {
         self.history
     }
 }

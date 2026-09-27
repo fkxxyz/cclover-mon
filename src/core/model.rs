@@ -10,13 +10,13 @@ pub struct MemorySnapshot {
 }
 
 #[derive(Clone, Debug)]
-pub struct ProcessCpu {
+pub struct ProcessCpuUsage {
     pub name: String,
     pub percent: f64,
 }
 
 #[derive(Clone, Debug)]
-pub struct ProcessMemory {
+pub struct ProcessMemoryUsage {
     pub name: String,
     pub bytes: u64,
 }
@@ -111,8 +111,8 @@ pub struct ProcessNetworkIo {
 pub struct SystemSnapshot {
     pub cpu_percent: Option<f64>,
     pub memory: Option<MemorySnapshot>,
-    pub top_cpu: Vec<ProcessCpu>,
-    pub top_memory: Vec<ProcessMemory>,
+    pub top_cpu: Vec<ProcessCpuUsage>,
+    pub top_memory: Vec<ProcessMemoryUsage>,
     pub networks: Vec<NetworkSnapshot>,
     pub disks: Vec<DiskSnapshot>,
     pub process_disk_io: Option<Vec<ProcessDiskIo>>,
@@ -121,7 +121,7 @@ pub struct SystemSnapshot {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct DirectionHistory {
+pub struct NetworkDirectionHistory {
     pub down: VecDeque<f64>,
     pub up: VecDeque<f64>,
 }
@@ -131,7 +131,7 @@ pub struct MonitorHistory {
     pub cpu: VecDeque<f64>,
     pub memory_used: VecDeque<f64>,
     pub swap_used: VecDeque<f64>,
-    pub networks: BTreeMap<NetworkId, DirectionHistory>,
+    pub networks: BTreeMap<NetworkId, NetworkDirectionHistory>,
     pub disks: BTreeMap<DiskId, VecDeque<f64>>,
     pub temperatures: BTreeMap<String, VecDeque<f64>>,
 }
@@ -145,8 +145,8 @@ pub struct MonitorState {
 
 #[derive(Clone, Debug)]
 pub struct CpuCounter {
-    pub total_jiffies: u64,
-    pub idle_jiffies: u64,
+    pub total_time_units: u64,
+    pub idle_time_units: u64,
     pub logical_cpu_count: usize,
 }
 
@@ -154,7 +154,7 @@ pub struct CpuCounter {
 pub struct ProcessCounter {
     pub process: ProcessInstanceId,
     pub name: String,
-    pub cpu_ticks: u64,
+    pub cpu_time_units: u64,
     pub rss_bytes: u64,
 }
 

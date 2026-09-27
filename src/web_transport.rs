@@ -3,8 +3,9 @@ use std::collections::{BTreeMap, VecDeque};
 use serde::{Deserialize, Serialize};
 
 use crate::core::model::{
-    DirectionHistory, DiskId, DiskSnapshot, MemorySnapshot, MonitorHistory, MonitorState,
-    NetworkId, NetworkSnapshot, ProcessCpu, ProcessMemory, SystemSnapshot, TemperatureSnapshot,
+    DiskId, DiskSnapshot, MemorySnapshot, MonitorHistory, MonitorState, NetworkDirectionHistory,
+    NetworkId, NetworkSnapshot, ProcessCpuUsage, ProcessMemoryUsage, SystemSnapshot,
+    TemperatureSnapshot,
 };
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -134,11 +135,15 @@ impl From<WebSystemSnapshot> for SystemSnapshot {
         Self {
             cpu_percent: snapshot.cpu_percent,
             memory: snapshot.memory.map(MemorySnapshot::from),
-            top_cpu: snapshot.top_cpu.into_iter().map(ProcessCpu::from).collect(),
+            top_cpu: snapshot
+                .top_cpu
+                .into_iter()
+                .map(ProcessCpuUsage::from)
+                .collect(),
             top_memory: snapshot
                 .top_memory
                 .into_iter()
-                .map(ProcessMemory::from)
+                .map(ProcessMemoryUsage::from)
                 .collect(),
             networks: snapshot
                 .networks
@@ -179,8 +184,8 @@ impl From<WebMemorySnapshot> for MemorySnapshot {
     }
 }
 
-impl From<&ProcessCpu> for WebProcessCpu {
-    fn from(value: &ProcessCpu) -> Self {
+impl From<&ProcessCpuUsage> for WebProcessCpu {
+    fn from(value: &ProcessCpuUsage) -> Self {
         Self {
             name: value.name.clone(),
             percent: value.percent,
@@ -188,7 +193,7 @@ impl From<&ProcessCpu> for WebProcessCpu {
     }
 }
 
-impl From<WebProcessCpu> for ProcessCpu {
+impl From<WebProcessCpu> for ProcessCpuUsage {
     fn from(value: WebProcessCpu) -> Self {
         Self {
             name: value.name,
@@ -197,8 +202,8 @@ impl From<WebProcessCpu> for ProcessCpu {
     }
 }
 
-impl From<&ProcessMemory> for WebProcessMemory {
-    fn from(value: &ProcessMemory) -> Self {
+impl From<&ProcessMemoryUsage> for WebProcessMemory {
+    fn from(value: &ProcessMemoryUsage) -> Self {
         Self {
             name: value.name.clone(),
             bytes: value.bytes,
@@ -206,7 +211,7 @@ impl From<&ProcessMemory> for WebProcessMemory {
     }
 }
 
-impl From<WebProcessMemory> for ProcessMemory {
+impl From<WebProcessMemory> for ProcessMemoryUsage {
     fn from(value: WebProcessMemory) -> Self {
         Self {
             name: value.name,
@@ -277,8 +282,8 @@ impl From<WebTemperatureSnapshot> for TemperatureSnapshot {
     }
 }
 
-impl From<&DirectionHistory> for WebDirectionHistory {
-    fn from(value: &DirectionHistory) -> Self {
+impl From<&NetworkDirectionHistory> for WebDirectionHistory {
+    fn from(value: &NetworkDirectionHistory) -> Self {
         Self {
             down: value.down.clone(),
             up: value.up.clone(),
@@ -286,7 +291,7 @@ impl From<&DirectionHistory> for WebDirectionHistory {
     }
 }
 
-impl From<WebDirectionHistory> for DirectionHistory {
+impl From<WebDirectionHistory> for NetworkDirectionHistory {
     fn from(value: WebDirectionHistory) -> Self {
         Self {
             down: value.down,
@@ -333,7 +338,7 @@ impl From<WebMonitorHistory> for MonitorHistory {
                 .map(|(id, value)| {
                     (
                         NetworkId::from_opaque_key(id),
-                        DirectionHistory::from(value),
+                        NetworkDirectionHistory::from(value),
                     )
                 })
                 .collect(),
@@ -400,7 +405,7 @@ mod tests {
         state.history.cpu.push_back(11.0);
         state.history.networks.insert(
             network_id,
-            DirectionHistory {
+            NetworkDirectionHistory {
                 down: VecDeque::from([7.0, 12.0]),
                 up: VecDeque::from([3.0, 5.0]),
             },

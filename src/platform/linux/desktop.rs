@@ -137,8 +137,18 @@ fn top_right_position(window_size: Size, monitor_size: Size) -> Point {
 fn configure_x11_window(raw_id: u64) -> Result<(), String> {
     let window = u32::try_from(raw_id).map_err(|_| format!("invalid X11 window id {raw_id}"))?;
     let (conn, screen_num) = RustConnection::connect(None).map_err(|error| error.to_string())?;
-    let root = conn.setup().roots[screen_num].root;
+    let screen = &conn.setup().roots[screen_num];
 
+    configure_x11_input_policy(&conn, window)?;
+    configure_x11_window_manager_policy(&conn, screen.root, window)?;
+    configure_x11_workspace_policy(&conn, window)?;
+    configure_x11_placement(&conn, screen.root, window, screen.width_in_pixels)?;
+
+    conn.flush().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn configure_x11_input_policy(conn: &RustConnection, window: u32) -> Result<(), String> {
     conn.shape_rectangles(
         SO::SET,
         SK::INPUT,
@@ -150,11 +160,24 @@ fn configure_x11_window(raw_id: u64) -> Result<(), String> {
     )
     .map_err(|error| error.to_string())?;
 
-    let net_wm_state = intern_atom(&conn, b"_NET_WM_STATE")?;
+    let mut hints = WmHints::new();
+    hints.input = Some(false);
+    hints
+        .set(conn, window)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+fn configure_x11_window_manager_policy(
+    conn: &RustConnection,
+    root: u32,
+    window: u32,
+) -> Result<(), String> {
+    let net_wm_state = intern_atom(conn, b"_NET_WM_STATE")?;
     let states = [
-        intern_atom(&conn, b"_NET_WM_STATE_SKIP_TASKBAR")?,
-        intern_atom(&conn, b"_NET_WM_STATE_SKIP_PAGER")?,
-        intern_atom(&conn, b"_NET_WM_STATE_BELOW")?,
+        intern_atom(conn, b"_NET_WM_STATE_SKIP_TASKBAR")?,
+        intern_atom(conn, b"_NET_WM_STATE_SKIP_PAGER")?,
+        intern_atom(conn, b"_NET_WM_STATE_BELOW")?,
     ];
 
     conn.change_property32(
@@ -165,14 +188,12 @@ fn configure_x11_window(raw_id: u64) -> Result<(), String> {
         &states,
     )
     .map_err(|error| error.to_string())?;
+    request_net_wm_state(conn, root, window, net_wm_state, states[0], states[1])?;
+    request_net_wm_state(conn, root, window, net_wm_state, states[2], 0)
+}
 
-    let mut hints = WmHints::new();
-    hints.input = Some(false);
-    hints
-        .set(&conn, window)
-        .map_err(|error| error.to_string())?;
-
-    let net_wm_desktop = intern_atom(&conn, b"_NET_WM_DESKTOP")?;
+fn configure_x11_workspace_policy(conn: &RustConnection, window: u32) -> Result<(), String> {
+    let net_wm_desktop = intern_atom(conn, b"_NET_WM_DESKTOP")?;
     conn.change_property32(
         PropMode::REPLACE,
         window,
@@ -180,16 +201,23 @@ fn configure_x11_window(raw_id: u64) -> Result<(), String> {
         AtomEnum::CARDINAL,
         &[u32::MAX],
     )
-    .map_err(|error| error.to_string())?;
+    .map(|_| ())
+    .map_err(|error| error.to_string())
+}
 
+fn configure_x11_placement(
+    conn: &RustConnection,
+    root: u32,
+    window: u32,
+    screen_width: u16,
+) -> Result<(), String> {
     let geometry = conn
         .get_geometry(window)
         .map_err(|error| error.to_string())?
         .reply()
         .map_err(|error| error.to_string())?;
-    let screen = &conn.setup().roots[screen_num];
     let margin = PANEL_MARGIN as i32;
-    let x = (i32::from(screen.width_in_pixels) - i32::from(geometry.width) - margin).max(0);
+    let x = (i32::from(screen_width) - i32::from(geometry.width) - margin).max(0);
 
     conn.configure_window(
         window,
@@ -200,10 +228,17 @@ fn configure_x11_window(raw_id: u64) -> Result<(), String> {
     )
     .map_err(|error| error.to_string())?;
 
-    request_net_wm_state(&conn, root, window, net_wm_state, states[0], states[1])?;
-    request_net_wm_state(&conn, root, window, net_wm_state, states[2], 0)?;
+    request_x11_placement(conn, root, window, x, margin)
+}
 
-    let net_moveresize_window = intern_atom(&conn, b"_NET_MOVERESIZE_WINDOW")?;
+fn request_x11_placement(
+    conn: &RustConnection,
+    root: u32,
+    window: u32,
+    x: i32,
+    margin: i32,
+) -> Result<(), String> {
+    let net_moveresize_window = intern_atom(conn, b"_NET_MOVERESIZE_WINDOW")?;
     let gravity_static = 10_u32;
     let moveresize_flags = gravity_static | (1 << 8) | (1 << 9) | (1 << 12);
     conn.send_event(
@@ -218,8 +253,6 @@ fn configure_x11_window(raw_id: u64) -> Result<(), String> {
         ),
     )
     .map_err(|error| error.to_string())?;
-
-    conn.flush().map_err(|error| error.to_string())?;
     Ok(())
 }
 

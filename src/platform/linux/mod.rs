@@ -45,8 +45,8 @@ impl Backend {
                 let raw = value
                     .map(|cpu| {
                         vec![format!(
-                            "total_jiffies={} idle_jiffies={} logical_cpu_count={}",
-                            cpu.total_jiffies, cpu.idle_jiffies, cpu.logical_cpu_count
+                            "total_time_units={} idle_time_units={} logical_cpu_count={}",
+                            cpu.total_time_units, cpu.idle_time_units, cpu.logical_cpu_count
                         )]
                     })
                     .unwrap_or_default();
@@ -96,8 +96,11 @@ impl Backend {
                     .iter()
                     .map(|process| {
                         format!(
-                            "pid={} name={:?} cpu_ticks={} rss_bytes={}",
-                            process.process.pid, process.name, process.cpu_ticks, process.rss_bytes
+                            "pid={} name={:?} cpu_time_units={} rss_bytes={}",
+                            process.process.pid,
+                            process.name,
+                            process.cpu_time_units,
+                            process.rss_bytes
                         )
                     })
                     .collect();

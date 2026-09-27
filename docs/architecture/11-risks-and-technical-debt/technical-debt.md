@@ -41,4 +41,5 @@ Technical debt here means current structure that makes future reasonable change 
 | Debt | Status | Why it matters |
 | --- | --- | --- |
 | [Process-domain projection](technical-debt/process-domain-projection.md) | Active | Process data is projected per metric, which will complicate richer process-oriented frontends. |
+| [Pinned Iced WebGL workaround](technical-debt/pinned-iced-webgl-workaround.md) | Active | Browser Canvas correctness currently depends on a maintained fork of `iced_widget`. |
 | [Low-risk cleanup queue](technical-debt/low-risk-cleanups.md) | Active | Small local cleanups are intentionally deferred but should not be promoted into separate architecture debts. |

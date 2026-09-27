@@ -44,6 +44,10 @@ impl PanelState {
         Some(next_height)
     }
 
+    pub fn surface_height(&self) -> u32 {
+        self.surface_height
+    }
+
     pub fn view<'a, Message: 'a>(&'a self, dashboard: Dashboard<'a>) -> Element<'a, Message> {
         view(dashboard, &self.layout)
     }

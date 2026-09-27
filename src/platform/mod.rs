@@ -2,6 +2,8 @@ use std::str::FromStr;
 
 use crate::core::model::CollectionStatus;
 
+pub mod desktop;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DesktopCommand {
     Quit,
@@ -64,7 +66,7 @@ pub struct ProbeReport {
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]
-pub use linux::{Backend, desktop};
+pub use linux::Backend;
 
 #[cfg(target_os = "windows")]
 mod windows;

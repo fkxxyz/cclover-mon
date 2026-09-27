@@ -8,11 +8,9 @@ use crate::presentation::Dashboard;
 use crate::ui;
 use crate::web::StateHub;
 
-#[cfg_attr(target_os = "linux", iced_layershell::to_layer_message)]
 #[derive(Debug, Clone)]
 pub enum Message {
     Monitor(MonitorState),
-    Desktop(DesktopCommand),
 }
 
 pub struct App {
@@ -31,12 +29,61 @@ pub fn boot(web_state: Option<StateHub>) -> App {
     }
 }
 
-#[cfg(target_os = "linux")]
-pub fn boot_x11(web_state: Option<StateHub>) -> (App, Task<Message>) {
-    (
-        boot(web_state),
-        crate::platform::desktop::configure_x11_task(),
-    )
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[derive(Clone)]
+pub struct DesktopApp {
+    web_state: Option<StateHub>,
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+impl DesktopApp {
+    pub fn new(web_state: Option<StateHub>) -> Self {
+        Self { web_state }
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+impl crate::platform::desktop::DesktopApplication for DesktopApp {
+    type State = App;
+    type Message = Message;
+
+    fn boot(&self) -> (Self::State, Task<Self::Message>) {
+        (boot(self.web_state.clone()), Task::none())
+    }
+
+    fn update(&self, state: &mut Self::State, message: Self::Message) -> Task<Self::Message> {
+        update(state, message)
+    }
+
+    fn view<'a>(&self, state: &'a Self::State) -> Element<'a, Self::Message> {
+        view(state)
+    }
+
+    fn subscription(&self, state: &Self::State) -> Subscription<Self::Message> {
+        subscription(state)
+    }
+
+    fn theme(&self, _state: &Self::State) -> iced::Theme {
+        ui::theme()
+    }
+
+    fn initial_surface_size(&self) -> (u32, u32) {
+        (ui::PANEL_WIDTH, ui::INITIAL_PANEL_HEIGHT)
+    }
+
+    fn surface_size(&self, state: &Self::State) -> (u32, u32) {
+        (ui::PANEL_WIDTH, state.panel.surface_height())
+    }
+
+    fn handle_desktop_command(
+        &self,
+        _state: &mut Self::State,
+        command: DesktopCommand,
+    ) -> Task<Self::Message> {
+        match command {
+            DesktopCommand::Quit => iced::exit(),
+        }
+    }
 }
 
 pub fn update(app: &mut App, message: Message) -> Task<Message> {
@@ -46,23 +93,9 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
                 web_state.publish(&state);
             }
             app.state = state;
-            if let Some(next_height) = app.panel.update(Dashboard::new(&app.state)) {
-                #[cfg(target_os = "linux")]
-                {
-                    if crate::platform::desktop::is_x11() {
-                        return crate::platform::desktop::resize_x11_task(
-                            ui::PANEL_WIDTH,
-                            next_height,
-                        );
-                    }
-                    return Task::done(Message::SizeChange((ui::PANEL_WIDTH, next_height)));
-                }
-            }
+            app.panel.update(Dashboard::new(&app.state));
             Task::none()
         }
-        Message::Desktop(DesktopCommand::Quit) => iced::exit(),
-        #[cfg(target_os = "linux")]
-        _ => Task::none(),
     }
 }
 
@@ -71,18 +104,7 @@ pub fn view(app: &App) -> Element<'_, Message> {
 }
 
 pub fn subscription(_app: &App) -> Subscription<Message> {
-    let monitor = Subscription::run(monitor_stream);
-
-    #[cfg(target_os = "linux")]
-    {
-        Subscription::batch([
-            monitor,
-            crate::platform::desktop::subscription().map(Message::Desktop),
-        ])
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    monitor
+    Subscription::run(monitor_stream)
 }
 
 fn monitor_stream() -> impl iced::futures::Stream<Item = Message> {

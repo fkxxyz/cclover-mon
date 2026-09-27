@@ -15,19 +15,23 @@ facets:
 
 # Desktop Integration Lifecycle
 
-Desktop integration has two independent native responsibilities: hosting the monitor surface and exposing platform shell integration such as a system tray item. Both remain behind the platform boundary while application lifecycle semantics remain platform-neutral.
+Desktop integration has two independent native responsibilities: hosting the monitor surface and exposing platform shell integration such as a system tray item. Both remain behind the platform boundary while application lifecycle semantics and desired surface geometry remain platform-neutral. Every native desktop target enters the same platform-owned host contract; only the host implementation differs by OS/display protocol.
 
 Normal startup is:
 
 ```text
 application composition root
-  ├── select/create native monitor surface host
+        ↓
+platform desktop host
+  ├── select native monitor-surface protocol
+  ├── create the protocol-specific runtime/window
+  ├── adapt application lifecycle + desired surface geometry
   └── start native tray integration
           ↓
       register icon and native menu
 ```
 
-On Linux, X11 versus Wayland selection applies to the monitor surface only. Both session types use the same StatusNotifierItem tray implementation over the desktop session D-Bus.
+On Linux, X11 versus Wayland selection applies to the monitor surface only. The application does not branch on that choice. Both session types use the same StatusNotifierItem tray implementation over the desktop session D-Bus.
 
 Native tray callbacks translate user intent into platform-neutral `DesktopCommand` values. They do not terminate the process or mutate Iced state directly:
 
@@ -42,6 +46,8 @@ application update loop
         ↓
 normal application/runtime shutdown
 ```
+
+When application state changes the desired monitor-surface size, the application only updates that platform-neutral geometry. The desktop host compares the requested size with the active host size and realizes the change natively: Linux uses a layer-shell size action on Wayland or an Iced/X11 window resize on X11, while Windows uses its native Iced window host. Protocol-specific resize messages never enter the application message enum.
 
 Future Windows notification-area integration must emit the same command rather than exposing Win32 menu identifiers or handles to the application lifecycle.
 

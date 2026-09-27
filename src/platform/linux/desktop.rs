@@ -1,5 +1,7 @@
 use iced::futures::SinkExt;
-use iced::{Point, Size, Subscription, Task, window};
+use iced::{Color, Element, Point, Size, Subscription, Task, Theme, window};
+use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
+use iced_layershell::settings::{LayerShellSettings, Settings};
 use ksni::blocking::TrayMethods as _;
 use x11rb::connection::Connection;
 use x11rb::properties::WmHints;
@@ -10,14 +12,157 @@ use x11rb::protocol::xproto::{
 use x11rb::rust_connection::RustConnection;
 use x11rb::wrapper::ConnectionExt as _;
 
-use crate::platform::DesktopCommand;
+use crate::platform::{DesktopCommand, desktop::DesktopApplication};
 
 const PANEL_MARGIN: f32 = 16.0;
 
+struct HostedState<A: DesktopApplication> {
+    adapter: A,
+    app: A::State,
+    surface_size: (u32, u32),
+    display_server: DisplayServer,
+}
+
+#[iced_layershell::to_layer_message]
+#[derive(Debug, Clone)]
+enum HostMessage<Message> {
+    App(Message),
+    Desktop(DesktopCommand),
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DisplayServer {
+enum DisplayServer {
     Wayland,
     X11,
+}
+
+pub fn run<A: DesktopApplication>(app: A) -> Result<(), Box<dyn std::error::Error>> {
+    match display_server()? {
+        DisplayServer::Wayland => run_wayland(app)?,
+        DisplayServer::X11 => run_x11(app)?,
+    }
+    Ok(())
+}
+
+fn run_wayland<A: DesktopApplication>(app: A) -> Result<(), iced_layershell::Error> {
+    let initial_size = app.initial_surface_size();
+    iced_layershell::disable_clipboard();
+
+    iced_layershell::application(
+        {
+            let app = app.clone();
+            move || host_boot(app.clone(), DisplayServer::Wayland)
+        },
+        "cclover-mon",
+        host_update::<A>,
+        host_view::<A>,
+    )
+    .subscription(host_subscription::<A>)
+    .theme(host_theme::<A>)
+    .style(|_, _| iced::theme::Style {
+        background_color: Color::TRANSPARENT,
+        text_color: Color::WHITE,
+    })
+    .settings(Settings {
+        layer_settings: LayerShellSettings {
+            anchor: Anchor::Top | Anchor::Right,
+            layer: Layer::Bottom,
+            exclusive_zone: 0,
+            size: Some(initial_size),
+            margin: (PANEL_MARGIN as i32, PANEL_MARGIN as i32, 0, 0),
+            keyboard_interactivity: KeyboardInteractivity::None,
+            ..LayerShellSettings::default()
+        },
+        ..Settings::default()
+    })
+    .run()
+}
+
+fn run_x11<A: DesktopApplication>(app: A) -> iced::Result {
+    let (width, height) = app.initial_surface_size();
+    iced::application(
+        {
+            let app = app.clone();
+            move || host_boot(app.clone(), DisplayServer::X11)
+        },
+        host_update::<A>,
+        host_view::<A>,
+    )
+    .subscription(host_subscription::<A>)
+    .theme(host_theme::<A>)
+    .style(|_, _| iced::theme::Style {
+        background_color: Color::TRANSPARENT,
+        text_color: Color::WHITE,
+    })
+    .window(x11_window_settings(width, height))
+    .run()
+}
+
+fn host_boot<A: DesktopApplication>(
+    adapter: A,
+    display_server: DisplayServer,
+) -> (HostedState<A>, Task<HostMessage<A::Message>>) {
+    let (state, app_task) = adapter.boot();
+    let surface_size = adapter.surface_size(&state);
+    let host_task = match display_server {
+        DisplayServer::Wayland => Task::none(),
+        DisplayServer::X11 => configure_x11_task(),
+    };
+
+    (
+        HostedState {
+            adapter,
+            app: state,
+            surface_size,
+            display_server,
+        },
+        Task::batch([app_task.map(HostMessage::App), host_task]),
+    )
+}
+
+fn host_update<A: DesktopApplication>(
+    state: &mut HostedState<A>,
+    message: HostMessage<A::Message>,
+) -> Task<HostMessage<A::Message>> {
+    let app_task = match message {
+        HostMessage::App(message) => state.adapter.update(&mut state.app, message),
+        HostMessage::Desktop(command) => state
+            .adapter
+            .handle_desktop_command(&mut state.app, command),
+        _ => Task::none(),
+    }
+    .map(HostMessage::App);
+
+    let next_size = state.adapter.surface_size(&state.app);
+    if next_size == state.surface_size {
+        return app_task;
+    }
+    state.surface_size = next_size;
+
+    let resize_task = match state.display_server {
+        DisplayServer::Wayland => Task::done(HostMessage::SizeChange(next_size)),
+        DisplayServer::X11 => resize_x11_task(next_size.0, next_size.1),
+    };
+    Task::batch([app_task, resize_task])
+}
+
+fn host_view<A: DesktopApplication>(
+    state: &HostedState<A>,
+) -> Element<'_, HostMessage<A::Message>> {
+    state.adapter.view(&state.app).map(HostMessage::App)
+}
+
+fn host_subscription<A: DesktopApplication>(
+    state: &HostedState<A>,
+) -> Subscription<HostMessage<A::Message>> {
+    Subscription::batch([
+        state.adapter.subscription(&state.app).map(HostMessage::App),
+        subscription().map(HostMessage::Desktop),
+    ])
+}
+
+fn host_theme<A: DesktopApplication>(state: &HostedState<A>) -> Theme {
+    state.adapter.theme(&state.app)
 }
 
 #[derive(Clone)]
@@ -55,7 +200,7 @@ impl ksni::Tray for TrayIcon {
     }
 }
 
-pub fn subscription() -> Subscription<DesktopCommand> {
+fn subscription() -> Subscription<DesktopCommand> {
     Subscription::run(tray_stream)
 }
 
@@ -80,7 +225,7 @@ fn tray_stream() -> impl iced::futures::Stream<Item = DesktopCommand> {
     })
 }
 
-pub fn display_server() -> Result<DisplayServer, String> {
+fn display_server() -> Result<DisplayServer, String> {
     if non_empty_env("WAYLAND_DISPLAY") {
         return Ok(DisplayServer::Wayland);
     }
@@ -90,11 +235,7 @@ pub fn display_server() -> Result<DisplayServer, String> {
     Err("no supported display server found: WAYLAND_DISPLAY and DISPLAY are both unset".to_owned())
 }
 
-pub fn is_x11() -> bool {
-    matches!(display_server(), Ok(DisplayServer::X11))
-}
-
-pub fn x11_window_settings(width: u32, height: u32) -> window::Settings {
+fn x11_window_settings(width: u32, height: u32) -> window::Settings {
     window::Settings {
         size: Size::new(width as f32, height as f32),
         position: window::Position::SpecificWith(top_right_position),
@@ -110,7 +251,7 @@ pub fn x11_window_settings(width: u32, height: u32) -> window::Settings {
     }
 }
 
-pub fn configure_x11_task<Message: Send + 'static>() -> Task<Message> {
+fn configure_x11_task<Message: Send + 'static>() -> Task<Message> {
     window::latest()
         .and_then(|id| window::raw_id::<Message>(id))
         .then(|raw_id| {
@@ -123,7 +264,7 @@ pub fn configure_x11_task<Message: Send + 'static>() -> Task<Message> {
         .discard()
 }
 
-pub fn resize_x11_task<Message: Send + 'static>(width: u32, height: u32) -> Task<Message> {
+fn resize_x11_task<Message: Send + 'static>(width: u32, height: u32) -> Task<Message> {
     window::latest().and_then(move |id| window::resize(id, Size::new(width as f32, height as f32)))
 }
 

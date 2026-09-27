@@ -1,7 +1,10 @@
 use iced::{Point, Size, Task, window};
 use x11rb::connection::Connection;
 use x11rb::properties::WmHints;
-use x11rb::protocol::xproto::{Atom, AtomEnum, ConnectionExt as _, EventMask, PropMode};
+use x11rb::protocol::shape::{ConnectionExt as _, SK, SO};
+use x11rb::protocol::xproto::{
+    Atom, AtomEnum, ClipOrdering, ConnectionExt as _, EventMask, PropMode,
+};
 use x11rb::rust_connection::RustConnection;
 use x11rb::wrapper::ConnectionExt as _;
 
@@ -71,6 +74,17 @@ fn configure_x11_window(raw_id: u64) -> Result<(), String> {
     let window = u32::try_from(raw_id).map_err(|_| format!("invalid X11 window id {raw_id}"))?;
     let (conn, screen_num) = RustConnection::connect(None).map_err(|error| error.to_string())?;
     let root = conn.setup().roots[screen_num].root;
+
+    conn.shape_rectangles(
+        SO::SET,
+        SK::INPUT,
+        ClipOrdering::UNSORTED,
+        window,
+        0,
+        0,
+        &[],
+    )
+    .map_err(|error| error.to_string())?;
 
     let net_wm_state = intern_atom(&conn, b"_NET_WM_STATE")?;
     let states = [

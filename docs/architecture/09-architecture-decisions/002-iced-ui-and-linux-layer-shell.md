@@ -28,7 +28,7 @@ On Linux:
 
 On Windows, run the same Iced frontend through its normal native window path, with Win32-specific window behavior kept behind the platform desktop-integration boundary.
 
-Wayland preserves the inherited top-right placement, bottom layer, and zero exclusive zone. X11 should reproduce the same user-visible intent as closely as EWMH/window-manager semantics permit: fixed top-right placement, no decorations, no taskbar/pager entry, no focus stealing, transparent background, and desktop-like stacking.
+Wayland preserves the inherited top-right placement, bottom layer, and zero exclusive zone. X11 should reproduce the same user-visible intent as closely as EWMH/window-manager semantics permit: fixed top-right placement, no decorations, no taskbar/pager entry, no focus stealing, transparent background, and desktop-like stacking. Across desktop hosts, the monitor surface remains pointer-transparent: it is visible but does not participate in pointer hit-testing, so input reaches the desktop or window beneath it.
 
 ## Rationale
 
@@ -40,7 +40,7 @@ Both dependencies use permissive licensing and remain owned by Cargo in the sing
 
 ## Consequences
 
-- Iced desktop drawing code is shared across Linux Wayland, Linux X11, and Windows; native desktop integration owns only window hosting and window-manager semantics.
+- Iced desktop drawing code is shared across Linux Wayland, Linux X11, and Windows; native desktop integration owns window hosting, stacking, and pointer-input-region semantics.
 - Linux runtime protocol selection belongs to the platform desktop-integration boundary rather than `main.rs` or the UI.
 - Sampling remains independent from rendering; renderer-neutral presentation is derived from completed shared `MonitorState` values before Iced rendering.
 - Iced-specific layout and widgets are not contracts for non-desktop frontends.

@@ -41,6 +41,7 @@ facets:
 | Diagnostic overhead | Development observability does not require a background metrics service, persistent logging pipeline, subprocess polling, or a second metric transport. |
 | Web monitor opt-in | Starting without `--http` opens no HTTP listener. Enabling HTTP with no explicit bind listens only on `127.0.0.1:9847`; LAN exposure requires an explicit bind address. |
 | Web sampling authority | Any number of browser clients reuse completed states from the native sampler; they do not add collectors or change sampling cadence. Slow clients cannot create unbounded state queues. |
+| Web transport exposure | Adding an internal core state field does not make it remotely visible or alter the HTTP/SSE schema unless the explicit Web transport projection is deliberately updated. |
 | Web UI parity | A change to Iced panel structure, graph drawing, color, spacing, or pixel layout is made once and is used by both native and browser/WASM runtimes. |
 | Event-driven I/O attribution | Per-process disk-device and network-interface attribution is collected without periodic process-wide subprocess polling; kernel-side state and userspace map iteration remain bounded. |
 | Attribution correctness | Concurrent controlled workloads can distinguish which TGID generated disk and network activity and which device/interface receives the attribution; whole-system totals alone are insufficient validation. |

@@ -3,6 +3,7 @@
 pub mod core;
 pub mod presentation;
 pub mod ui;
+pub mod web_transport;
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 pub mod app;

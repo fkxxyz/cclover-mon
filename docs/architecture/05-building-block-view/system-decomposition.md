@@ -66,7 +66,7 @@ Desktop shell actions cross the platform boundary only as small platform-neutral
 
 Renderer-specific layout has one authority inside each frontend. For the shared Iced panel, one `PanelLayout` structure determines which blocks render and the requested panel height. Linux Wayland/X11 hosts and the Web/WASM runtime consume the same layout; protocol-specific placement and browser canvas hosting remain outside the UI. Pixel dimensions do not belong to the renderer-neutral presentation model.
 
-The native application owns the only sampler. Optional HTTP delivery observes completed `MonitorState` values after sampling, keeps one serialized latest state plus bounded per-client delivery, and exposes it through read-only SSE. Browser/WASM code contains no platform backend or collector and feeds received state into the same Iced presentation/view path.
+The native application owns the only sampler. Optional HTTP delivery observes completed `MonitorState` values after sampling, projects them into an explicit Web transport schema containing only remotely rendered panel state, keeps one serialized latest projection plus bounded per-client delivery, and exposes it through read-only SSE. Browser/WASM code contains no platform backend or collector; it deserializes that projection back into panel-consumable state and feeds it into the same Iced presentation/view path. Core model types themselves are not the wire schema.
 
 Within a platform backend, dependencies point from the backend to independent metric collectors:
 

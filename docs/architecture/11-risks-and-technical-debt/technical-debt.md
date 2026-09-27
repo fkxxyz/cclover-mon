@@ -27,7 +27,6 @@ Technical debt here means current structure that makes future reasonable change 
 | [Collector outcome semantics](technical-debt/collector-outcome-semantics.md) | Active | Empty, unavailable, partial failure, and diagnostics are not represented by one typed contract. |
 | [Desktop hosting boundary](technical-debt/desktop-hosting-boundary.md) | Active | Linux display-protocol policy leaks into application composition and has multiple authorities. |
 | [Architecture enforcement](technical-debt/architecture-enforcement.md) | Active | Important dependency and validation rules rely too heavily on developer memory and manual execution. |
-| [Web transport schema coupling](technical-debt/web-transport-schema-coupling.md) | Active | Internal `MonitorState` fields automatically become part of the external Web payload and exposure surface. |
 
 ## P2
 

@@ -6,6 +6,7 @@ use web_sys::{EventSource, MessageEvent};
 use crate::core::model::MonitorState;
 use crate::presentation::Dashboard;
 use crate::ui;
+use crate::web_transport::WebMonitorState;
 
 #[derive(Debug, Clone)]
 enum Message {
@@ -75,10 +76,10 @@ fn monitor_stream() -> impl iced::futures::Stream<Item = Message> {
             let Some(payload) = event.data().as_string() else {
                 return;
             };
-            let Ok(state) = serde_json::from_str::<MonitorState>(&payload) else {
+            let Ok(state) = serde_json::from_str::<WebMonitorState>(&payload) else {
                 return;
             };
-            let _ = output.try_send(Message::Monitor(state));
+            let _ = output.try_send(Message::Monitor(state.into()));
         });
         source.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
 

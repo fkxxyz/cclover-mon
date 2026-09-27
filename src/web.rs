@@ -7,6 +7,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crate::core::model::MonitorState;
+use crate::web_transport::WebMonitorState;
 
 pub const DEFAULT_HTTP_BIND: SocketAddr =
     SocketAddr::new(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), 9847);
@@ -59,9 +60,10 @@ struct HubState {
 
 impl StateHub {
     fn new() -> Self {
-        let latest: Arc<str> = serde_json::to_string(&MonitorState::default())
-            .expect("default monitor state must serialize")
-            .into();
+        let latest: Arc<str> =
+            serde_json::to_string(&WebMonitorState::from(&MonitorState::default()))
+                .expect("default monitor state must serialize")
+                .into();
         Self {
             inner: Arc::new(Mutex::new(HubState {
                 latest,
@@ -71,7 +73,7 @@ impl StateHub {
     }
 
     pub fn publish(&self, state: &MonitorState) {
-        let Ok(serialized) = serde_json::to_string(state) else {
+        let Ok(serialized) = serde_json::to_string(&WebMonitorState::from(state)) else {
             eprintln!("cclover-mon: failed to serialize monitor state for HTTP clients");
             return;
         };
@@ -361,7 +363,8 @@ mod tests {
     fn state_hub_sends_latest_then_updates() {
         let hub = StateHub::new();
         let (initial, receiver) = hub.subscribe();
-        let initial_state: MonitorState = serde_json::from_str(&initial).unwrap();
+        let initial_state: WebMonitorState = serde_json::from_str(&initial).unwrap();
+        let initial_state = MonitorState::from(initial_state);
         assert_eq!(initial_state.history_capacity, 0);
 
         let updated = MonitorState {
@@ -370,7 +373,8 @@ mod tests {
         };
         hub.publish(&updated);
         let received = receiver.recv_timeout(Duration::from_millis(50)).unwrap();
-        let received: MonitorState = serde_json::from_str(&received).unwrap();
+        let received: WebMonitorState = serde_json::from_str(&received).unwrap();
+        let received = MonitorState::from(received);
         assert_eq!(received.history_capacity, 42);
     }
 

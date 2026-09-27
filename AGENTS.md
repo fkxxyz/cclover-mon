@@ -93,9 +93,19 @@ bun archdoc.ts check
 
 ## Validation
 
+Run the fast architecture gate during implementation:
+
+```bash
+bun archgate.ts
+```
+
+It checks source dependency direction only and is intentionally millisecond-scale; do not add compilation, formatting, Clippy, or runtime checks to this gate.
+
 Run the complete project validation set after implementation changes:
 
 ```bash
+bun archgate.ts
+bun test archgate.test.ts
 cargo fmt --check
 cargo test
 cargo clippy --all-targets --all-features -- -D warnings

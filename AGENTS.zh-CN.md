@@ -93,9 +93,19 @@ bun archdoc.ts check
 
 ## 验证
 
+实现过程中运行快速架构门禁：
+
+```bash
+bun archgate.ts
+```
+
+它只检查源码依赖方向，并刻意保持毫秒级；不要把编译、格式化、Clippy 或 runtime 检查塞进这个门禁。
+
 实现改动后运行完整项目验证：
 
 ```bash
+bun archgate.ts
+bun test archgate.test.ts
 cargo fmt --check
 cargo test
 cargo clippy --all-targets --all-features -- -D warnings

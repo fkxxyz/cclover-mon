@@ -16,15 +16,15 @@ facets:
 
 ## Status
 
-Active — P1.
+Active — P1; static dependency direction partially mitigated.
 
 ## Problem
 
-Several important architecture and validation rules exist primarily as prose and developer workflow rather than executable constraints. The current single-crate structure and repository automation do not reliably fail when dependency direction or required validation is violated.
+Several important architecture and validation rules still exist primarily as prose and developer workflow rather than executable constraints. Static dependency direction now has a dedicated fast gate, but the wider required validation set and cross-layer behavioral contracts are not automatically enforced.
 
 ## Evidence
 
-Rules such as `core` not depending on `platform`, presentation remaining renderer-neutral, and native protocols staying behind platform boundaries are documented but not mechanically checked. Repository validation commands are documented, but there is no repository CI/workflow that consistently executes the full applicable quality gate on changes. Cross-layer contracts have limited automated coverage compared with local parser/derivation tests.
+`bun archgate.ts` now scans Rust source dependencies and fails on forbidden top-level edges among `core`, `platform`, `presentation`, and `ui`; its focused Bun tests cover allowed/forbidden edges, braced imports, relative `super` paths, comment/string filtering, the live repository, and a violating fixture. Repository validation commands are still documented workflow rather than CI-enforced automation, and cross-layer contracts have limited automated coverage compared with local parser/derivation tests.
 
 ## Maintenance impact
 
@@ -36,8 +36,8 @@ Important architecture invariants and repeatable validation steps should fail me
 
 ## Resolution direction
 
-Add lightweight dependency/boundary checks and automated validation suitable for the repository. Prefer targeted checks over splitting crates solely for enforcement. Add contract-level tests where a documented boundary has meaningful behavior not covered by local unit tests.
+Keep `archgate.ts` narrowly focused and millisecond-scale; do not add compilation, formatting, Clippy, or runtime work to it. Add further targeted mechanical checks only when an architecture invariant has a similarly cheap, deterministic representation. Full repository validation automation may be added later when the project adopts CI. Prefer targeted checks over splitting crates solely for enforcement, and add contract-level tests where a documented boundary has meaningful behavior not covered by local unit tests.
 
 ## Exit criteria
 
-Critical dependency-direction violations and required repository validation are automatically detectable, and normal contribution paths exercise the quality gate without relying on developer memory alone.
+Critical dependency-direction violations remain mechanically detectable with millisecond-scale latency. The debt can close when the remaining required repository validation and important cross-layer behavioral contracts have proportionate mechanical enforcement appropriate to the project's contribution workflow.

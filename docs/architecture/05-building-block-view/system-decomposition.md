@@ -60,6 +60,8 @@ app composition root ───────→ frontend
 
 The application composition root selects a platform backend and supplies it to the core sampler. `core` must not depend on `platform`; `platform` may depend on core-owned contracts and model types. Platform-specific types do not cross into core, presentation, or shared frontends.
 
+These top-level source dependency directions are mechanically checked by the repository's millisecond-scale `bun archgate.ts` gate. The gate protects only static dependency direction; it does not replace compilation, Clippy, runtime validation, or architecture-document validation.
+
 Desktop shell actions cross the platform boundary only as small platform-neutral application commands such as `DesktopCommand::Quit`. Native tray protocols, menu identifiers, D-Bus objects, Win32 handles, and shell callbacks remain inside platform desktop integration. The application owns lifecycle semantics and performs normal shutdown; a platform tray callback does not terminate the process directly.
 
 Renderer-specific layout has one authority inside each frontend. For the Iced desktop panel, one `PanelLayout` structure determines both which blocks render and the requested desktop-window height. Linux Wayland and X11 hosts consume that same size; protocol-specific placement remains outside the UI. Pixel dimensions do not belong to the renderer-neutral presentation model.

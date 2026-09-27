@@ -26,6 +26,8 @@ Prefer direct `/proc`, `/sys`, netlink, ioctl, sockets, and D-Bus interfaces acc
 
 Linux desktop integration is a platform responsibility separate from shared Iced drawing. It selects Wayland layer-shell or X11 at runtime from the available display environment. Wayland owns layer-shell anchoring/layer/exclusive-zone and input-region behavior; X11 owns X11/EWMH window-manager semantics and X11 input-shape behavior. The monitor surface must expose an empty pointer-input region so clicks and pointer interaction pass through to surfaces beneath it. On X11 this is enforced through the X server input shape rather than window-manager hints. X11 requests `SKIP_TASKBAR`, `SKIP_PAGER`, and `BELOW` through standard `_NET_WM_STATE` client messages after mapping, while also publishing the corresponding property values as a compatibility hint; do not branch on individual window-manager names. Neither protocol may leak into `ui`, `presentation`, or core metric types.
 
+Linux system-tray integration uses StatusNotifierItem over the desktop session D-Bus and is independent of X11-versus-Wayland monitor hosting. Tray callbacks translate native menu activation into platform-neutral desktop commands; they do not call `process::exit`, manipulate Iced widgets, or expose D-Bus types outside the platform boundary. Failure to register the tray is a degradable desktop-integration failure: emit a diagnostic and keep the monitor running.
+
 Partition native collection by metric responsibility. Each metric collector owns its OS interaction, parsing, and metric-specific mutable state. The Linux `Backend` composes those collectors into the core-owned `RawSnapshot`; it does not own metric-specific collection algorithms or state.
 
 Keep parsing of textual or binary OS formats separable from native IO so representative fixtures can exercise parsers without relying on the developer machine's live `/proc` or `/sys` contents. Development probes must invoke the same production collector path used by normal sampling rather than maintain a parallel collection implementation.
@@ -33,6 +35,8 @@ Keep parsing of textual or binary OS formats separable from native IO so represe
 ## Windows
 
 Prefer native Win32, NT APIs, PDH, ETW, IP Helper, COM, and device APIs according to the metric source.
+
+Future Windows notification-area integration belongs behind the same desktop-integration boundary. Native shell handles and menu identifiers remain platform-private, while user intent is translated into the same platform-neutral desktop commands consumed by the application lifecycle.
 
 ## C++ interoperability
 

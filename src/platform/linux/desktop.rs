@@ -1,4 +1,6 @@
-use iced::{Point, Size, Task, window};
+use iced::futures::SinkExt;
+use iced::{Point, Size, Subscription, Task, window};
+use ksni::blocking::TrayMethods as _;
 use x11rb::connection::Connection;
 use x11rb::properties::WmHints;
 use x11rb::protocol::shape::{ConnectionExt as _, SK, SO};
@@ -8,12 +10,74 @@ use x11rb::protocol::xproto::{
 use x11rb::rust_connection::RustConnection;
 use x11rb::wrapper::ConnectionExt as _;
 
+use crate::platform::DesktopCommand;
+
 const PANEL_MARGIN: f32 = 16.0;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DisplayServer {
     Wayland,
     X11,
+}
+
+#[derive(Clone)]
+struct TrayIcon {
+    commands: smol::channel::Sender<DesktopCommand>,
+}
+
+impl ksni::Tray for TrayIcon {
+    fn id(&self) -> String {
+        "cclover-mon".to_owned()
+    }
+
+    fn title(&self) -> String {
+        "cclover-mon".to_owned()
+    }
+
+    fn icon_name(&self) -> String {
+        "utilities-system-monitor".to_owned()
+    }
+
+    fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
+        use ksni::menu::StandardItem;
+
+        vec![
+            StandardItem {
+                label: "Quit".to_owned(),
+                icon_name: "application-exit".to_owned(),
+                activate: Box::new(|tray: &mut TrayIcon| {
+                    let _ = tray.commands.try_send(DesktopCommand::Quit);
+                }),
+                ..Default::default()
+            }
+            .into(),
+        ]
+    }
+}
+
+pub fn subscription() -> Subscription<DesktopCommand> {
+    Subscription::run(tray_stream)
+}
+
+fn tray_stream() -> impl iced::futures::Stream<Item = DesktopCommand> {
+    iced::stream::channel(1, async move |mut output| {
+        let (commands, receiver) = smol::channel::bounded(4);
+        let tray = TrayIcon { commands };
+        let _handle = match tray.spawn() {
+            Ok(handle) => handle,
+            Err(error) => {
+                eprintln!("cclover-mon: system tray unavailable: {error}");
+                std::future::pending::<()>().await;
+                unreachable!();
+            }
+        };
+
+        while let Ok(command) = receiver.recv().await {
+            if output.send(command).await.is_err() {
+                break;
+            }
+        }
+    })
 }
 
 pub fn display_server() -> Result<DisplayServer, String> {

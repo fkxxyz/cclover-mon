@@ -1,6 +1,11 @@
 use std::str::FromStr;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DesktopCommand {
+    Quit,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProbeKind {
     Cpu,
     Memory,

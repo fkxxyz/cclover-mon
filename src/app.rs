@@ -5,7 +5,7 @@ use iced::{Element, Subscription, Task};
 
 use crate::core::model::MonitorState;
 use crate::core::{SAMPLE_INTERVAL, Sampler};
-use crate::platform::Backend;
+use crate::platform::{Backend, DesktopCommand};
 use crate::presentation::Dashboard;
 use crate::ui;
 
@@ -13,6 +13,7 @@ use crate::ui;
 #[derive(Debug, Clone)]
 pub enum Message {
     Monitor(MonitorState),
+    Desktop(DesktopCommand),
 }
 
 pub struct App {
@@ -58,6 +59,7 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
             }
             Task::none()
         }
+        Message::Desktop(DesktopCommand::Quit) => iced::exit(),
         #[cfg(target_os = "linux")]
         _ => Task::none(),
     }
@@ -68,7 +70,18 @@ pub fn view(app: &App) -> Element<'_, Message> {
 }
 
 pub fn subscription(_app: &App) -> Subscription<Message> {
-    Subscription::run(monitor_stream)
+    let monitor = Subscription::run(monitor_stream);
+
+    #[cfg(target_os = "linux")]
+    {
+        Subscription::batch([
+            monitor,
+            crate::platform::desktop::subscription().map(Message::Desktop),
+        ])
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    monitor
 }
 
 fn monitor_stream() -> impl iced::futures::Stream<Item = Message> {

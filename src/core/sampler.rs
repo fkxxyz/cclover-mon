@@ -129,22 +129,23 @@ fn derive(previous: Option<&RawSnapshot>, current: &RawSnapshot) -> SystemSnapsh
         })
         .unwrap_or(1.0);
 
-    let old_net: HashMap<&str, &NetworkCounter> = previous
+    let old_net: HashMap<&NetworkId, &NetworkCounter> = previous
         .into_iter()
         .flat_map(|snapshot| snapshot.networks.iter())
-        .map(|x| (x.name.as_str(), x))
+        .map(|x| (&x.id, x))
         .collect();
     out.networks = current
         .networks
         .iter()
         .map(|item| {
-            let (down, up) = old_net.get(item.name.as_str()).map_or((0.0, 0.0), |old| {
+            let (down, up) = old_net.get(&item.id).map_or((0.0, 0.0), |old| {
                 (
                     item.rx_bytes.saturating_sub(old.rx_bytes) as f64 / dt,
                     item.tx_bytes.saturating_sub(old.tx_bytes) as f64 / dt,
                 )
             });
             NetworkSnapshot {
+                id: item.id.clone(),
                 name: item.name.clone(),
                 down_bytes_per_sec: down,
                 up_bytes_per_sec: up,
@@ -152,21 +153,22 @@ fn derive(previous: Option<&RawSnapshot>, current: &RawSnapshot) -> SystemSnapsh
         })
         .collect();
 
-    let old_disk: HashMap<&str, &DiskCounter> = previous
+    let old_disk: HashMap<&DiskId, &DiskCounter> = previous
         .into_iter()
         .flat_map(|snapshot| snapshot.disks.iter())
-        .map(|x| (x.name.as_str(), x))
+        .map(|x| (&x.id, x))
         .collect();
     out.disks = current
         .disks
         .iter()
         .map(|item| {
-            let rate = old_disk.get(item.name.as_str()).map_or(0.0, |old| {
+            let rate = old_disk.get(&item.id).map_or(0.0, |old| {
                 let old_total = old.read_bytes.saturating_add(old.write_bytes);
                 let new_total = item.read_bytes.saturating_add(item.write_bytes);
                 new_total.saturating_sub(old_total) as f64 / dt
             });
             DiskSnapshot {
+                id: item.id.clone(),
                 name: item.name.clone(),
                 bytes_per_sec: rate,
             }
@@ -327,6 +329,14 @@ mod tests {
         ProcessInstanceId { pid, birth_marker }
     }
 
+    fn network_id(key: &str) -> NetworkId {
+        NetworkId::from_opaque_key(key)
+    }
+
+    fn disk_id(key: &str) -> DiskId {
+        DiskId::from_opaque_key(key)
+    }
+
     #[test]
     fn sample_wait_fills_only_the_remaining_interval() {
         assert_eq!(
@@ -365,11 +375,13 @@ mod tests {
                 rss_bytes: 4096,
             }],
             networks: vec![NetworkCounter {
+                id: network_id("network-a"),
                 name: "eth0".into(),
                 rx_bytes: 1_000,
                 tx_bytes: 2_000,
             }],
             disks: vec![DiskCounter {
+                id: disk_id("disk-a"),
                 name: "nvme0n1".into(),
                 read_bytes: 3_000,
                 write_bytes: 4_000,
@@ -445,11 +457,13 @@ mod tests {
                 rss_bytes: 10,
             }],
             networks: vec![NetworkCounter {
+                id: network_id("network-a"),
                 name: "eth0".into(),
                 rx_bytes: 100,
                 tx_bytes: 200,
             }],
             disks: vec![DiskCounter {
+                id: disk_id("disk-a"),
                 name: "sda".into(),
                 read_bytes: 100,
                 write_bytes: 100,
@@ -470,11 +484,13 @@ mod tests {
                 rss_bytes: 20,
             }],
             networks: vec![NetworkCounter {
+                id: network_id("network-a"),
                 name: "eth0".into(),
                 rx_bytes: 300,
                 tx_bytes: 500,
             }],
             disks: vec![DiskCounter {
+                id: disk_id("disk-a"),
                 name: "sda".into(),
                 read_bytes: 300,
                 write_bytes: 500,
@@ -487,6 +503,94 @@ mod tests {
         assert_eq!(out.networks[0].up_bytes_per_sec, 300.0);
         assert_eq!(out.disks[0].bytes_per_sec, 600.0);
         assert!((out.top_cpu[0].percent - 40.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn network_and_disk_rates_follow_identity_not_name() {
+        let t = Instant::now();
+        let old = RawSnapshot {
+            collected_at: t,
+            networks: vec![NetworkCounter {
+                id: network_id("network-a"),
+                name: "eth0".into(),
+                rx_bytes: 100,
+                tx_bytes: 200,
+            }],
+            disks: vec![DiskCounter {
+                id: disk_id("disk-a"),
+                name: "sda".into(),
+                read_bytes: 100,
+                write_bytes: 100,
+            }],
+            ..RawSnapshot::default()
+        };
+        let renamed = RawSnapshot {
+            collected_at: t + Duration::from_secs(1),
+            networks: vec![NetworkCounter {
+                id: network_id("network-a"),
+                name: "lan0".into(),
+                rx_bytes: 300,
+                tx_bytes: 500,
+            }],
+            disks: vec![DiskCounter {
+                id: disk_id("disk-a"),
+                name: "system-disk".into(),
+                read_bytes: 300,
+                write_bytes: 500,
+            }],
+            ..RawSnapshot::default()
+        };
+
+        let out = derive(Some(&old), &renamed);
+
+        assert_eq!(out.networks[0].name, "lan0");
+        assert_eq!(out.networks[0].down_bytes_per_sec, 200.0);
+        assert_eq!(out.networks[0].up_bytes_per_sec, 300.0);
+        assert_eq!(out.disks[0].name, "system-disk");
+        assert_eq!(out.disks[0].bytes_per_sec, 600.0);
+    }
+
+    #[test]
+    fn reused_names_with_new_identity_do_not_inherit_rates() {
+        let t = Instant::now();
+        let old = RawSnapshot {
+            collected_at: t,
+            networks: vec![NetworkCounter {
+                id: network_id("network-old"),
+                name: "eth0".into(),
+                rx_bytes: 10_000,
+                tx_bytes: 20_000,
+            }],
+            disks: vec![DiskCounter {
+                id: disk_id("disk-old"),
+                name: "sda".into(),
+                read_bytes: 10_000,
+                write_bytes: 20_000,
+            }],
+            ..RawSnapshot::default()
+        };
+        let replacement = RawSnapshot {
+            collected_at: t + Duration::from_secs(1),
+            networks: vec![NetworkCounter {
+                id: network_id("network-new"),
+                name: "eth0".into(),
+                rx_bytes: 100,
+                tx_bytes: 200,
+            }],
+            disks: vec![DiskCounter {
+                id: disk_id("disk-new"),
+                name: "sda".into(),
+                read_bytes: 100,
+                write_bytes: 200,
+            }],
+            ..RawSnapshot::default()
+        };
+
+        let out = derive(Some(&old), &replacement);
+
+        assert_eq!(out.networks[0].down_bytes_per_sec, 0.0);
+        assert_eq!(out.networks[0].up_bytes_per_sec, 0.0);
+        assert_eq!(out.disks[0].bytes_per_sec, 0.0);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use std::fs;
 
-use crate::core::model::DiskCounter;
+use crate::core::model::{DiskCounter, DiskId};
 
 use super::diagnostics::{probe_note, report_issue};
 
@@ -15,20 +15,37 @@ pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Vec<DiskCounter> {
     };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        if !entry.path().join("device").exists() {
+        let path = entry.path();
+        if !path.join("device").exists() {
             probe_note(&mut notes, || {
                 format!("{name} skipped: no physical device link")
             });
             continue;
         }
-        let stat = match fs::read_to_string(entry.path().join("stat")) {
+        let Some(device_path) = fs::canonicalize(path.join("device")).ok() else {
+            probe_note(&mut notes, || {
+                format!("{name} skipped: device identity is unreadable")
+            });
+            continue;
+        };
+        let Some(device_number) = fs::read_to_string(path.join("dev"))
+            .ok()
+            .map(|value| value.trim().to_owned())
+        else {
+            probe_note(&mut notes, || {
+                format!("{name} skipped: device number is unreadable")
+            });
+            continue;
+        };
+        let stat = match fs::read_to_string(path.join("stat")) {
             Ok(stat) => stat,
             Err(_) => {
                 probe_note(&mut notes, || format!("{name} skipped: stat is unreadable"));
                 continue;
             }
         };
-        match parse_stat(name.clone(), &stat) {
+        let id = DiskId::from_opaque_key(format!("{}#{device_number}", device_path.display()));
+        match parse_stat(id, name.clone(), &stat) {
             Ok(counter) => rows.push(counter),
             Err(field_count) => {
                 probe_note(&mut notes, || {
@@ -41,7 +58,7 @@ pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Vec<DiskCounter> {
     rows
 }
 
-fn parse_stat(name: String, text: &str) -> Result<DiskCounter, usize> {
+fn parse_stat(id: DiskId, name: String, text: &str) -> Result<DiskCounter, usize> {
     let fields: Vec<&str> = text.split_whitespace().collect();
     if fields.len() < 7 {
         return Err(fields.len());
@@ -56,6 +73,7 @@ fn parse_stat(name: String, text: &str) -> Result<DiskCounter, usize> {
         .unwrap_or(0);
 
     Ok(DiskCounter {
+        id,
         name,
         read_bytes: read_sectors.saturating_mul(512),
         write_bytes: written_sectors.saturating_mul(512),
@@ -68,7 +86,12 @@ mod tests {
 
     #[test]
     fn parses_block_stat_without_live_sysfs() {
-        let counter = parse_stat("nvme0n1".to_owned(), "1 2 3 4 5 6 7 8 9 10 11").unwrap();
+        let counter = parse_stat(
+            DiskId::from_opaque_key("disk-a"),
+            "nvme0n1".to_owned(),
+            "1 2 3 4 5 6 7 8 9 10 11",
+        )
+        .unwrap();
 
         assert_eq!(counter.read_bytes, 3 * 512);
         assert_eq!(counter.write_bytes, 7 * 512);

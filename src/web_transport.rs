@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, VecDeque};
 use serde::{Deserialize, Serialize};
 
 use crate::core::model::{
-    DirectionHistory, DiskSnapshot, MemorySnapshot, MonitorHistory, MonitorState, NetworkSnapshot,
-    ProcessCpu, ProcessMemory, SystemSnapshot, TemperatureSnapshot,
+    DirectionHistory, DiskId, DiskSnapshot, MemorySnapshot, MonitorHistory, MonitorState,
+    NetworkId, NetworkSnapshot, ProcessCpu, ProcessMemory, SystemSnapshot, TemperatureSnapshot,
 };
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -47,6 +47,7 @@ struct WebProcessMemory {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct WebNetworkSnapshot {
+    id: String,
     name: String,
     down_bytes_per_sec: f64,
     up_bytes_per_sec: f64,
@@ -54,6 +55,7 @@ struct WebNetworkSnapshot {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct WebDiskSnapshot {
+    id: String,
     name: String,
     bytes_per_sec: f64,
 }
@@ -216,6 +218,7 @@ impl From<WebProcessMemory> for ProcessMemory {
 impl From<&NetworkSnapshot> for WebNetworkSnapshot {
     fn from(value: &NetworkSnapshot) -> Self {
         Self {
+            id: value.id.as_opaque_key().to_owned(),
             name: value.name.clone(),
             down_bytes_per_sec: value.down_bytes_per_sec,
             up_bytes_per_sec: value.up_bytes_per_sec,
@@ -226,6 +229,7 @@ impl From<&NetworkSnapshot> for WebNetworkSnapshot {
 impl From<WebNetworkSnapshot> for NetworkSnapshot {
     fn from(value: WebNetworkSnapshot) -> Self {
         Self {
+            id: NetworkId::from_opaque_key(value.id),
             name: value.name,
             down_bytes_per_sec: value.down_bytes_per_sec,
             up_bytes_per_sec: value.up_bytes_per_sec,
@@ -236,6 +240,7 @@ impl From<WebNetworkSnapshot> for NetworkSnapshot {
 impl From<&DiskSnapshot> for WebDiskSnapshot {
     fn from(value: &DiskSnapshot) -> Self {
         Self {
+            id: value.id.as_opaque_key().to_owned(),
             name: value.name.clone(),
             bytes_per_sec: value.bytes_per_sec,
         }
@@ -245,6 +250,7 @@ impl From<&DiskSnapshot> for WebDiskSnapshot {
 impl From<WebDiskSnapshot> for DiskSnapshot {
     fn from(value: WebDiskSnapshot) -> Self {
         Self {
+            id: DiskId::from_opaque_key(value.id),
             name: value.name,
             bytes_per_sec: value.bytes_per_sec,
         }
@@ -298,9 +304,18 @@ impl From<&MonitorHistory> for WebMonitorHistory {
             networks: history
                 .networks
                 .iter()
-                .map(|(name, value)| (name.clone(), WebDirectionHistory::from(value)))
+                .map(|(id, value)| {
+                    (
+                        id.as_opaque_key().to_owned(),
+                        WebDirectionHistory::from(value),
+                    )
+                })
                 .collect(),
-            disks: history.disks.clone(),
+            disks: history
+                .disks
+                .iter()
+                .map(|(id, values)| (id.as_opaque_key().to_owned(), values.clone()))
+                .collect(),
             temperatures: history.temperatures.clone(),
         }
     }
@@ -315,9 +330,18 @@ impl From<WebMonitorHistory> for MonitorHistory {
             networks: history
                 .networks
                 .into_iter()
-                .map(|(name, value)| (name, DirectionHistory::from(value)))
+                .map(|(id, value)| {
+                    (
+                        NetworkId::from_opaque_key(id),
+                        DirectionHistory::from(value),
+                    )
+                })
                 .collect(),
-            disks: history.disks,
+            disks: history
+                .disks
+                .into_iter()
+                .map(|(id, values)| (DiskId::from_opaque_key(id), values))
+                .collect(),
             temperatures: history.temperatures,
         }
     }
@@ -359,6 +383,7 @@ mod tests {
     #[test]
     fn transport_round_trip_preserves_panel_state() {
         let mut state = MonitorState::default();
+        let network_id = NetworkId::from_opaque_key("network-a");
         state.snapshot.cpu_percent = Some(37.5);
         state.snapshot.memory = Some(MemorySnapshot {
             used_bytes: 10,
@@ -367,11 +392,19 @@ mod tests {
             swap_total_bytes: 4,
         });
         state.snapshot.networks.push(NetworkSnapshot {
+            id: network_id.clone(),
             name: "eth0".to_owned(),
             down_bytes_per_sec: 12.0,
             up_bytes_per_sec: 5.0,
         });
         state.history.cpu.push_back(11.0);
+        state.history.networks.insert(
+            network_id,
+            DirectionHistory {
+                down: VecDeque::from([7.0, 12.0]),
+                up: VecDeque::from([3.0, 5.0]),
+            },
+        );
         state.history_capacity = 120;
 
         let json = serde_json::to_string(&WebMonitorState::from(&state)).unwrap();
@@ -381,6 +414,10 @@ mod tests {
         assert_eq!(decoded.snapshot.cpu_percent, Some(37.5));
         assert_eq!(decoded.snapshot.memory.unwrap().used_bytes, 10);
         assert_eq!(decoded.snapshot.networks[0].name, "eth0");
+        assert_eq!(
+            decoded.history.networks[&decoded.snapshot.networks[0].id].down,
+            VecDeque::from([7.0, 12.0])
+        );
         assert_eq!(decoded.history.cpu, VecDeque::from([11.0]));
         assert_eq!(decoded.history_capacity, 120);
         assert!(decoded.snapshot.process_disk_io.is_none());

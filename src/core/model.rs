@@ -27,8 +27,35 @@ pub struct ProcessInstanceId {
     pub birth_marker: u64,
 }
 
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct NetworkId(String);
+
+impl NetworkId {
+    pub(crate) fn from_opaque_key(key: impl Into<String>) -> Self {
+        Self(key.into())
+    }
+
+    pub(crate) fn as_opaque_key(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DiskId(String);
+
+impl DiskId {
+    pub(crate) fn from_opaque_key(key: impl Into<String>) -> Self {
+        Self(key.into())
+    }
+
+    pub(crate) fn as_opaque_key(&self) -> &str {
+        &self.0
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct NetworkSnapshot {
+    pub id: NetworkId,
     pub name: String,
     pub down_bytes_per_sec: f64,
     pub up_bytes_per_sec: f64,
@@ -36,6 +63,7 @@ pub struct NetworkSnapshot {
 
 #[derive(Clone, Debug)]
 pub struct DiskSnapshot {
+    pub id: DiskId,
     pub name: String,
     pub bytes_per_sec: f64,
 }
@@ -103,8 +131,8 @@ pub struct MonitorHistory {
     pub cpu: VecDeque<f64>,
     pub memory_used: VecDeque<f64>,
     pub swap_used: VecDeque<f64>,
-    pub networks: BTreeMap<String, DirectionHistory>,
-    pub disks: BTreeMap<String, VecDeque<f64>>,
+    pub networks: BTreeMap<NetworkId, DirectionHistory>,
+    pub disks: BTreeMap<DiskId, VecDeque<f64>>,
     pub temperatures: BTreeMap<String, VecDeque<f64>>,
 }
 
@@ -132,6 +160,7 @@ pub struct ProcessCounter {
 
 #[derive(Clone, Debug)]
 pub struct NetworkCounter {
+    pub id: NetworkId,
     pub name: String,
     pub rx_bytes: u64,
     pub tx_bytes: u64,
@@ -139,6 +168,7 @@ pub struct NetworkCounter {
 
 #[derive(Clone, Debug)]
 pub struct DiskCounter {
+    pub id: DiskId,
     pub name: String,
     pub read_bytes: u64,
     pub write_bytes: u64,

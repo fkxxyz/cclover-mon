@@ -59,7 +59,7 @@ impl<'a> Dashboard<'a> {
         let value = self.state.snapshot.disks.get(index)?;
         Some(DiskPanel {
             value,
-            history: self.state.history.disks.get(&value.name),
+            history: self.state.history.disks.get(&value.id),
         })
     }
 
@@ -71,7 +71,7 @@ impl<'a> Dashboard<'a> {
         let value = self.state.snapshot.networks.get(index)?;
         Some(NetworkPanel {
             value,
-            history: self.state.history.networks.get(&value.name),
+            history: self.state.history.networks.get(&value.id),
         })
     }
 }

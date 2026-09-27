@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use crate::core::model::NetworkCounter;
+use crate::core::model::{NetworkCounter, NetworkId};
 
 use super::diagnostics::{probe_note, report_issue};
 
@@ -25,6 +25,18 @@ pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Vec<NetworkCounter
             });
             continue;
         }
+        let Some(ifindex) = read_u64(path.join("ifindex")) else {
+            probe_note(&mut notes, || {
+                format!("{name} skipped: ifindex is unreadable")
+            });
+            continue;
+        };
+        let Some(device_path) = fs::canonicalize(path.join("device")).ok() else {
+            probe_note(&mut notes, || {
+                format!("{name} skipped: device identity is unreadable")
+            });
+            continue;
+        };
         let operstate = read_trimmed(path.join("operstate"));
         if operstate.as_deref() != Some("up") {
             probe_note(&mut notes, || {
@@ -48,6 +60,7 @@ pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Vec<NetworkCounter
             continue;
         };
         rows.push(NetworkCounter {
+            id: NetworkId::from_opaque_key(format!("{}#{ifindex}", device_path.display())),
             name,
             rx_bytes: received_bytes,
             tx_bytes: transmitted_bytes,

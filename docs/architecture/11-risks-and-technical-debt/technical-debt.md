@@ -32,7 +32,6 @@ Technical debt here means current structure that makes future reasonable change 
 
 | Debt | Status | Why it matters |
 | --- | --- | --- |
-| [Dynamic-series identity](technical-debt/dynamic-series-identity.md) | Active | Network and disk history still use mutable names as persistent identity. |
 | [Native collector test seams](technical-debt/native-collector-test-seams.md) | Active | Discovery and filesystem/native IO remain expensive to validate without the live host. |
 | [Optional capability build coupling](technical-debt/optional-capability-build-coupling.md) | Active | Runtime-optional eBPF and Web capabilities still impose mandatory toolchain and artifact costs on normal native builds. |
 

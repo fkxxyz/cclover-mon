@@ -33,6 +33,10 @@ Linux system-tray integration uses StatusNotifierItem over the desktop session D
 
 Partition native collection by metric responsibility. Each metric collector owns its OS interaction, parsing, and metric-specific mutable state. The Linux `Backend` composes those collectors into the core-owned `RawSnapshot`; it does not own metric-specific collection algorithms or state.
 
+One metric collector may own multiple peer native sources when the OS exposes the same semantic through different facilities. Linux temperature collection uses hwmon as the generic kernel sensor source and an NVIDIA NVML source for proprietary-driver GPUs. The temperature collector merges both into the same core-owned temperature snapshot sequence. `hwmon`, NVML handles, NVIDIA UUID/PCI APIs, and source-specific availability states do not cross into core, presentation, or UI.
+
+The NVML source is loaded dynamically at runtime rather than linked as a mandatory process dependency. Missing `libnvidia-ml.so.1`, NVML initialization failure, zero discovered NVIDIA devices, or an individual device lacking a readable temperature are degradable source conditions: omit the unavailable NVIDIA temperature entries and continue collecting all unrelated temperatures. Production collection must call NVML in-process; it must not spawn `nvidia-smi` or another helper process. Enumerate all NVML devices, retain stable per-device identity, and keep reusable NVML state/handles for repeated sampling rather than rediscovering devices every cycle.
+
 Long-lived event-driven collectors own their attach/detach lifecycle and bounded native state. Disk and network eBPF attribution may reuse a small userspace loader/map-access layer, but shared infrastructure must not merge their distinct attribution semantics into one generic kernel-hook abstraction.
 
 Keep parsing of textual or binary OS formats separable from native IO so representative fixtures can exercise parsers without relying on the developer machine's live `/proc` or `/sys` contents. Development probes must invoke the same production collector path used by normal sampling rather than maintain a parallel collection implementation.

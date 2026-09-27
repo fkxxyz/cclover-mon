@@ -23,6 +23,9 @@ facets:
 | Efficiency | Sampling reuses bounded storage and avoids work proportional to UI object count. |
 | Portability | Linux and Windows produce the same shared semantic model without leaking native API types into shared code. |
 | Extensibility | A new native metric source is added behind the platform or bridge boundary without changing unrelated collectors or UI contracts. |
+| Temperature source fan-in | Linux hwmon and optional NVIDIA NVML temperature sources produce one platform-neutral temperature sequence; adding/removing one source does not create a source-specific core or UI contract. |
+| Temperature identity | Multiple GPUs and other same-name sensors retain independent history through stable sensor identity; display labels are not used as metric identity. |
+| Optional NVIDIA telemetry | Missing NVML, zero NVIDIA GPUs, or one unsupported NVIDIA temperature sensor removes only the corresponding entries; startup, hwmon temperatures, and unrelated metrics remain operational with no helper subprocess. |
 | Frontend reuse | Desktop and future terminal frontends consume the same renderer-neutral dashboard presentation without duplicating rate derivation, Top-N aggregation, unavailable-value semantics, or common value formatting. |
 | Layout authority | A frontend structural change has one layout authority; the Iced block structure used to render the desktop panel is also the structure used to derive its requested panel height. |
 | Desktop integration portability | Linux and Windows may use different native tray mechanisms while application-visible desktop commands and shutdown semantics remain platform-neutral. X11 and Wayland do not require separate Linux tray implementations. |

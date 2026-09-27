@@ -154,6 +154,7 @@ mod tests {
 
         let mut populated = MonitorState::default();
         populated.snapshot.temperatures.push(TemperatureSnapshot {
+            id: "cpu-temperature".to_owned(),
             name: "CPU".to_owned(),
             celsius: 50.0,
         });

@@ -39,11 +39,11 @@ pub fn push(history: &mut MonitorHistory, snapshot: &SystemSnapshot, capacity: u
 
     retain_present(
         &mut history.temperatures,
-        snapshot.temperatures.iter().map(|x| x.name.as_str()),
+        snapshot.temperatures.iter().map(|x| x.id.as_str()),
     );
     for item in &snapshot.temperatures {
         append(
-            history.temperatures.entry(item.name.clone()).or_default(),
+            history.temperatures.entry(item.id.clone()).or_default(),
             item.celsius,
             capacity,
         );
@@ -68,7 +68,7 @@ fn retain_present<T>(map: &mut BTreeMap<String, T>, names: impl Iterator<Item = 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::model::SystemSnapshot;
+    use crate::core::model::{SystemSnapshot, TemperatureSnapshot};
 
     #[test]
     fn history_is_bounded() {
@@ -84,5 +84,41 @@ mod tests {
             history.cpu.into_iter().collect::<Vec<_>>(),
             vec![2.0, 3.0, 4.0]
         );
+    }
+
+    #[test]
+    fn temperature_history_uses_stable_identity_not_display_name() {
+        let mut history = MonitorHistory::default();
+        let snapshot = SystemSnapshot {
+            temperatures: vec![TemperatureSnapshot {
+                id: "sensor-a".to_owned(),
+                name: "GPU".to_owned(),
+                celsius: 51.0,
+            }],
+            ..SystemSnapshot::default()
+        };
+        push(&mut history, &snapshot, 3);
+
+        let renamed = SystemSnapshot {
+            temperatures: vec![TemperatureSnapshot {
+                id: "sensor-a".to_owned(),
+                name: "GPU 1".to_owned(),
+                celsius: 52.0,
+            }],
+            ..SystemSnapshot::default()
+        };
+        push(&mut history, &renamed, 3);
+
+        assert_eq!(
+            history
+                .temperatures
+                .get("sensor-a")
+                .unwrap()
+                .iter()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![51.0, 52.0]
+        );
+        assert!(!history.temperatures.contains_key("GPU"));
     }
 }

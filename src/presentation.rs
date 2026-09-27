@@ -47,7 +47,7 @@ impl<'a> Dashboard<'a> {
         let value = self.state.snapshot.temperatures.get(index)?;
         Some(TemperaturePanel {
             value,
-            history: self.state.history.temperatures.get(&value.name),
+            history: self.state.history.temperatures.get(&value.id),
         })
     }
 
@@ -189,7 +189,7 @@ pub struct TemperaturePanel<'a> {
 
 impl<'a> TemperaturePanel<'a> {
     pub fn name(self) -> &'a str {
-        &self.value.name
+        short_temperature_name(&self.value.name)
     }
 
     pub fn value(self) -> String {
@@ -199,6 +199,11 @@ impl<'a> TemperaturePanel<'a> {
     pub fn history(self) -> Option<&'a VecDeque<f64>> {
         self.history
     }
+}
+
+fn short_temperature_name(name: &str) -> &str {
+    let name = name.strip_prefix("NVIDIA ").unwrap_or(name);
+    name.strip_prefix("GeForce ").unwrap_or(name)
 }
 
 #[derive(Clone, Copy)]
@@ -287,5 +292,24 @@ mod tests {
         assert_eq!(format_rate(1024.0), "1.00 KiB/s");
         assert_eq!(format_percent(12.34), "12.3%");
         assert_eq!(unavailable(), "—");
+    }
+
+    #[test]
+    fn nvidia_temperature_names_drop_only_known_redundant_prefixes() {
+        assert_eq!(
+            short_temperature_name("NVIDIA GeForce RTX 2080 Ti"),
+            "RTX 2080 Ti"
+        );
+        assert_eq!(
+            short_temperature_name("NVIDIA GeForce GTX 1080"),
+            "GTX 1080"
+        );
+        assert_eq!(short_temperature_name("NVIDIA RTX A4000"), "RTX A4000");
+        assert_eq!(
+            short_temperature_name("NVIDIA A100-PCIE-40GB"),
+            "A100-PCIE-40GB"
+        );
+        assert_eq!(short_temperature_name("amdgpu"), "amdgpu");
+        assert_eq!(short_temperature_name("CPU"), "CPU");
     }
 }

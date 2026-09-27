@@ -74,8 +74,12 @@ platform backend
   ├── network collector
   ├── disk collector
   └── temperature collector
+        ├── hwmon source
+        └── NVIDIA NVML source
 ```
 
-The backend may know every collector so it can assemble a batch snapshot. A metric collector does not depend on the backend or on sibling collectors.
+The backend may know every collector so it can assemble a batch snapshot. A metric collector does not depend on the backend or on sibling collectors. A metric collector may fan in multiple native sources when they represent the same platform-neutral metric. For Linux temperatures, generic hwmon sensors and NVIDIA NVML are peer sources owned by the temperature collector; neither becomes a separate core metric.
+
+Temperature snapshots carry a stable sensor identity distinct from their display label. Core history is keyed by that identity, while presentation/UI may derive human-readable labels independently. Native identities such as NVML UUIDs, PCI addresses, hwmon paths, handles, or library types remain platform-private; the platform collector translates them into the core-owned identity representation before crossing the boundary.
 
 Linux collectors may own long-lived native instrumentation such as eBPF links and BPF maps when required by a metric. Those resources remain implementation details of the Linux platform layer. Disk and network attribution may share userspace lifecycle infrastructure, but their kernel-side observation logic remains independently owned because their attribution mechanisms differ.

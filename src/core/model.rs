@@ -36,6 +36,7 @@ pub struct DiskSnapshot {
 
 #[derive(Clone, Debug)]
 pub struct TemperatureSnapshot {
+    pub id: String,
     pub name: String,
     pub celsius: f64,
 }

@@ -231,8 +231,8 @@ impl Backend {
                     .iter()
                     .map(|temperature| {
                         format!(
-                            "name={} celsius={:.3}",
-                            temperature.name, temperature.celsius
+                            "id={} name={} celsius={:.3}",
+                            temperature.id, temperature.name, temperature.celsius
                         )
                     })
                     .collect();

@@ -1,10 +1,18 @@
+use std::ffi::OsStr;
 use std::fs;
 use std::io::Read;
-use std::path::PathBuf;
+use std::os::unix::ffi::OsStrExt;
+use std::path::Path;
 
 use crate::core::model::ProcessCounter;
 
 use super::diagnostics::{probe_note, report_issue};
+
+const PROC_PREFIX: &[u8] = b"/proc/";
+const PROC_STAT_UTIME_FIELD: usize = 14;
+const PROC_STAT_STIME_FIELD: usize = 15;
+const PROC_STAT_RSS_FIELD: usize = 24;
+const PROC_STAT_FIRST_FIELD_AFTER_COMM: usize = 3;
 
 pub(super) struct Collector {
     page_size: u64,
@@ -35,21 +43,18 @@ impl Collector {
         };
         let mut unreadable = 0_u64;
         let mut malformed = 0_u64;
-        let mut stat_path = PathBuf::with_capacity(64);
-        stat_path.push("/proc");
+        let mut stat_path_buffer = Vec::with_capacity(64);
         for entry in entries.flatten() {
             let file_name = entry.file_name();
-            let Some(pid) = file_name.to_str().and_then(|name| name.parse::<u32>().ok()) else {
+            let file_name = file_name.as_os_str().as_bytes();
+            let Some(pid) = parse_pid(file_name) else {
                 continue;
             };
 
-            stat_path.push(&file_name);
-            stat_path.push("stat");
+            let stat_path = process_stat_path(&mut stat_path_buffer, file_name);
             self.stat_buffer.clear();
-            let read_result = fs::File::open(&stat_path)
+            let read_result = fs::File::open(stat_path)
                 .and_then(|mut file| file.read_to_string(&mut self.stat_buffer));
-            stat_path.pop();
-            stat_path.pop();
 
             if read_result.is_err() {
                 unreadable += 1;
@@ -77,22 +82,57 @@ impl Collector {
     }
 }
 
+fn process_stat_path<'a>(buffer: &'a mut Vec<u8>, pid_name: &[u8]) -> &'a Path {
+    buffer.clear();
+    buffer.extend_from_slice(PROC_PREFIX);
+    buffer.extend_from_slice(pid_name);
+    buffer.extend_from_slice(b"/stat");
+    Path::new(OsStr::from_bytes(buffer))
+}
+
+fn parse_pid(bytes: &[u8]) -> Option<u32> {
+    if bytes.is_empty() {
+        return None;
+    }
+
+    let mut pid = 0_u32;
+    for byte in bytes {
+        if !byte.is_ascii_digit() {
+            return None;
+        }
+        pid = pid.checked_mul(10)?.checked_add(u32::from(*byte - b'0'))?;
+    }
+    Some(pid)
+}
+
 fn parse_stat(pid: u32, text: &str, page_size: u64) -> Option<ProcessCounter> {
     let left = text.find('(')?;
     let right = text.rfind(')')?;
     if right <= left {
         return None;
     }
-    let mut fields = text[right + 1..].split_ascii_whitespace();
-    let user = fields.nth(11)?.parse::<u64>().ok()?;
-    let system = fields.next()?.parse::<u64>().ok()?;
-    let rss_pages = fields.nth(8)?.parse::<u64>().ok()?;
+    let (user, system, rss_pages) = parse_stat_counters(&text[right + 1..])?;
     Some(ProcessCounter {
         pid,
         name: text[left + 1..right].to_owned(),
         cpu_ticks: user.saturating_add(system),
         rss_bytes: rss_pages.saturating_mul(page_size),
     })
+}
+
+fn parse_stat_counters(tail: &str) -> Option<(u64, u64, u64)> {
+    let mut fields = tail.split_ascii_whitespace();
+    let user = fields
+        .nth(PROC_STAT_UTIME_FIELD - PROC_STAT_FIRST_FIELD_AFTER_COMM)?
+        .parse::<u64>()
+        .ok()?;
+    let system = fields.next()?.parse::<u64>().ok()?;
+    let rss_pages = fields
+        .nth(PROC_STAT_RSS_FIELD - PROC_STAT_STIME_FIELD - 1)?
+        .parse::<u64>()
+        .ok()?;
+
+    Some((user, system, rss_pages))
 }
 
 #[cfg(test)]
@@ -106,5 +146,25 @@ mod tests {
         let process = parse_stat(42, text, 4096).unwrap();
         assert_eq!(process.name, "name with space");
         assert_eq!(process.cpu_ticks, 23);
+    }
+
+    #[test]
+    fn parses_only_numeric_proc_entries_as_pids() {
+        assert_eq!(parse_pid(b"42"), Some(42));
+        assert_eq!(parse_pid(b"self"), None);
+        assert_eq!(parse_pid(b""), None);
+    }
+
+    #[test]
+    fn builds_process_stat_path_in_reused_buffer() {
+        let mut buffer = Vec::new();
+        assert_eq!(
+            process_stat_path(&mut buffer, b"42"),
+            Path::new("/proc/42/stat")
+        );
+        assert_eq!(
+            process_stat_path(&mut buffer, b"7"),
+            Path::new("/proc/7/stat")
+        );
     }
 }

@@ -160,28 +160,41 @@ fn top_cpu(
             let delta = old
                 .get(&item.pid)
                 .map_or(0, |prev| item.cpu_ticks.saturating_sub(prev.cpu_ticks));
-            ProcessCpu {
-                name: item.name.clone(),
-                percent: delta as f64 * scale,
-            }
+            (item, delta as f64 * scale)
         })
         .collect();
-    values.sort_unstable_by(|a, b| b.percent.total_cmp(&a.percent));
-    values.truncate(TOP_N);
+    keep_top_n_by(&mut values, TOP_N, |a, b| b.1.total_cmp(&a.1));
     values
+        .into_iter()
+        .map(|(item, percent)| ProcessCpu {
+            name: item.name.clone(),
+            percent,
+        })
+        .collect()
 }
 
 fn top_memory(current: &[ProcessCounter]) -> Vec<ProcessMemory> {
-    let mut values: Vec<_> = current
-        .iter()
+    let mut values: Vec<_> = current.iter().collect();
+    keep_top_n_by(&mut values, TOP_N, |a, b| b.rss_bytes.cmp(&a.rss_bytes));
+    values
+        .into_iter()
         .map(|item| ProcessMemory {
             name: item.name.clone(),
             bytes: item.rss_bytes,
         })
-        .collect();
-    values.sort_unstable_by_key(|item| std::cmp::Reverse(item.bytes));
-    values.truncate(TOP_N);
-    values
+        .collect()
+}
+
+fn keep_top_n_by<T>(
+    values: &mut Vec<T>,
+    limit: usize,
+    mut compare: impl FnMut(&T, &T) -> std::cmp::Ordering,
+) {
+    if values.len() > limit {
+        values.select_nth_unstable_by(limit, &mut compare);
+        values.truncate(limit);
+    }
+    values.sort_unstable_by(compare);
 }
 
 #[cfg(test)]
@@ -248,5 +261,46 @@ mod tests {
         assert_eq!(out.networks[0].up_bytes_per_sec, 300.0);
         assert_eq!(out.disks[0].bytes_per_sec, 600.0);
         assert!((out.top_cpu[0].percent - 40.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn top_memory_keeps_only_highest_processes_in_order() {
+        let processes: Vec<_> = (0..12)
+            .map(|index| ProcessCounter {
+                pid: index,
+                name: format!("p{index}"),
+                cpu_ticks: 0,
+                rss_bytes: u64::from(index),
+            })
+            .collect();
+
+        let top = top_memory(&processes);
+        assert_eq!(top.len(), TOP_N);
+        assert_eq!(top[0].name, "p11");
+        assert_eq!(top[TOP_N - 1].name, "p4");
+    }
+
+    #[test]
+    fn top_cpu_keeps_only_highest_processes_in_order() {
+        let previous: Vec<_> = (0..12)
+            .map(|index| ProcessCounter {
+                pid: index,
+                name: format!("p{index}"),
+                cpu_ticks: 100,
+                rss_bytes: 0,
+            })
+            .collect();
+        let current: Vec<_> = previous
+            .iter()
+            .map(|process| ProcessCounter {
+                cpu_ticks: process.cpu_ticks + u64::from(process.pid),
+                ..process.clone()
+            })
+            .collect();
+
+        let top = top_cpu(&previous, &current, 100, 1);
+        assert_eq!(top.len(), TOP_N);
+        assert_eq!(top[0].name, "p11");
+        assert_eq!(top[TOP_N - 1].name, "p4");
     }
 }

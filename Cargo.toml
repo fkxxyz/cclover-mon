@@ -28,7 +28,7 @@ x11rb = { version = "0.13.2", features = ["shape"] }
 winit-common = "=0.31.0-beta.2"
 winit-core = "=0.31.0-beta.2"
 
-# Iced 0.14 WebGL can lose all but the last Canvas after layer merging.
+# Iced 0.14 WebGL can corrupt multi-Canvas geometry and clipping across layers.
 # Pin only iced_widget until upstream fixes iced-rs/iced#2400.
 [patch.crates-io]
-iced_widget = { git = "https://github.com/fkxxyz/iced.git", rev = "32de7aa372582871bcf7bbbdae085f98f17b25ca" }
+iced_widget = { git = "https://github.com/fkxxyz/iced.git", rev = "0330c6ca303d2c2260cb69fa1b39e17080d62e6d" }

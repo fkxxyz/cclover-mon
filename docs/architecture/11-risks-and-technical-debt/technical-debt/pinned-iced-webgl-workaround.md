@@ -21,11 +21,11 @@ Active — P3.
 
 ## Problem
 
-Iced 0.14 and current upstream development revisions can render only the final `Canvas` geometry when multiple Canvas widgets are merged into one renderer layer on the WebGL path. The shared HTTP panel therefore cannot rely on the unmodified upstream `iced_widget` package.
+Iced 0.14 and current upstream development revisions can corrupt multi-Canvas rendering on the WebGL path: geometry may be lost when Canvas widgets share a renderer layer, while naïvely forcing separate layers can still produce cross-Canvas clipping/coordinate corruption. The shared HTTP panel therefore cannot rely on the unmodified upstream `iced_widget` package.
 
 ## Current containment
 
-`Cargo.toml` patches only `iced_widget` to a fixed commit in `fkxxyz/iced`. The fork keeps each Canvas inside its own renderer layer while preserving the existing Canvas API and the shared native/Web panel implementation. Other Iced crates remain on their normal crates.io versions.
+`Cargo.toml` patches only `iced_widget` to a fixed commit in `fkxxyz/iced`. The fork keeps each Canvas inside its own renderer layer and creates that layer after entering the Canvas-local translation, so clipping and geometry share one coordinate transform. The existing Canvas API and shared native/Web panel implementation remain unchanged; other Iced crates stay on their normal crates.io versions.
 
 ## Maintenance impact
 

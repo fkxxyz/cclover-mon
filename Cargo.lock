@@ -1538,7 +1538,7 @@ dependencies = [
 [[package]]
 name = "iced_widget"
 version = "0.14.2"
-source = "git+https://github.com/fkxxyz/iced.git?rev=32de7aa372582871bcf7bbbdae085f98f17b25ca#32de7aa372582871bcf7bbbdae085f98f17b25ca"
+source = "git+https://github.com/fkxxyz/iced.git?rev=0330c6ca303d2c2260cb69fa1b39e17080d62e6d#0330c6ca303d2c2260cb69fa1b39e17080d62e6d"
 dependencies = [
  "iced_renderer",
  "log",

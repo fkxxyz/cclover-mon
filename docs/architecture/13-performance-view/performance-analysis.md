@@ -37,9 +37,26 @@ same-workload remeasurement
 ## Measurement Layers
 
 - **Process baseline** — use process-level tools such as `ps`, `top`, and `perf stat` to establish CPU time, CPU percentage, memory footprint, wakeups, or other metrics relevant to the reported problem.
-- **Subsystem attribution** — use production-path diagnostics such as `probe <collector> [--raw]` and sampling timing logs to distinguish collection, derivation, and presentation cost.
+- **Subsystem attribution** — use production-path diagnostics to remove layers while preserving the work being measured. `perf headless` runs the full production `Collector → Sampler → MonitorState` cycle without creating a UI; `perf collector <name>` runs one production collector without probe formatting. Use `probe <collector> [--raw]` for correctness inspection, not collector benchmarking, because probe reporting intentionally formats diagnostic output.
 - **Function attribution** — on Linux, use sampling profilers such as `perf record -g` and `perf report` to identify dominant functions and call paths across the complete process.
 - **Source attribution** — connect measured hot functions to the responsible algorithm, allocation, IO, data movement, layout, text, or rendering path before selecting an optimization.
+
+## Performance Diagnostic CLI
+
+The performance CLI is a workload selector for external profilers, not an internal benchmark framework. It keeps production semantics and suppresses presentation or diagnostic output that would contaminate the workload.
+
+```text
+cclover-mon perf headless [--duration <seconds> | --samples <count>]
+cclover-mon perf collector <name> [--duration <seconds> | --samples <count>]
+```
+
+`perf headless` keeps the normal one-second sampling cadence and executes native collection, core derivation, Top-N aggregation, and bounded history updates. It does not initialize Iced, create a window, build presentation objects, or render.
+
+`perf collector <name>` executes the selected production collector at the normal one-second cadence and discards its result without formatting it. Collector names are the same controlled set accepted by `probe`: `cpu`, `memory`, `processes`, `network`, `disk`, and `temperatures`.
+
+The default run is unbounded so tools such as `perf record -p <pid>` can attach. `--duration` and `--samples` provide bounded runs for repeatable `perf stat`, `time`, or scripted A/B measurements. These controls change only test termination, not the production sampling cadence.
+
+Further isolation points such as core-only derivation, presentation construction, UI layout, or rendering should be added only when they can reuse the corresponding production implementation without introducing a parallel implementation or renderer-specific test path that measures different work.
 
 ## Optimization Rules
 
@@ -47,6 +64,8 @@ same-workload remeasurement
 - Optimize the dominant measured cost rather than code that merely appears inefficient.
 - Prefer the smallest change that removes the measured source of cost without changing product semantics unnecessarily.
 - Collector timing is local evidence; whole-process profiling is required when cost may also come from core, UI, allocator, renderer, driver, or native-library work.
+- Preserve the production one-second sampling cadence in performance diagnostics unless the performance question explicitly concerns cadence itself.
+- Do not include diagnostic formatting, terminal output, or synthetic replacement work in a benchmark path unless that work is the subject being measured.
 - Select metrics that match the problem. CPU time, wakeups, allocation, RSS, and data movement are independent dimensions and do not all need measurement for every investigation.
 
 ## Validation

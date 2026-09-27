@@ -17,6 +17,10 @@ impl Backend {
             notes: vec!["Windows collection is not implemented yet".to_owned()],
         }
     }
+
+    pub fn collect_for_perf(&mut self, _kind: ProbeKind) {
+        std::hint::black_box(self.collect());
+    }
 }
 
 impl Collector for Backend {

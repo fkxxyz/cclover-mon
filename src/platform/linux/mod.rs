@@ -177,6 +177,29 @@ impl Backend {
             }
         }
     }
+
+    pub fn collect_for_perf(&mut self, kind: ProbeKind) {
+        match kind {
+            ProbeKind::Cpu => {
+                std::hint::black_box(cpu::collect(None));
+            }
+            ProbeKind::Memory => {
+                std::hint::black_box(memory::collect(None));
+            }
+            ProbeKind::Processes => {
+                std::hint::black_box(self.processes.collect(None));
+            }
+            ProbeKind::Network => {
+                std::hint::black_box(network::collect(None));
+            }
+            ProbeKind::Disk => {
+                std::hint::black_box(disk::collect(None));
+            }
+            ProbeKind::Temperatures => {
+                std::hint::black_box(self.temperatures.collect(Instant::now(), None));
+            }
+        }
+    }
 }
 
 impl Default for Backend {

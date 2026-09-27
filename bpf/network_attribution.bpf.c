@@ -116,6 +116,8 @@ static __always_inline void begin_send(struct sock *sk)
     if (!sk)
         return;
     __u64 sk_key = (__u64)sk;
+    bpf_map_delete_elem(&socket_owner, &sk_key);
+    bpf_map_delete_elem(&socket_tx_ifindex, &sk_key);
     struct owner owner = {
         .tgid = current_tgid(),
         .process_start_time = current_process_start_time(),
@@ -166,13 +168,15 @@ int BPF_PROG(on_ip6_finish_output2, struct net *net, struct sock *sk, struct sk_
 
 static __always_inline void finish_send(struct sock *sk, int bytes)
 {
-    if (!sk || bytes <= 0)
+    if (!sk)
         return;
     __u64 sk_key = (__u64)sk;
     struct owner *owner = bpf_map_lookup_elem(&socket_owner, &sk_key);
     __u32 *ifindex = bpf_map_lookup_elem(&socket_tx_ifindex, &sk_key);
-    if (owner && ifindex)
+    if (bytes > 0 && owner && ifindex)
         add_network(owner, *ifindex, 1, (__u64)bytes);
+    bpf_map_delete_elem(&socket_owner, &sk_key);
+    bpf_map_delete_elem(&socket_tx_ifindex, &sk_key);
 }
 
 SEC("fexit/tcp_sendmsg")

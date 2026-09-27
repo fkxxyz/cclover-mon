@@ -126,6 +126,44 @@ fn merge_rows(rows: &mut Vec<ProcessNetworkIoCounter>) {
 mod tests {
     use super::*;
 
+    const BPF_SOURCE: &str = include_str!("../../../../bpf/network_attribution.bpf.c");
+
+    fn bpf_function(name: &str) -> &str {
+        let start = BPF_SOURCE
+            .find(&format!("void {name}("))
+            .unwrap_or_else(|| panic!("missing BPF function {name}"));
+        let rest = &BPF_SOURCE[start..];
+        let end = rest
+            .find("\n}\n")
+            .unwrap_or_else(|| panic!("unterminated BPF function {name}"));
+        &rest[..end]
+    }
+
+    #[test]
+    fn tx_send_correlation_is_scoped_to_one_send() {
+        let begin = bpf_function("begin_send");
+        let owner_reset = begin
+            .find("bpf_map_delete_elem(&socket_owner, &sk_key);")
+            .expect("begin_send must clear stale owner state");
+        let ifindex_reset = begin
+            .find("bpf_map_delete_elem(&socket_tx_ifindex, &sk_key);")
+            .expect("begin_send must clear stale TX interface state");
+        let owner_update = begin
+            .find("bpf_map_update_elem(&socket_owner, &sk_key, &owner, BPF_ANY);")
+            .expect("begin_send must register the current send owner");
+        assert!(owner_reset < owner_update);
+        assert!(ifindex_reset < owner_update);
+
+        let finish = bpf_function("finish_send");
+        assert!(finish.contains("if (bytes > 0 && owner && ifindex)"));
+        assert!(finish.contains("bpf_map_delete_elem(&socket_owner, &sk_key);"));
+        assert!(finish.contains("bpf_map_delete_elem(&socket_tx_ifindex, &sk_key);"));
+        assert!(
+            !finish.contains("if (!sk || bytes <= 0)"),
+            "failed sends must still clear send-scoped correlation state"
+        );
+    }
+
     #[test]
     fn merges_directions_without_crossing_pid_or_interface() {
         let mut rows = vec![

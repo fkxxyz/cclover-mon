@@ -21,8 +21,11 @@ Operating system / native libraries
       Platform backend
              ↓
        Shared snapshot
-             ↓
-         cclover-mon UI
+        ↙          ↘
+ native Iced     HTTP/SSE
+     UI              ↓
+                 browser/WASM
+                 shared Iced UI
 ```
 
-The application reads local machine state and presents it locally. Platform backends own OS-specific access. Optional C++ bridges adapt C++-only libraries to a narrow C ABI consumed by Rust.
+The native application reads local machine state. Platform backends own OS-specific access. The same Iced panel implementation presents state locally and, when explicitly enabled, in remote browsers through an HTTP/SSE boundary. Optional C++ bridges adapt C++-only libraries to a narrow C ABI consumed by Rust.

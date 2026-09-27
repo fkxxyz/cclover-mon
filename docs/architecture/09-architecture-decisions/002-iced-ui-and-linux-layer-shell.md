@@ -18,7 +18,7 @@ facets:
 
 ## Decision
 
-Use Iced for the shared Rust desktop frontend. Native desktop integration owns both monitor-surface hosting and platform shell integration; neither responsibility forks dashboard drawing or presentation logic.
+Use Iced for the shared Rust panel frontend. Native desktop integration owns both monitor-surface hosting and platform shell integration; browser/WASM hosting owns only Web runtime and transport concerns. Neither responsibility forks dashboard drawing or presentation logic.
 
 On Linux:
 
@@ -33,7 +33,7 @@ Wayland preserves the inherited top-right placement, bottom layer, and zero excl
 
 ## Rationale
 
-Iced keeps desktop rendering in Rust, preserves one shared cross-platform desktop frontend, and consumes typed in-process presentation data. Renderer-neutral presentation semantics remain outside Iced so another frontend, such as a terminal UI, does not need to depend on Iced widgets or pixel layout.
+Iced keeps panel rendering in Rust, preserves one shared native/Web panel implementation, and consumes typed presentation data. Native desktop state remains in-process; browser/WASM state crosses only the explicit HTTP boundary. Renderer-neutral presentation semantics remain outside Iced so another frontend, such as a terminal UI, does not need to depend on Iced widgets or pixel layout.
 
 Wayland layer-shell and X11/EWMH solve window-management semantics, not drawing. Keeping those choices outside the shared Iced view prevents protocol-specific branches from spreading through widgets, graphs, layout, or presentation.
 
@@ -43,7 +43,7 @@ Native tray actions are translated into platform-neutral desktop commands. In pa
 
 ## Consequences
 
-- Iced desktop drawing code is shared across Linux Wayland, Linux X11, and Windows; native desktop integration owns window hosting, stacking, and pointer-input-region semantics.
+- Iced panel drawing code is shared across Linux Wayland, Linux X11, Windows, and browser/WASM delivery; native desktop integration owns window hosting, stacking, and pointer-input-region semantics while Web runtime code owns browser canvas hosting.
 - Linux tray integration is shared across X11 and Wayland through StatusNotifierItem/D-Bus; it is independent of monitor-surface protocol selection.
 - Native tray/menu identifiers remain platform-private. Application-visible lifecycle intent uses platform-neutral desktop commands such as `Quit`.
 - Tray registration failure degrades to running without a tray and does not disable monitoring or terminate the process.

@@ -18,9 +18,11 @@ facets:
 
 # Native Deployment
 
-Each target builds one application executable containing the Rust application and any required compiled C++ bridge objects.
+Each native target builds one application executable containing the Rust application, any required compiled C++ bridge objects, and the generated Web monitor assets.
 
-Linux and Windows builds include only their selected platform backend. The Linux executable supports both Wayland and X11 display sessions at runtime while reusing one Iced desktop frontend. Wayland uses layer-shell integration; X11 uses the normal Iced/winit X11 path plus X11/EWMH window semantics. The same Linux process registers its system tray item through StatusNotifierItem on the desktop session D-Bus; no tray helper daemon or secondary executable is introduced. External native runtime libraries depend on the selected UI toolkit and optional metric integrations.
+Linux and Windows builds include only their selected platform backend. The Linux executable supports both Wayland and X11 display sessions at runtime while reusing one Iced panel implementation. Wayland uses layer-shell integration; X11 uses the normal Iced/winit X11 path plus X11/EWMH window semantics. The same Linux process registers its system tray item through StatusNotifierItem on the desktop session D-Bus; no tray helper daemon or secondary executable is introduced. External native runtime libraries depend on the selected UI toolkit and optional metric integrations.
+
+The build also compiles the shared Iced panel for `wasm32-unknown-unknown`, runs `wasm-bindgen`, and embeds the resulting JavaScript/WASM bytes into the native executable. At runtime HTTP monitoring is absent unless enabled with `--http`. When enabled, the native process serves the embedded assets and read-only SSE state stream itself. The default listener is `127.0.0.1:9847`; LAN exposure requires an explicit `--http-bind` value. No Node.js runtime, external Web server, sidecar process, or additional deployed file is required.
 
 Linux eBPF programs are compiled at build time and embedded into the application executable for the Linux backend to load. Production startup does not invoke BCC, Python, clang, LLVM, `iotop`, `nethogs`, or another monitoring executable.
 

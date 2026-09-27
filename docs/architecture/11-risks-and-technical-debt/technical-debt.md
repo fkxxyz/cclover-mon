@@ -27,6 +27,7 @@ Technical debt here means current structure that makes future reasonable change 
 | [Collector outcome semantics](technical-debt/collector-outcome-semantics.md) | Active | Empty, unavailable, partial failure, and diagnostics are not represented by one typed contract. |
 | [Desktop hosting boundary](technical-debt/desktop-hosting-boundary.md) | Active | Linux display-protocol policy leaks into application composition and has multiple authorities. |
 | [Architecture enforcement](technical-debt/architecture-enforcement.md) | Active | Important dependency and validation rules rely too heavily on developer memory and manual execution. |
+| [Web transport schema coupling](technical-debt/web-transport-schema-coupling.md) | Active | Internal `MonitorState` fields automatically become part of the external Web payload and exposure surface. |
 
 ## P2
 
@@ -37,7 +38,7 @@ Technical debt here means current structure that makes future reasonable change 
 | [BPF ABI schema duplication](technical-debt/bpf-abi-schema-duplication.md) | Active | C and Rust independently define map key/value layouts that must stay synchronized. |
 | [Native FFI safety boundary](technical-debt/native-ffi-safety-boundary.md) | Active | Raw FFI and unsafe lifecycle code are mixed with metric semantics. |
 | [Frontend layout authority](technical-debt/frontend-layout-authority.md) | Active | Rendered widget geometry and manually calculated panel height must remain synchronized. |
-| [eBPF build coupling](technical-debt/ebpf-build-coupling.md) | Active | Runtime-optional attribution remains a mandatory Linux build dependency. |
+| [Optional capability build coupling](technical-debt/optional-capability-build-coupling.md) | Active | Runtime-optional eBPF and Web capabilities still impose mandatory toolchain and artifact costs on normal native builds. |
 
 ## P3
 

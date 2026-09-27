@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::time::Instant;
 
-#[derive(Clone, Debug, Default)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct MemorySnapshot {
     pub used_bytes: u64,
     pub total_bytes: u64,
@@ -9,38 +11,38 @@ pub struct MemorySnapshot {
     pub swap_total_bytes: u64,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ProcessCpu {
     pub name: String,
     pub percent: f64,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ProcessMemory {
     pub name: String,
     pub bytes: u64,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct ProcessInstanceId {
     pub pid: u32,
     pub birth_marker: u64,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct NetworkSnapshot {
     pub name: String,
     pub down_bytes_per_sec: f64,
     pub up_bytes_per_sec: f64,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DiskSnapshot {
     pub name: String,
     pub bytes_per_sec: f64,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TemperatureSnapshot {
     pub id: String,
     pub name: String,
@@ -63,7 +65,7 @@ pub struct ProcessNetworkIoCounter {
     pub tx_bytes: u64,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ProcessDiskIo {
     pub process: ProcessInstanceId,
     pub device: String,
@@ -71,7 +73,7 @@ pub struct ProcessDiskIo {
     pub write_bytes_per_sec: f64,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ProcessNetworkIo {
     pub process: ProcessInstanceId,
     pub interface: String,
@@ -79,7 +81,7 @@ pub struct ProcessNetworkIo {
     pub tx_bytes_per_sec: f64,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct SystemSnapshot {
     pub cpu_percent: Option<f64>,
     pub memory: Option<MemorySnapshot>,
@@ -92,13 +94,13 @@ pub struct SystemSnapshot {
     pub temperatures: Vec<TemperatureSnapshot>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct DirectionHistory {
     pub down: VecDeque<f64>,
     pub up: VecDeque<f64>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct MonitorHistory {
     pub cpu: VecDeque<f64>,
     pub memory_used: VecDeque<f64>,
@@ -108,7 +110,7 @@ pub struct MonitorHistory {
     pub temperatures: BTreeMap<String, VecDeque<f64>>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct MonitorState {
     pub snapshot: SystemSnapshot,
     pub history: MonitorHistory,

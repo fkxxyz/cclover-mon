@@ -20,6 +20,37 @@ use crate::presentation::{CpuPanel, Dashboard, MemoryPanel, ProcessRow};
 
 pub use layout::{INITIAL_PANEL_HEIGHT, PANEL_WIDTH, PanelLayout};
 
+pub struct PanelState {
+    layout: PanelLayout,
+    surface_height: u32,
+}
+
+impl PanelState {
+    pub fn new(dashboard: Dashboard<'_>) -> Self {
+        let layout = PanelLayout::new(dashboard);
+        Self {
+            layout,
+            surface_height: INITIAL_PANEL_HEIGHT,
+        }
+    }
+
+    pub fn update(&mut self, dashboard: Dashboard<'_>) -> Option<u32> {
+        let layout = PanelLayout::new(dashboard);
+        let next_height = layout.height();
+        self.layout = layout;
+        if next_height == self.surface_height {
+            return None;
+        }
+
+        self.surface_height = next_height;
+        Some(next_height)
+    }
+
+    pub fn view<'a, Message: 'a>(&'a self, dashboard: Dashboard<'a>) -> Element<'a, Message> {
+        view(dashboard, &self.layout)
+    }
+}
+
 const BG: Color = Color::from_rgba8(0x0b, 0x10, 0x20, 0.85);
 const CARD: Color = Color::from_rgba8(0x15, 0x1b, 0x2d, 0.80);
 const BORDER: Color = Color::from_rgb8(0x33, 0x41, 0x5f);
@@ -29,10 +60,14 @@ const ACCENT: Color = Color::from_rgb8(0x7c, 0x9c, 0xff);
 const GREEN: Color = Color::from_rgb8(0x52, 0xe0, 0xc4);
 const ORANGE: Color = Color::from_rgb8(0xff, 0xb8, 0x6b);
 const RED: Color = Color::from_rgb8(0xff, 0x7e, 0x9b);
+#[cfg(not(target_arch = "wasm32"))]
 const MONO: Font = Font::with_name("Inconsolata");
+#[cfg(target_arch = "wasm32")]
+const MONO: Font = Font::with_name("Fira Sans");
+
 const MONO_BOLD: Font = Font {
     weight: Weight::Bold,
-    ..Font::with_name("Inconsolata")
+    ..MONO
 };
 static EMPTY_GRAPH_VALUES: VecDeque<f64> = VecDeque::new();
 

@@ -6,6 +6,7 @@ use crate::core::{SampleCycle, Sampler};
 use crate::platform::{Backend, DesktopCommand};
 use crate::presentation::Dashboard;
 use crate::ui;
+use crate::web::StateHub;
 
 #[cfg_attr(target_os = "linux", iced_layershell::to_layer_message)]
 #[derive(Debug, Clone)]
@@ -16,34 +17,36 @@ pub enum Message {
 
 pub struct App {
     state: MonitorState,
-    layout: ui::PanelLayout,
-    surface_height: u32,
+    panel: ui::PanelState,
+    web_state: Option<StateHub>,
 }
 
-pub fn boot() -> App {
+pub fn boot(web_state: Option<StateHub>) -> App {
     let state = MonitorState::default();
-    let layout = ui::PanelLayout::new(Dashboard::new(&state));
+    let panel = ui::PanelState::new(Dashboard::new(&state));
     App {
         state,
-        layout,
-        surface_height: ui::INITIAL_PANEL_HEIGHT,
+        panel,
+        web_state,
     }
 }
 
 #[cfg(target_os = "linux")]
-pub fn boot_x11() -> (App, Task<Message>) {
-    (boot(), crate::platform::desktop::configure_x11_task())
+pub fn boot_x11(web_state: Option<StateHub>) -> (App, Task<Message>) {
+    (
+        boot(web_state),
+        crate::platform::desktop::configure_x11_task(),
+    )
 }
 
 pub fn update(app: &mut App, message: Message) -> Task<Message> {
     match message {
         Message::Monitor(state) => {
-            let layout = ui::PanelLayout::new(Dashboard::new(&state));
-            let next_height = layout.height();
+            if let Some(web_state) = &app.web_state {
+                web_state.publish(&state);
+            }
             app.state = state;
-            app.layout = layout;
-            if next_height != app.surface_height {
-                app.surface_height = next_height;
+            if let Some(next_height) = app.panel.update(Dashboard::new(&app.state)) {
                 #[cfg(target_os = "linux")]
                 {
                     if crate::platform::desktop::is_x11() {
@@ -64,7 +67,7 @@ pub fn update(app: &mut App, message: Message) -> Task<Message> {
 }
 
 pub fn view(app: &App) -> Element<'_, Message> {
-    ui::view(Dashboard::new(&app.state), &app.layout)
+    app.panel.view(Dashboard::new(&app.state))
 }
 
 pub fn subscription(_app: &App) -> Subscription<Message> {

@@ -1,23 +1,23 @@
 use std::fs;
 
-use crate::core::model::CpuCounter;
+use crate::core::model::{Collection, CollectionUnavailable, CpuCounter};
 
-use super::diagnostics::report_issue;
+use super::diagnostics::{report_issue, unavailable_from_io};
 
-pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Option<CpuCounter> {
+pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Collection<CpuCounter> {
     let text = match fs::read_to_string("/proc/stat") {
         Ok(text) => text,
         Err(error) => {
             report_issue(&mut notes, || format!("cannot read /proc/stat: {error}"));
-            return None;
+            return Collection::unavailable(unavailable_from_io(&error));
         }
     };
 
     match parse_stat(&text) {
-        Ok(counter) => Some(counter),
+        Ok(counter) => Collection::available(counter),
         Err(error) => {
             report_issue(&mut notes, || error);
-            None
+            Collection::unavailable(CollectionUnavailable::InvalidData)
         }
     }
 }

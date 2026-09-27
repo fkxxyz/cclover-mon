@@ -1,16 +1,17 @@
 use std::fs;
 
-use crate::core::model::{DiskCounter, DiskId};
+use crate::core::model::{Collection, DiskCounter, DiskId};
 
-use super::diagnostics::{probe_note, report_issue};
+use super::diagnostics::{probe_note, report_issue, unavailable_from_io};
 
-pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Vec<DiskCounter> {
+pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Collection<Vec<DiskCounter>> {
     let mut rows = Vec::new();
+    let mut degraded = false;
     let entries = match fs::read_dir("/sys/block") {
         Ok(entries) => entries,
         Err(error) => {
             report_issue(&mut notes, || format!("cannot read /sys/block: {error}"));
-            return rows;
+            return Collection::unavailable(unavailable_from_io(&error));
         }
     };
     for entry in entries.flatten() {
@@ -23,6 +24,7 @@ pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Vec<DiskCounter> {
             continue;
         }
         let Some(device_path) = fs::canonicalize(path.join("device")).ok() else {
+            degraded = true;
             probe_note(&mut notes, || {
                 format!("{name} skipped: device identity is unreadable")
             });
@@ -32,6 +34,7 @@ pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Vec<DiskCounter> {
             .ok()
             .map(|value| value.trim().to_owned())
         else {
+            degraded = true;
             probe_note(&mut notes, || {
                 format!("{name} skipped: device number is unreadable")
             });
@@ -40,6 +43,7 @@ pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Vec<DiskCounter> {
         let stat = match fs::read_to_string(path.join("stat")) {
             Ok(stat) => stat,
             Err(_) => {
+                degraded = true;
                 probe_note(&mut notes, || format!("{name} skipped: stat is unreadable"));
                 continue;
             }
@@ -48,6 +52,7 @@ pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Vec<DiskCounter> {
         match parse_stat(id, name.clone(), &stat) {
             Ok(counter) => rows.push(counter),
             Err(field_count) => {
+                degraded = true;
                 probe_note(&mut notes, || {
                     format!("{name} skipped: stat has only {field_count} fields")
                 });
@@ -55,7 +60,11 @@ pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Vec<DiskCounter> {
         }
     }
     rows.sort_by(|a, b| a.name.cmp(&b.name));
-    rows
+    if degraded {
+        Collection::degraded(rows)
+    } else {
+        Collection::available(rows)
+    }
 }
 
 fn parse_stat(id: DiskId, name: String, text: &str) -> Result<DiskCounter, usize> {

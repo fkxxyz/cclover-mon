@@ -1,24 +1,24 @@
 use std::collections::HashMap;
 use std::fs;
 
-use crate::core::model::MemorySnapshot;
+use crate::core::model::{Collection, CollectionUnavailable, MemorySnapshot};
 
-use super::diagnostics::report_issue;
+use super::diagnostics::{report_issue, unavailable_from_io};
 
-pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Option<MemorySnapshot> {
+pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Collection<MemorySnapshot> {
     let text = match fs::read_to_string("/proc/meminfo") {
         Ok(text) => text,
         Err(error) => {
             report_issue(&mut notes, || format!("cannot read /proc/meminfo: {error}"));
-            return None;
+            return Collection::unavailable(unavailable_from_io(&error));
         }
     };
 
     match parse_meminfo(&text) {
-        Ok(snapshot) => Some(snapshot),
+        Ok(snapshot) => Collection::available(snapshot),
         Err(error) => {
             report_issue(&mut notes, || error);
-            None
+            Collection::unavailable(CollectionUnavailable::InvalidData)
         }
     }
 }

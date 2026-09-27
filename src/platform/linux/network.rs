@@ -1,19 +1,20 @@
 use std::fs;
 use std::path::Path;
 
-use crate::core::model::{NetworkCounter, NetworkId};
+use crate::core::model::{Collection, NetworkCounter, NetworkId};
 
-use super::diagnostics::{probe_note, report_issue};
+use super::diagnostics::{probe_note, report_issue, unavailable_from_io};
 
-pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Vec<NetworkCounter> {
+pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Collection<Vec<NetworkCounter>> {
     let mut rows = Vec::new();
+    let mut degraded = false;
     let entries = match fs::read_dir("/sys/class/net") {
         Ok(entries) => entries,
         Err(error) => {
             report_issue(&mut notes, || {
                 format!("cannot read /sys/class/net: {error}")
             });
-            return rows;
+            return Collection::unavailable(unavailable_from_io(&error));
         }
     };
     for entry in entries.flatten() {
@@ -26,12 +27,14 @@ pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Vec<NetworkCounter
             continue;
         }
         let Some(ifindex) = read_u64(path.join("ifindex")) else {
+            degraded = true;
             probe_note(&mut notes, || {
                 format!("{name} skipped: ifindex is unreadable")
             });
             continue;
         };
         let Some(device_path) = fs::canonicalize(path.join("device")).ok() else {
+            degraded = true;
             probe_note(&mut notes, || {
                 format!("{name} skipped: device identity is unreadable")
             });
@@ -48,12 +51,14 @@ pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Vec<NetworkCounter
             continue;
         }
         let Some(received_bytes) = read_u64(path.join("statistics/rx_bytes")) else {
+            degraded = true;
             probe_note(&mut notes, || {
                 format!("{name} skipped: rx_bytes is unreadable")
             });
             continue;
         };
         let Some(transmitted_bytes) = read_u64(path.join("statistics/tx_bytes")) else {
+            degraded = true;
             probe_note(&mut notes, || {
                 format!("{name} skipped: tx_bytes is unreadable")
             });
@@ -67,7 +72,11 @@ pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Vec<NetworkCounter
         });
     }
     rows.sort_by(|a, b| a.name.cmp(&b.name));
-    rows
+    if degraded {
+        Collection::degraded(rows)
+    } else {
+        Collection::available(rows)
+    }
 }
 
 fn read_u64(path: impl AsRef<Path>) -> Option<u64> {

@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
+use crate::core::model::CollectionStatus;
 use crate::core::{SampleCycle, Sampler};
 use crate::platform::{Backend, ProbeKind};
 use crate::presentation::{format_bytes, format_percent, format_rate, unavailable};
@@ -326,10 +327,10 @@ fn probe(kind: ProbeKind, raw: bool) {
     println!("collector: {}", kind.as_str());
     println!(
         "status: {}",
-        if report.available {
-            "ok"
-        } else {
-            "unavailable"
+        match report.status {
+            CollectionStatus::Available => "ok",
+            CollectionStatus::Degraded => "degraded",
+            CollectionStatus::Unavailable(_) => "unavailable",
         }
     );
     println!("elapsed: {:.3} ms", elapsed.as_secs_f64() * 1_000.0);

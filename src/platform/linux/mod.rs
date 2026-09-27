@@ -37,12 +37,13 @@ impl Backend {
         match kind {
             ProbeKind::Cpu => {
                 let value = cpu::collect(Some(&mut notes));
-                let available = value.is_some();
+                let status = value.status();
                 let summary = value
-                    .as_ref()
+                    .value()
                     .map(|cpu| vec![format!("{} logical CPUs", cpu.logical_cpu_count)])
                     .unwrap_or_else(|| vec!["CPU counters unavailable".to_owned()]);
                 let raw = value
+                    .value()
                     .map(|cpu| {
                         vec![format!(
                             "total_time_units={} idle_time_units={} logical_cpu_count={}",
@@ -51,7 +52,7 @@ impl Backend {
                     })
                     .unwrap_or_default();
                 ProbeReport {
-                    available,
+                    status,
                     summary,
                     raw,
                     notes,
@@ -59,9 +60,9 @@ impl Backend {
             }
             ProbeKind::Memory => {
                 let value = memory::collect(Some(&mut notes));
-                let available = value.is_some();
+                let status = value.status();
                 let summary = value
-                    .as_ref()
+                    .value()
                     .map(|memory| {
                         vec![format!(
                             "used_bytes={} total_bytes={} swap_used_bytes={} swap_total_bytes={}",
@@ -73,6 +74,7 @@ impl Backend {
                     })
                     .unwrap_or_else(|| vec!["memory counters unavailable".to_owned()]);
                 let raw = value
+                    .value()
                     .map(|memory| {
                         vec![format!(
                             "used_bytes={} total_bytes={} swap_used_bytes={} swap_total_bytes={}",
@@ -84,14 +86,16 @@ impl Backend {
                     })
                     .unwrap_or_default();
                 ProbeReport {
-                    available,
+                    status,
                     summary,
                     raw,
                     notes,
                 }
             }
             ProbeKind::Processes => {
-                let values = self.processes.collect(Some(&mut notes));
+                let outcome = self.processes.collect(Some(&mut notes));
+                let status = outcome.status();
+                let values = outcome.value().map(Vec::as_slice).unwrap_or_default();
                 let raw = values
                     .iter()
                     .map(|process| {
@@ -105,14 +109,16 @@ impl Backend {
                     })
                     .collect();
                 ProbeReport {
-                    available: collection_available(&values, &notes),
+                    status,
                     summary: vec![format!("{} processes", values.len())],
                     raw,
                     notes,
                 }
             }
             ProbeKind::Network => {
-                let values = network::collect(Some(&mut notes));
+                let outcome = network::collect(Some(&mut notes));
+                let status = outcome.status();
+                let values = outcome.value().map(Vec::as_slice).unwrap_or_default();
                 let raw = values
                     .iter()
                     .map(|network| {
@@ -123,7 +129,7 @@ impl Backend {
                     })
                     .collect();
                 ProbeReport {
-                    available: collection_available(&values, &notes),
+                    status,
                     summary: vec![format!(
                         "{} interfaces: {}",
                         values.len(),
@@ -134,44 +140,42 @@ impl Backend {
                 }
             }
             ProbeKind::NetworkAttribution => {
-                let first = self.ebpf_io.collect_network();
-                if first.is_ok() {
+                let first = self.ebpf_io.collect_network(Some(&mut notes));
+                let outcome = if first.is_observable() {
                     std::thread::sleep(crate::core::SAMPLE_INTERVAL);
-                }
-                match first.and_then(|_| self.ebpf_io.collect_network()) {
-                    Ok(result) => {
-                        if result.unresolved_native_ids > 0 {
-                            notes.push(format!(
-                                "{} network attribution rows skipped: ifindex could not be resolved in the current network namespace",
-                                result.unresolved_native_ids
-                            ));
-                        }
-                        ProbeReport {
-                            available: true,
-                            summary: vec![format!("{} PID×interface rows", result.rows.len())],
-                            raw: result
-                                .rows
-                                .iter()
-                                .map(|row| {
-                                    format!(
-                                        "pid={} interface={} rx_bytes={} tx_bytes={}",
-                                        row.process.pid, row.interface, row.rx_bytes, row.tx_bytes
-                                    )
-                                })
-                                .collect(),
-                            notes,
-                        }
-                    }
-                    Err(error) => ProbeReport {
-                        available: false,
+                    self.ebpf_io.collect_network(Some(&mut notes))
+                } else {
+                    first
+                };
+                let status = outcome.status();
+                let Some(result) = outcome.value() else {
+                    return ProbeReport {
+                        status,
                         summary: vec!["network attribution unavailable".to_owned()],
                         raw: Vec::new(),
-                        notes: vec![error.to_string()],
-                    },
+                        notes,
+                    };
+                };
+                ProbeReport {
+                    status,
+                    summary: vec![format!("{} PID×interface rows", result.rows.len())],
+                    raw: result
+                        .rows
+                        .iter()
+                        .map(|row| {
+                            format!(
+                                "pid={} interface={} rx_bytes={} tx_bytes={}",
+                                row.process.pid, row.interface, row.rx_bytes, row.tx_bytes
+                            )
+                        })
+                        .collect(),
+                    notes,
                 }
             }
             ProbeKind::Disk => {
-                let values = disk::collect(Some(&mut notes));
+                let outcome = disk::collect(Some(&mut notes));
+                let status = outcome.status();
+                let values = outcome.value().map(Vec::as_slice).unwrap_or_default();
                 let raw = values
                     .iter()
                     .map(|disk| {
@@ -182,7 +186,7 @@ impl Backend {
                     })
                     .collect();
                 ProbeReport {
-                    available: collection_available(&values, &notes),
+                    status,
                     summary: vec![format!(
                         "{} devices: {}",
                         values.len(),
@@ -193,47 +197,42 @@ impl Backend {
                 }
             }
             ProbeKind::DiskAttribution => {
-                let first = self.ebpf_io.collect_disk();
-                if first.is_ok() {
+                let first = self.ebpf_io.collect_disk(Some(&mut notes));
+                let outcome = if first.is_observable() {
                     std::thread::sleep(crate::core::SAMPLE_INTERVAL);
-                }
-                match first.and_then(|_| self.ebpf_io.collect_disk()) {
-                    Ok(result) => {
-                        if result.unresolved_native_ids > 0 {
-                            notes.push(format!(
-                                "{} disk attribution rows skipped: dev_t could not be resolved through sysfs",
-                                result.unresolved_native_ids
-                            ));
-                        }
-                        ProbeReport {
-                            available: true,
-                            summary: vec![format!("{} PID×device rows", result.rows.len())],
-                            raw: result
-                                .rows
-                                .iter()
-                                .map(|row| {
-                                    format!(
-                                        "pid={} device={} read_bytes={} write_bytes={}",
-                                        row.process.pid,
-                                        row.device,
-                                        row.read_bytes,
-                                        row.write_bytes
-                                    )
-                                })
-                                .collect(),
-                            notes,
-                        }
-                    }
-                    Err(error) => ProbeReport {
-                        available: false,
+                    self.ebpf_io.collect_disk(Some(&mut notes))
+                } else {
+                    first
+                };
+                let status = outcome.status();
+                let Some(result) = outcome.value() else {
+                    return ProbeReport {
+                        status,
                         summary: vec!["disk attribution unavailable".to_owned()],
                         raw: Vec::new(),
-                        notes: vec![error.to_string()],
-                    },
+                        notes,
+                    };
+                };
+                ProbeReport {
+                    status,
+                    summary: vec![format!("{} PID×device rows", result.rows.len())],
+                    raw: result
+                        .rows
+                        .iter()
+                        .map(|row| {
+                            format!(
+                                "pid={} device={} read_bytes={} write_bytes={}",
+                                row.process.pid, row.device, row.read_bytes, row.write_bytes
+                            )
+                        })
+                        .collect(),
+                    notes,
                 }
             }
             ProbeKind::Temperatures => {
-                let values = self.temperatures.collect(Instant::now(), Some(&mut notes));
+                let outcome = self.temperatures.collect(Instant::now(), Some(&mut notes));
+                let status = outcome.status();
+                let values = outcome.value().map(Vec::as_slice).unwrap_or_default();
                 let raw = values
                     .iter()
                     .map(|temperature| {
@@ -254,7 +253,7 @@ impl Backend {
                         .collect()
                 };
                 ProbeReport {
-                    available: collection_available(&values, &notes),
+                    status,
                     summary,
                     raw,
                     notes,
@@ -278,13 +277,13 @@ impl Backend {
                 std::hint::black_box(network::collect(None));
             }
             ProbeKind::NetworkAttribution => {
-                let _ = std::hint::black_box(self.ebpf_io.collect_network());
+                let _ = std::hint::black_box(self.ebpf_io.collect_network(None));
             }
             ProbeKind::Disk => {
                 std::hint::black_box(disk::collect(None));
             }
             ProbeKind::DiskAttribution => {
-                let _ = std::hint::black_box(self.ebpf_io.collect_disk());
+                let _ = std::hint::black_box(self.ebpf_io.collect_disk(None));
             }
             ProbeKind::Temperatures => {
                 std::hint::black_box(self.temperatures.collect(Instant::now(), None));
@@ -308,13 +307,10 @@ impl CoreCollector for Backend {
         let networks = devlog::timed("collector.network", || network::collect(None));
         let disks = devlog::timed("collector.disk", || disk::collect(None));
         let process_disk_io = devlog::timed("collector.disk-attribution", || {
-            self.ebpf_io.collect_disk().ok().map(|result| result.rows)
+            self.ebpf_io.collect_disk(None).map(|result| result.rows)
         });
         let process_network_io = devlog::timed("collector.network-attribution", || {
-            self.ebpf_io
-                .collect_network()
-                .ok()
-                .map(|result| result.rows)
+            self.ebpf_io.collect_network(None).map(|result| result.rows)
         });
         let temperatures = devlog::timed("collector.temperatures", || {
             self.temperatures.collect(Instant::now(), None)
@@ -332,10 +328,6 @@ impl CoreCollector for Backend {
             temperatures,
         }
     }
-}
-
-fn collection_available<T>(values: &[T], notes: &[String]) -> bool {
-    !values.is_empty() || !notes.iter().any(|note| note.starts_with("cannot read "))
 }
 
 fn names<'a>(values: impl Iterator<Item = &'a str>) -> String {

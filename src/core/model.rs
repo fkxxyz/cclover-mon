@@ -174,31 +174,135 @@ pub struct DiskCounter {
     pub write_bytes: u64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CollectionUnavailable {
+    Unsupported,
+    Disabled,
+    PermissionDenied,
+    Unavailable,
+    InvalidData,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CollectionStatus {
+    Available,
+    Degraded,
+    Unavailable(CollectionUnavailable),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Collection<T> {
+    Available(T),
+    Degraded(T),
+    Unavailable(CollectionUnavailable),
+}
+
+impl<T> Collection<T> {
+    pub fn available(value: T) -> Self {
+        Self::Available(value)
+    }
+
+    pub fn degraded(value: T) -> Self {
+        Self::Degraded(value)
+    }
+
+    pub fn unavailable(reason: CollectionUnavailable) -> Self {
+        Self::Unavailable(reason)
+    }
+
+    pub fn value(&self) -> Option<&T> {
+        match self {
+            Self::Available(value) | Self::Degraded(value) => Some(value),
+            Self::Unavailable(_) => None,
+        }
+    }
+
+    pub fn into_value(self) -> Option<T> {
+        match self {
+            Self::Available(value) | Self::Degraded(value) => Some(value),
+            Self::Unavailable(_) => None,
+        }
+    }
+
+    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Collection<U> {
+        match self {
+            Self::Available(value) => Collection::Available(f(value)),
+            Self::Degraded(value) => Collection::Degraded(f(value)),
+            Self::Unavailable(reason) => Collection::Unavailable(reason),
+        }
+    }
+
+    pub fn is_observable(&self) -> bool {
+        self.value().is_some()
+    }
+
+    pub fn status(&self) -> CollectionStatus {
+        match self {
+            Self::Available(_) => CollectionStatus::Available,
+            Self::Degraded(_) => CollectionStatus::Degraded,
+            Self::Unavailable(reason) => CollectionStatus::Unavailable(*reason),
+        }
+    }
+}
+
+impl<T> Default for Collection<T> {
+    fn default() -> Self {
+        Self::Unavailable(CollectionUnavailable::Unavailable)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct RawSnapshot {
     pub collected_at: Instant,
-    pub cpu: Option<CpuCounter>,
-    pub memory: Option<MemorySnapshot>,
-    pub processes: Vec<ProcessCounter>,
-    pub networks: Vec<NetworkCounter>,
-    pub disks: Vec<DiskCounter>,
-    pub process_disk_io: Option<Vec<ProcessDiskIoCounter>>,
-    pub process_network_io: Option<Vec<ProcessNetworkIoCounter>>,
-    pub temperatures: Vec<TemperatureSnapshot>,
+    pub cpu: Collection<CpuCounter>,
+    pub memory: Collection<MemorySnapshot>,
+    pub processes: Collection<Vec<ProcessCounter>>,
+    pub networks: Collection<Vec<NetworkCounter>>,
+    pub disks: Collection<Vec<DiskCounter>>,
+    pub process_disk_io: Collection<Vec<ProcessDiskIoCounter>>,
+    pub process_network_io: Collection<Vec<ProcessNetworkIoCounter>>,
+    pub temperatures: Collection<Vec<TemperatureSnapshot>>,
 }
 
 impl Default for RawSnapshot {
     fn default() -> Self {
+        Self::unavailable(Instant::now(), CollectionUnavailable::Unavailable)
+    }
+}
+
+impl RawSnapshot {
+    pub fn unavailable(collected_at: Instant, reason: CollectionUnavailable) -> Self {
         Self {
-            collected_at: Instant::now(),
-            cpu: None,
-            memory: None,
-            processes: Vec::new(),
-            networks: Vec::new(),
-            disks: Vec::new(),
-            process_disk_io: None,
-            process_network_io: None,
-            temperatures: Vec::new(),
+            collected_at,
+            cpu: Collection::unavailable(reason),
+            memory: Collection::unavailable(reason),
+            processes: Collection::unavailable(reason),
+            networks: Collection::unavailable(reason),
+            disks: Collection::unavailable(reason),
+            process_disk_io: Collection::unavailable(reason),
+            process_network_io: Collection::unavailable(reason),
+            temperatures: Collection::unavailable(reason),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_observation_is_distinct_from_unavailability() {
+        let empty = Collection::<Vec<u8>>::available(Vec::new());
+        let unavailable = Collection::<Vec<u8>>::unavailable(CollectionUnavailable::Unavailable);
+
+        assert!(empty.is_observable());
+        assert_eq!(empty.value().unwrap().len(), 0);
+        assert!(!unavailable.is_observable());
+    }
+
+    #[test]
+    fn mapping_preserves_degradation_state() {
+        let outcome = Collection::degraded(vec![1, 2]).map(|values| values.len());
+        assert_eq!(outcome, Collection::Degraded(2));
     }
 }

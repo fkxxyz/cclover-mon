@@ -24,7 +24,6 @@ Technical debt here means current structure that makes future reasonable change 
 | Debt | Status | Why it matters |
 | --- | --- | --- |
 | [Metric extension coupling](technical-debt/metric-extension-coupling.md) | Active | Adding a metric propagates through multiple central switchboards and authorities. |
-| [Collector outcome semantics](technical-debt/collector-outcome-semantics.md) | Active | Empty, unavailable, partial failure, and diagnostics are not represented by one typed contract. |
 | [Desktop hosting boundary](technical-debt/desktop-hosting-boundary.md) | Active | Linux display-protocol policy leaks into application composition and has multiple authorities. |
 | [Architecture enforcement](technical-debt/architecture-enforcement.md) | Active | Important dependency and validation rules rely too heavily on developer memory and manual execution. |
 

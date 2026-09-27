@@ -41,7 +41,7 @@ Desktop protocol configuration keeps orchestration separate from protocol policy
 
 Linux system-tray integration uses StatusNotifierItem over the desktop session D-Bus and is independent of X11-versus-Wayland monitor hosting. Tray callbacks translate native menu activation into platform-neutral desktop commands; they do not call `process::exit`, manipulate Iced widgets, or expose D-Bus types outside the platform boundary. Failure to register the tray is a degradable desktop-integration failure: emit a diagnostic and keep the monitor running.
 
-Partition native collection by metric responsibility. Each metric collector owns its OS interaction, parsing, and metric-specific mutable state. The Linux `Backend` composes those collectors into the core-owned `RawSnapshot`; it does not own metric-specific collection algorithms or state.
+Partition native collection by metric responsibility. Each metric collector owns its OS interaction, parsing, and metric-specific mutable state. The Linux `Backend` composes those collectors into the core-owned `RawSnapshot`; it does not own metric-specific collection algorithms or state. Every raw metric crosses this boundary as the core-owned `Collection<T>` outcome: `Available(T)` means a complete observation, `Degraded(T)` means a usable partial observation, and `Unavailable(reason)` means no observation. An empty collection payload is therefore a valid observed value, never an implicit failure signal.
 
 One metric collector may own multiple peer native sources when the OS exposes the same semantic through different facilities. Linux temperature collection uses hwmon as the generic kernel sensor source and an NVIDIA NVML source for proprietary-driver GPUs. The temperature collector merges both into the same core-owned temperature snapshot sequence. `hwmon`, NVML handles, NVIDIA UUID/PCI APIs, and source-specific availability states do not cross into core, presentation, or UI.
 
@@ -57,7 +57,7 @@ Any BPF map key or value whose bytes are read directly into a Rust type is a cro
 
 Keep parsing of textual or binary OS formats separable from native IO so representative fixtures can exercise parsers without relying on the developer machine's live `/proc` or `/sys` contents. Development probes must invoke the same production collector path used by normal sampling rather than maintain a parallel collection implementation.
 
-Privileged Linux sources use least authority. Permission, verifier, BTF, or attach failures are surfaced as typed unavailability/diagnostics for the affected metric rather than converted to zero or causing unrelated collectors to fail.
+Privileged Linux sources use least authority. Permission, verifier, BTF, or attach failures are surfaced as typed unavailability/diagnostics for the affected metric rather than converted to zero or causing unrelated collectors to fail. Program decisions consume only typed collection state; diagnostic text is human-readable evidence and must never be parsed to infer availability or degradation. When a delta-based source is unavailable, that sample cannot serve as a comparison baseline; the next observable sample starts a new zero-rate baseline rather than spanning the unavailable interval.
 
 ## Windows
 

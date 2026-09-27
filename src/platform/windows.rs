@@ -1,5 +1,5 @@
 use crate::core::Collector;
-use crate::core::model::RawSnapshot;
+use crate::core::model::{CollectionStatus, CollectionUnavailable, RawSnapshot};
 use crate::platform::{ProbeKind, ProbeReport};
 
 pub struct Backend;
@@ -11,7 +11,7 @@ impl Backend {
 
     pub fn probe(&mut self, kind: ProbeKind) -> ProbeReport {
         ProbeReport {
-            available: false,
+            status: CollectionStatus::Unavailable(CollectionUnavailable::Unsupported),
             summary: vec![format!("{} collector is unavailable", kind.as_str())],
             raw: Vec::new(),
             notes: vec!["Windows collection is not implemented yet".to_owned()],
@@ -29,6 +29,9 @@ impl Collector for Backend {
         // contracts as the Linux backend. The legacy Quickshell product being ported
         // had no Windows collector, so this target intentionally starts unavailable
         // rather than leaking Windows API types into core or UI.
-        RawSnapshot::default()
+        RawSnapshot::unavailable(
+            std::time::Instant::now(),
+            CollectionUnavailable::Unsupported,
+        )
     }
 }

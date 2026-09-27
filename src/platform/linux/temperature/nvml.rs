@@ -1,6 +1,6 @@
 mod runtime;
 
-use crate::core::model::TemperatureSnapshot;
+use crate::core::model::{Collection, CollectionUnavailable, TemperatureSnapshot};
 
 use super::super::diagnostics::{probe_note, report_issue};
 
@@ -10,7 +10,10 @@ pub(super) struct Collector {
 
 enum State {
     Uninitialized,
-    Available(runtime::Session),
+    Available {
+        session: runtime::Session,
+        degraded: bool,
+    },
     Unavailable(String),
 }
 
@@ -24,14 +27,15 @@ impl Collector {
     pub(super) fn collect(
         &mut self,
         mut notes: Option<&mut Vec<String>>,
-    ) -> Vec<TemperatureSnapshot> {
+    ) -> Collection<Vec<TemperatureSnapshot>> {
         if matches!(self.state, State::Uninitialized) {
             self.state = match runtime::Session::load() {
                 Ok((session, issues)) => {
+                    let degraded = !issues.is_empty();
                     for issue in issues {
                         report_issue(&mut notes, || issue.clone());
                     }
-                    State::Available(session)
+                    State::Available { session, degraded }
                 }
                 Err(reason) => State::Unavailable(reason),
             };
@@ -41,22 +45,24 @@ impl Collector {
             State::Uninitialized => unreachable!(),
             State::Unavailable(reason) => {
                 probe_note(&mut notes, || format!("NVML unavailable: {reason}"));
-                Vec::new()
+                Collection::unavailable(CollectionUnavailable::Unsupported)
             }
-            State::Available(session) => collect_session(session, notes),
+            State::Available { session, degraded } => collect_session(session, *degraded, notes),
         }
     }
 }
 
 fn collect_session(
     session: &runtime::Session,
+    mut degraded: bool,
     mut notes: Option<&mut Vec<String>>,
-) -> Vec<TemperatureSnapshot> {
+) -> Collection<Vec<TemperatureSnapshot>> {
     let mut values = Vec::with_capacity(session.devices().len());
     for (index, device) in session.devices().iter().enumerate() {
         let temperature = match session.temperature(index) {
             Ok(temperature) => temperature,
             Err(status) => {
+                degraded = true;
                 probe_note(&mut notes, || {
                     format!(
                         "NVML GPU {} skipped: temperature query failed with status {status}",
@@ -69,7 +75,11 @@ fn collect_session(
 
         values.push(snapshot(device.uuid(), device.name(), temperature));
     }
-    values
+    if degraded {
+        Collection::degraded(values)
+    } else {
+        Collection::available(values)
+    }
 }
 
 fn snapshot(uuid: &str, name: &str, temperature: u32) -> TemperatureSnapshot {

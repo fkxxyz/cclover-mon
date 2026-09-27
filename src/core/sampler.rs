@@ -86,27 +86,32 @@ impl<C: Collector> Sampler<C> {
 }
 
 fn derive(previous: Option<&RawSnapshot>, current: &RawSnapshot) -> SystemSnapshot {
-    let (cpu_percent, top_cpu) = derive_cpu(previous, current);
+    let current_processes = current
+        .processes
+        .value()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let (cpu_percent, top_cpu) = derive_cpu(previous, current, current_processes);
     let dt = sample_interval_seconds(previous, current);
     let mut out = SystemSnapshot {
         cpu_percent,
-        memory: current.memory.clone(),
+        memory: current.memory.value().cloned(),
         top_cpu,
-        top_memory: top_memory(&current.processes),
+        top_memory: top_memory(current_processes),
         networks: derive_networks(previous, current, dt),
         disks: derive_disks(previous, current, dt),
-        temperatures: current.temperatures.clone(),
+        temperatures: current.temperatures.value().cloned().unwrap_or_default(),
         ..SystemSnapshot::default()
     };
 
     out.process_disk_io = derive_process_disk_io(
-        previous.and_then(|snapshot| snapshot.process_disk_io.as_deref()),
-        current.process_disk_io.as_deref(),
+        previous.and_then(|snapshot| snapshot.process_disk_io.value().map(Vec::as_slice)),
+        current.process_disk_io.value().map(Vec::as_slice),
         dt,
     );
     out.process_network_io = derive_process_network_io(
-        previous.and_then(|snapshot| snapshot.process_network_io.as_deref()),
-        current.process_network_io.as_deref(),
+        previous.and_then(|snapshot| snapshot.process_network_io.value().map(Vec::as_slice)),
+        current.process_network_io.value().map(Vec::as_slice),
         dt,
     );
 
@@ -116,32 +121,36 @@ fn derive(previous: Option<&RawSnapshot>, current: &RawSnapshot) -> SystemSnapsh
 fn derive_cpu(
     previous: Option<&RawSnapshot>,
     current: &RawSnapshot,
+    current_processes: &[ProcessCounter],
 ) -> (Option<f64>, Vec<ProcessCpuUsage>) {
-    let Some(new) = &current.cpu else {
+    let Some(new) = current.cpu.value() else {
         return (None, Vec::new());
     };
     let Some((previous, old)) =
-        previous.and_then(|snapshot| snapshot.cpu.as_ref().map(|counter| (snapshot, counter)))
+        previous.and_then(|snapshot| snapshot.cpu.value().map(|counter| (snapshot, counter)))
     else {
-        return (Some(0.0), baseline_top_cpu(&current.processes));
+        return (Some(0.0), baseline_top_cpu(current_processes));
     };
 
     let total = new.total_time_units.saturating_sub(old.total_time_units);
     if total == 0 {
-        return (Some(0.0), baseline_top_cpu(&current.processes));
+        return (Some(0.0), baseline_top_cpu(current_processes));
     }
 
     let idle = new.idle_time_units.saturating_sub(old.idle_time_units);
     let percent = (100.0 * (total.saturating_sub(idle)) as f64 / total as f64).clamp(0.0, 100.0);
-    (
-        Some(percent),
-        top_cpu(
-            &previous.processes,
-            &current.processes,
-            total,
-            new.logical_cpu_count,
-        ),
-    )
+    let top_cpu = previous.processes.value().map_or_else(
+        || baseline_top_cpu(current_processes),
+        |previous_processes| {
+            top_cpu(
+                previous_processes,
+                current_processes,
+                total,
+                new.logical_cpu_count,
+            )
+        },
+    );
+    (Some(percent), top_cpu)
 }
 
 fn sample_interval_seconds(previous: Option<&RawSnapshot>, current: &RawSnapshot) -> f64 {
@@ -162,13 +171,16 @@ fn derive_networks(
     dt: f64,
 ) -> Vec<NetworkSnapshot> {
     let old: HashMap<&NetworkId, &NetworkCounter> = previous
+        .and_then(|snapshot| snapshot.networks.value())
         .into_iter()
-        .flat_map(|snapshot| snapshot.networks.iter())
+        .flatten()
         .map(|item| (&item.id, item))
         .collect();
     current
         .networks
-        .iter()
+        .value()
+        .into_iter()
+        .flatten()
         .map(|item| {
             let (down, up) = old.get(&item.id).map_or((0.0, 0.0), |old| {
                 (
@@ -192,13 +204,16 @@ fn derive_disks(
     dt: f64,
 ) -> Vec<DiskSnapshot> {
     let old: HashMap<&DiskId, &DiskCounter> = previous
+        .and_then(|snapshot| snapshot.disks.value())
         .into_iter()
-        .flat_map(|snapshot| snapshot.disks.iter())
+        .flatten()
         .map(|item| (&item.id, item))
         .collect();
     current
         .disks
-        .iter()
+        .value()
+        .into_iter()
+        .flatten()
         .map(|item| {
             let rate = old.get(&item.id).map_or(0.0, |old| {
                 let old_total = old.read_bytes.saturating_add(old.write_bytes);
@@ -382,52 +397,52 @@ mod tests {
     #[test]
     fn first_sample_publishes_observed_entities_with_zero_baseline_rates() {
         let current = RawSnapshot {
-            cpu: Some(CpuCounter {
+            cpu: Collection::available(CpuCounter {
                 total_time_units: 1_000,
                 idle_time_units: 600,
                 logical_cpu_count: 4,
             }),
-            memory: Some(MemorySnapshot {
+            memory: Collection::available(MemorySnapshot {
                 used_bytes: 10,
                 total_bytes: 20,
                 swap_used_bytes: 1,
                 swap_total_bytes: 2,
             }),
-            processes: vec![ProcessCounter {
+            processes: Collection::available(vec![ProcessCounter {
                 process: process_id(10, 1),
                 name: "worker".into(),
                 cpu_time_units: 100,
                 rss_bytes: 4096,
-            }],
-            networks: vec![NetworkCounter {
+            }]),
+            networks: Collection::available(vec![NetworkCounter {
                 id: network_id("network-a"),
                 name: "eth0".into(),
                 rx_bytes: 1_000,
                 tx_bytes: 2_000,
-            }],
-            disks: vec![DiskCounter {
+            }]),
+            disks: Collection::available(vec![DiskCounter {
                 id: disk_id("disk-a"),
                 name: "nvme0n1".into(),
                 read_bytes: 3_000,
                 write_bytes: 4_000,
-            }],
-            process_disk_io: Some(vec![ProcessDiskIoCounter {
+            }]),
+            process_disk_io: Collection::available(vec![ProcessDiskIoCounter {
                 process: process_id(10, 1),
                 device: "nvme0n1".into(),
                 read_bytes: 300,
                 write_bytes: 400,
             }]),
-            process_network_io: Some(vec![ProcessNetworkIoCounter {
+            process_network_io: Collection::available(vec![ProcessNetworkIoCounter {
                 process: process_id(10, 1),
                 interface: "eth0".into(),
                 rx_bytes: 100,
                 tx_bytes: 200,
             }]),
-            temperatures: vec![TemperatureSnapshot {
+            temperatures: Collection::available(vec![TemperatureSnapshot {
                 id: "cpu-temp".into(),
                 name: "CPU".into(),
                 celsius: 42.0,
-            }],
+            }]),
             ..RawSnapshot::default()
         };
 
@@ -470,56 +485,56 @@ mod tests {
         let t = Instant::now();
         let old = RawSnapshot {
             collected_at: t,
-            cpu: Some(CpuCounter {
+            cpu: Collection::available(CpuCounter {
                 total_time_units: 1000,
                 idle_time_units: 600,
                 logical_cpu_count: 4,
             }),
-            processes: vec![ProcessCounter {
+            processes: Collection::available(vec![ProcessCounter {
                 process: process_id(1, 1),
                 name: "a".into(),
                 cpu_time_units: 100,
                 rss_bytes: 10,
-            }],
-            networks: vec![NetworkCounter {
+            }]),
+            networks: Collection::available(vec![NetworkCounter {
                 id: network_id("network-a"),
                 name: "eth0".into(),
                 rx_bytes: 100,
                 tx_bytes: 200,
-            }],
-            disks: vec![DiskCounter {
+            }]),
+            disks: Collection::available(vec![DiskCounter {
                 id: disk_id("disk-a"),
                 name: "sda".into(),
                 read_bytes: 100,
                 write_bytes: 100,
-            }],
+            }]),
             ..RawSnapshot::default()
         };
         let new = RawSnapshot {
             collected_at: t + Duration::from_secs(1),
-            cpu: Some(CpuCounter {
+            cpu: Collection::available(CpuCounter {
                 total_time_units: 1100,
                 idle_time_units: 650,
                 logical_cpu_count: 4,
             }),
-            processes: vec![ProcessCounter {
+            processes: Collection::available(vec![ProcessCounter {
                 process: process_id(1, 1),
                 name: "a".into(),
                 cpu_time_units: 110,
                 rss_bytes: 20,
-            }],
-            networks: vec![NetworkCounter {
+            }]),
+            networks: Collection::available(vec![NetworkCounter {
                 id: network_id("network-a"),
                 name: "eth0".into(),
                 rx_bytes: 300,
                 tx_bytes: 500,
-            }],
-            disks: vec![DiskCounter {
+            }]),
+            disks: Collection::available(vec![DiskCounter {
                 id: disk_id("disk-a"),
                 name: "sda".into(),
                 read_bytes: 300,
                 write_bytes: 500,
-            }],
+            }]),
             ..RawSnapshot::default()
         };
         let out = derive(Some(&old), &new);
@@ -535,34 +550,34 @@ mod tests {
         let t = Instant::now();
         let old = RawSnapshot {
             collected_at: t,
-            networks: vec![NetworkCounter {
+            networks: Collection::available(vec![NetworkCounter {
                 id: network_id("network-a"),
                 name: "eth0".into(),
                 rx_bytes: 100,
                 tx_bytes: 200,
-            }],
-            disks: vec![DiskCounter {
+            }]),
+            disks: Collection::available(vec![DiskCounter {
                 id: disk_id("disk-a"),
                 name: "sda".into(),
                 read_bytes: 100,
                 write_bytes: 100,
-            }],
+            }]),
             ..RawSnapshot::default()
         };
         let renamed = RawSnapshot {
             collected_at: t + Duration::from_secs(1),
-            networks: vec![NetworkCounter {
+            networks: Collection::available(vec![NetworkCounter {
                 id: network_id("network-a"),
                 name: "lan0".into(),
                 rx_bytes: 300,
                 tx_bytes: 500,
-            }],
-            disks: vec![DiskCounter {
+            }]),
+            disks: Collection::available(vec![DiskCounter {
                 id: disk_id("disk-a"),
                 name: "system-disk".into(),
                 read_bytes: 300,
                 write_bytes: 500,
-            }],
+            }]),
             ..RawSnapshot::default()
         };
 
@@ -580,38 +595,71 @@ mod tests {
         let t = Instant::now();
         let old = RawSnapshot {
             collected_at: t,
-            networks: vec![NetworkCounter {
+            networks: Collection::available(vec![NetworkCounter {
                 id: network_id("network-old"),
                 name: "eth0".into(),
                 rx_bytes: 10_000,
                 tx_bytes: 20_000,
-            }],
-            disks: vec![DiskCounter {
+            }]),
+            disks: Collection::available(vec![DiskCounter {
                 id: disk_id("disk-old"),
                 name: "sda".into(),
                 read_bytes: 10_000,
                 write_bytes: 20_000,
-            }],
+            }]),
             ..RawSnapshot::default()
         };
         let replacement = RawSnapshot {
             collected_at: t + Duration::from_secs(1),
-            networks: vec![NetworkCounter {
+            networks: Collection::available(vec![NetworkCounter {
                 id: network_id("network-new"),
                 name: "eth0".into(),
                 rx_bytes: 100,
                 tx_bytes: 200,
-            }],
-            disks: vec![DiskCounter {
+            }]),
+            disks: Collection::available(vec![DiskCounter {
                 id: disk_id("disk-new"),
                 name: "sda".into(),
                 read_bytes: 100,
                 write_bytes: 200,
-            }],
+            }]),
             ..RawSnapshot::default()
         };
 
         let out = derive(Some(&old), &replacement);
+
+        assert_eq!(out.networks[0].down_bytes_per_sec, 0.0);
+        assert_eq!(out.networks[0].up_bytes_per_sec, 0.0);
+        assert_eq!(out.disks[0].bytes_per_sec, 0.0);
+    }
+
+    #[test]
+    fn recovered_counter_observation_starts_a_new_rate_baseline() {
+        let t = Instant::now();
+        let unavailable = RawSnapshot {
+            collected_at: t,
+            networks: Collection::unavailable(CollectionUnavailable::Unavailable),
+            disks: Collection::unavailable(CollectionUnavailable::Unavailable),
+            ..RawSnapshot::default()
+        };
+        let recovered = RawSnapshot {
+            collected_at: t + Duration::from_secs(1),
+            networks: Collection::available(vec![NetworkCounter {
+                id: network_id("network-a"),
+                name: "eth0".into(),
+                rx_bytes: 50_000,
+                tx_bytes: 80_000,
+            }]),
+            disks: Collection::available(vec![DiskCounter {
+                id: disk_id("disk-a"),
+                name: "sda".into(),
+                read_bytes: 90_000,
+                write_bytes: 120_000,
+            }]),
+            ..RawSnapshot::default()
+        };
+
+        let out = derive(Some(&unavailable), &recovered);
 
         assert_eq!(out.networks[0].down_bytes_per_sec, 0.0);
         assert_eq!(out.networks[0].up_bytes_per_sec, 0.0);
@@ -664,13 +712,13 @@ mod tests {
         let t = Instant::now();
         let old = RawSnapshot {
             collected_at: t,
-            process_disk_io: Some(vec![ProcessDiskIoCounter {
+            process_disk_io: Collection::available(vec![ProcessDiskIoCounter {
                 process: process_id(10, 1),
                 device: "nvme0n1".into(),
                 read_bytes: 100,
                 write_bytes: 200,
             }]),
-            process_network_io: Some(vec![ProcessNetworkIoCounter {
+            process_network_io: Collection::available(vec![ProcessNetworkIoCounter {
                 process: process_id(20, 1),
                 interface: "eth0".into(),
                 rx_bytes: 300,
@@ -680,13 +728,13 @@ mod tests {
         };
         let new = RawSnapshot {
             collected_at: t + Duration::from_secs(2),
-            process_disk_io: Some(vec![ProcessDiskIoCounter {
+            process_disk_io: Collection::available(vec![ProcessDiskIoCounter {
                 process: process_id(10, 1),
                 device: "nvme0n1".into(),
                 read_bytes: 500,
                 write_bytes: 1000,
             }]),
-            process_network_io: Some(vec![ProcessNetworkIoCounter {
+            process_network_io: Collection::available(vec![ProcessNetworkIoCounter {
                 process: process_id(20, 1),
                 interface: "eth0".into(),
                 rx_bytes: 900,
@@ -713,13 +761,13 @@ mod tests {
         let t = Instant::now();
         let old = RawSnapshot {
             collected_at: t,
-            process_disk_io: Some(vec![ProcessDiskIoCounter {
+            process_disk_io: Collection::available(vec![ProcessDiskIoCounter {
                 process: process_id(10, 1),
                 device: "nvme0n1".into(),
                 read_bytes: 10_000,
                 write_bytes: 20_000,
             }]),
-            process_network_io: Some(vec![ProcessNetworkIoCounter {
+            process_network_io: Collection::available(vec![ProcessNetworkIoCounter {
                 process: process_id(20, 1),
                 interface: "eth0".into(),
                 rx_bytes: 30_000,
@@ -729,13 +777,13 @@ mod tests {
         };
         let new = RawSnapshot {
             collected_at: t + Duration::from_secs(1),
-            process_disk_io: Some(vec![ProcessDiskIoCounter {
+            process_disk_io: Collection::available(vec![ProcessDiskIoCounter {
                 process: process_id(10, 1),
                 device: "nvme0n1".into(),
                 read_bytes: 5,
                 write_bytes: 7,
             }]),
-            process_network_io: Some(vec![ProcessNetworkIoCounter {
+            process_network_io: Collection::available(vec![ProcessNetworkIoCounter {
                 process: process_id(20, 1),
                 interface: "eth0".into(),
                 rx_bytes: 11,
@@ -826,14 +874,14 @@ mod tests {
         let t = Instant::now();
         let old = RawSnapshot {
             collected_at: t,
-            process_disk_io: Some(Vec::new()),
-            process_network_io: Some(Vec::new()),
+            process_disk_io: Collection::available(Vec::new()),
+            process_network_io: Collection::available(Vec::new()),
             ..RawSnapshot::default()
         };
         let new = RawSnapshot {
             collected_at: t + Duration::from_secs(1),
-            process_disk_io: None,
-            process_network_io: None,
+            process_disk_io: Collection::unavailable(CollectionUnavailable::Unavailable),
+            process_network_io: Collection::unavailable(CollectionUnavailable::Unavailable),
             ..RawSnapshot::default()
         };
 

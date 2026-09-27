@@ -51,7 +51,7 @@ app composition root ───────→ frontend
                 optional C++ bridge
 ```
 
-- **core** owns platform-neutral metric types, history, aggregation, and sampling contracts, including `Collector`.
+- **core** owns platform-neutral metric types, history, aggregation, and sampling contracts, including `Collector` and the generic `Collection<T>` observation outcome used by every raw metric.
 - **platform** owns OS-specific collection and desktop integration, implements core-owned sampling contracts, and produces core-owned platform-neutral snapshots. Desktop integration owns native monitor-surface hosting and shell integration such as the system tray. Linux monitor hosting selects Wayland layer-shell or X11 without changing shared drawing, while both display sessions share one StatusNotifierItem tray backend. A platform backend is the batch composition point; metric-specific native IO, parsing, and mutable state belong to the corresponding metric responsibility rather than the backend itself.
 - **presentation** converts `MonitorState` into renderer-neutral dashboard semantics: panel meaning, display values, shared formatting, and access to the corresponding history. It depends on core model types but not on Iced, terminal libraries, platform APIs, or application messages.
 - **frontend** owns renderer-specific widgets, interaction, and layout. One Iced panel implementation is shared by Linux/Windows native desktop and browser/WASM builds; native and Web runtimes differ only in hosting and state transport. A future terminal frontend may consume the same presentation model while owning terminal-specific layout and interaction.

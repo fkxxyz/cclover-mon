@@ -8,7 +8,10 @@ mod abi {
 
 use std::fmt;
 
-use crate::core::model::{ProcessDiskIoCounter, ProcessNetworkIoCounter};
+use crate::core::model::{
+    Collection, CollectionUnavailable, ProcessDiskIoCounter, ProcessNetworkIoCounter,
+};
+use crate::platform::linux::diagnostics::{probe_note, report_issue};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum FailureKind {
@@ -85,13 +88,56 @@ impl Collector {
 
     pub(super) fn collect_disk(
         &mut self,
-    ) -> Result<AttributionRows<ProcessDiskIoCounter>, AttributionFailure> {
-        self.disk.collect()
+        mut notes: Option<&mut Vec<String>>,
+    ) -> Collection<AttributionRows<ProcessDiskIoCounter>> {
+        match self.disk.collect() {
+            Ok(result) if result.unresolved_native_ids > 0 => {
+                probe_note(&mut notes, || {
+                    format!(
+                        "{} disk attribution rows skipped: dev_t could not be resolved through sysfs",
+                        result.unresolved_native_ids
+                    )
+                });
+                Collection::degraded(result)
+            }
+            Ok(result) => Collection::available(result),
+            Err(error) => {
+                let reason = unavailable_reason(error.kind);
+                report_issue(&mut notes, || error.to_string());
+                Collection::unavailable(reason)
+            }
+        }
     }
 
     pub(super) fn collect_network(
         &mut self,
-    ) -> Result<AttributionRows<ProcessNetworkIoCounter>, AttributionFailure> {
-        self.network.collect()
+        mut notes: Option<&mut Vec<String>>,
+    ) -> Collection<AttributionRows<ProcessNetworkIoCounter>> {
+        match self.network.collect() {
+            Ok(result) if result.unresolved_native_ids > 0 => {
+                probe_note(&mut notes, || {
+                    format!(
+                        "{} network attribution rows skipped: ifindex could not be resolved in the current network namespace",
+                        result.unresolved_native_ids
+                    )
+                });
+                Collection::degraded(result)
+            }
+            Ok(result) => Collection::available(result),
+            Err(error) => {
+                let reason = unavailable_reason(error.kind);
+                report_issue(&mut notes, || error.to_string());
+                Collection::unavailable(reason)
+            }
+        }
+    }
+}
+
+fn unavailable_reason(kind: FailureKind) -> CollectionUnavailable {
+    match kind {
+        FailureKind::Privilege => CollectionUnavailable::PermissionDenied,
+        FailureKind::Disabled => CollectionUnavailable::Disabled,
+        FailureKind::KernelBtf | FailureKind::AttachPoint => CollectionUnavailable::Unsupported,
+        FailureKind::MapAccess | FailureKind::Loader => CollectionUnavailable::Unavailable,
     }
 }

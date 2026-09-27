@@ -36,6 +36,7 @@ facets:
 | Desktop integration resilience | Failure to register a native system tray emits a diagnostic but leaves metric sampling and the monitor surface operational. |
 | Diagnosability | A developer can distinguish native collection, derivation, runtime timing, and presentation failures using `probe <collector> [--raw]`, `dump`, development logs, and screenshots respectively. |
 | Collector isolation | A collector can be exercised independently through the same production collector implementation, with elapsed time and failure/skip reasons visible without starting the GUI. |
+| Collector outcome semantics | A successful empty observation, usable partial observation, and unavailable observation remain distinct typed states through the raw sampling boundary; probe/derivation decisions do not parse diagnostic text, and recovery after unavailability starts a fresh delta baseline. |
 | Sampling health | A sampling cycle that exceeds its configured interval produces an overrun diagnostic containing actual duration and target interval. |
 | Startup snapshot | The first successful collection publishes all currently observable entities without waiting one sampling interval; delta-derived rates with no comparable baseline are zero for that cycle, while genuinely unavailable sources remain unavailable. |
 | Diagnostic overhead | Development observability does not require a background metrics service, persistent logging pipeline, subprocess polling, or a second metric transport. |

@@ -1,5 +1,7 @@
 use std::str::FromStr;
 
+use crate::core::model::CollectionStatus;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DesktopCommand {
     Quit,
@@ -53,7 +55,7 @@ impl FromStr for ProbeKind {
 }
 
 pub struct ProbeReport {
-    pub available: bool,
+    pub status: CollectionStatus,
     pub summary: Vec<String>,
     pub raw: Vec<String>,
     pub notes: Vec<String>,

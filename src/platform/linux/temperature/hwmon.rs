@@ -4,9 +4,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::core::devlog;
-use crate::core::model::TemperatureSnapshot;
+use crate::core::model::{Collection, CollectionUnavailable, TemperatureSnapshot};
 
-use super::super::diagnostics::{probe_note, report_issue};
+use super::super::diagnostics::{probe_note, report_issue, unavailable_from_io};
 
 const MAX_SENSOR_BACKOFF: Duration = Duration::from_secs(300);
 const DISCOVERY_RETRY: Duration = Duration::from_secs(5);
@@ -14,6 +14,8 @@ const DISCOVERY_RETRY: Duration = Duration::from_secs(5);
 pub(super) struct Collector {
     chips: Vec<Chip>,
     discovered: bool,
+    discovery_degraded: bool,
+    discovery_unavailable: CollectionUnavailable,
     retry_discovery_at: Option<Instant>,
 }
 
@@ -35,6 +37,8 @@ impl Collector {
         Self {
             chips: Vec::new(),
             discovered: false,
+            discovery_degraded: false,
+            discovery_unavailable: CollectionUnavailable::Unavailable,
             retry_discovery_at: None,
         }
     }
@@ -43,28 +47,36 @@ impl Collector {
         &mut self,
         now: Instant,
         mut notes: Option<&mut Vec<String>>,
-    ) -> Vec<TemperatureSnapshot> {
+    ) -> Collection<Vec<TemperatureSnapshot>> {
         if !self.discovered
             && self
                 .retry_discovery_at
                 .is_none_or(|retry_at| now >= retry_at)
         {
             match discover(notes.as_deref_mut()) {
-                Some(chips) => {
+                Ok((chips, degraded)) => {
                     self.chips = chips;
                     self.discovered = true;
+                    self.discovery_degraded = degraded;
                     self.retry_discovery_at = None;
                 }
-                None => {
+                Err(reason) => {
+                    self.discovery_unavailable = reason;
                     self.retry_discovery_at = Some(now + DISCOVERY_RETRY);
                 }
             }
         }
 
+        if !self.discovered {
+            return Collection::unavailable(self.discovery_unavailable);
+        }
+
         let mut temperatures = Vec::new();
+        let mut degraded = self.discovery_degraded;
         for chip in &mut self.chips {
             for channel in &mut chip.channels {
                 if channel.retry_at.is_some_and(|retry_at| now < retry_at) {
+                    degraded = true;
                     probe_note(&mut notes, || {
                         format!(
                             "{} skipped: sensor is in retry backoff",
@@ -86,6 +98,7 @@ impl Collector {
                         break;
                     }
                     None => {
+                        degraded = true;
                         probe_note(&mut notes, || {
                             format!(
                                 "{} skipped: unreadable or invalid value",
@@ -98,18 +111,24 @@ impl Collector {
             }
         }
 
-        temperatures
+        if degraded {
+            Collection::degraded(temperatures)
+        } else {
+            Collection::available(temperatures)
+        }
     }
 }
 
-fn discover(mut notes: Option<&mut Vec<String>>) -> Option<Vec<Chip>> {
+fn discover(
+    mut notes: Option<&mut Vec<String>>,
+) -> Result<(Vec<Chip>, bool), CollectionUnavailable> {
     let entries = match fs::read_dir("/sys/class/hwmon") {
         Ok(entries) => entries,
         Err(error) => {
             report_issue(&mut notes, || {
                 format!("cannot read /sys/class/hwmon: {error}")
             });
-            return None;
+            return Err(unavailable_from_io(&error));
         }
     };
 
@@ -121,6 +140,7 @@ fn discover(mut notes: Option<&mut Vec<String>>) -> Option<Vec<Chip>> {
     paths.sort();
 
     let mut chips = Vec::new();
+    let mut degraded = false;
     for chip_path in paths {
         let raw_name = read_trimmed(chip_path.join("name"))
             .filter(|name| !name.is_empty())
@@ -135,6 +155,7 @@ fn discover(mut notes: Option<&mut Vec<String>>) -> Option<Vec<Chip>> {
         let files = match fs::read_dir(&chip_path) {
             Ok(files) => files,
             Err(error) => {
+                degraded = true;
                 report_issue(&mut notes, || {
                     format!("cannot read {}: {error}", chip_path.display())
                 });
@@ -164,9 +185,12 @@ fn discover(mut notes: Option<&mut Vec<String>>) -> Option<Vec<Chip>> {
                     failures: 0,
                     retry_at: None,
                 }),
-                Err(error) => report_issue(&mut notes, || {
-                    format!("cannot open {}: {error}", path.display())
-                }),
+                Err(error) => {
+                    degraded = true;
+                    report_issue(&mut notes, || {
+                        format!("cannot open {}: {error}", path.display())
+                    });
+                }
             }
         }
 
@@ -178,7 +202,7 @@ fn discover(mut notes: Option<&mut Vec<String>>) -> Option<Vec<Chip>> {
         }
     }
 
-    Some(chips)
+    Ok((chips, degraded))
 }
 
 fn record_sensor_failure(channel: &mut Channel, now: Instant) {

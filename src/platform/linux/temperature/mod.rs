@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use crate::core::SAMPLE_INTERVAL;
-use crate::core::model::TemperatureSnapshot;
+use crate::core::model::{Collection, TemperatureSnapshot};
 
 use super::diagnostics::probe_note;
 
@@ -13,7 +13,7 @@ pub(super) struct Collector {
     hwmon: hwmon::Collector,
     nvml: nvml::Collector,
     last_sample: Option<Instant>,
-    last_values: Vec<TemperatureSnapshot>,
+    last_outcome: Collection<Vec<TemperatureSnapshot>>,
 }
 
 impl Collector {
@@ -22,7 +22,7 @@ impl Collector {
             hwmon: hwmon::Collector::new(),
             nvml: nvml::Collector::new(),
             last_sample: None,
-            last_values: Vec::new(),
+            last_outcome: Collection::default(),
         }
     }
 
@@ -30,7 +30,7 @@ impl Collector {
         &mut self,
         now: Instant,
         mut notes: Option<&mut Vec<String>>,
-    ) -> Vec<TemperatureSnapshot> {
+    ) -> Collection<Vec<TemperatureSnapshot>> {
         if self
             .last_sample
             .is_some_and(|last| now.saturating_duration_since(last) < SAMPLE_INTERVAL)
@@ -38,16 +38,48 @@ impl Collector {
             probe_note(&mut notes, || {
                 "temperature sample skipped: cached values are still fresh".to_owned()
             });
-            return self.last_values.clone();
+            return self.last_outcome.clone();
         }
         self.last_sample = Some(now);
 
-        let mut values = self.hwmon.collect(now, notes.as_deref_mut());
-        values.extend(self.nvml.collect(notes));
-        normalize_display_names(&mut values);
+        let hwmon = self.hwmon.collect(now, notes.as_deref_mut());
+        let nvml = self.nvml.collect(notes);
+        let mut outcome = merge_sources(hwmon, nvml);
+        if let Some(values) = outcome_value_mut(&mut outcome) {
+            normalize_display_names(values);
+        }
 
-        self.last_values = values.clone();
-        values
+        self.last_outcome = outcome.clone();
+        outcome
+    }
+}
+
+fn outcome_value_mut<T>(outcome: &mut Collection<T>) -> Option<&mut T> {
+    match outcome {
+        Collection::Available(value) | Collection::Degraded(value) => Some(value),
+        Collection::Unavailable(_) => None,
+    }
+}
+
+fn merge_sources<T>(left: Collection<Vec<T>>, right: Collection<Vec<T>>) -> Collection<Vec<T>> {
+    use Collection::{Available, Degraded, Unavailable};
+
+    match (left, right) {
+        (Available(mut left), Available(right)) => {
+            left.extend(right);
+            Available(left)
+        }
+        (Available(mut left), Degraded(right))
+        | (Degraded(mut left), Available(right))
+        | (Degraded(mut left), Degraded(right)) => {
+            left.extend(right);
+            Degraded(left)
+        }
+        (Available(value), Unavailable(_))
+        | (Degraded(value), Unavailable(_))
+        | (Unavailable(_), Available(value))
+        | (Unavailable(_), Degraded(value)) => Degraded(value),
+        (Unavailable(reason), Unavailable(_)) => Unavailable(reason),
     }
 }
 

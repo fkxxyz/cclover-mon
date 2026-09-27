@@ -5,9 +5,9 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::sync::OnceLock;
 
-use crate::core::model::{ProcessCounter, ProcessInstanceId};
+use crate::core::model::{Collection, ProcessCounter, ProcessInstanceId};
 
-use super::diagnostics::{probe_note, report_issue};
+use super::diagnostics::{probe_note, report_issue, unavailable_from_io};
 use super::native;
 
 const PROC_PREFIX: &[u8] = b"/proc/";
@@ -30,13 +30,16 @@ impl Collector {
         }
     }
 
-    pub(super) fn collect(&mut self, mut notes: Option<&mut Vec<String>>) -> Vec<ProcessCounter> {
+    pub(super) fn collect(
+        &mut self,
+        mut notes: Option<&mut Vec<String>>,
+    ) -> Collection<Vec<ProcessCounter>> {
         let mut processes = Vec::new();
         let entries = match fs::read_dir("/proc") {
             Ok(entries) => entries,
             Err(error) => {
                 report_issue(&mut notes, || format!("cannot read /proc: {error}"));
-                return processes;
+                return Collection::unavailable(unavailable_from_io(&error));
             }
         };
         let mut unreadable = 0_u64;
@@ -76,7 +79,11 @@ impl Collector {
                 format!("{malformed} process stat files skipped: malformed contents")
             });
         }
-        processes
+        if unreadable > 0 || malformed > 0 {
+            Collection::degraded(processes)
+        } else {
+            Collection::available(processes)
+        }
     }
 }
 

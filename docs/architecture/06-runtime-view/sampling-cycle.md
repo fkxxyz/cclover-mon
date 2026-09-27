@@ -31,6 +31,8 @@ UI state update
 
 A sampling cycle performs one coordinated batch rather than independent polling per widget or metric. Transiently unavailable native data is represented as unavailable data, not as a reason to rebuild the pipeline. The normal production cadence is one second; temperature sources participate in that same cadence rather than running widget-specific timers.
 
+The first successful observation is also a UI-visible snapshot; startup does not wait for a second sampling deadline merely to establish rate baselines. Data that is knowable from the current observation alone, such as memory, temperatures, process identity/memory, disk identity, and network-interface identity, is published immediately. A derived rate whose source is currently available but has no comparable prior counter is initialized to zero for that baseline cycle while preserving the observed entity. This applies equally when a source or entity first appears after startup. Source unavailability remains distinct: a collector that cannot provide the current metric is still represented as unavailable rather than as zero.
+
 Linux temperature collection fans in peer sources within one metric collection step:
 
 ```text

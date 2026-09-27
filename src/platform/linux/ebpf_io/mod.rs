@@ -2,6 +2,10 @@ mod disk;
 mod network;
 mod runtime;
 
+mod abi {
+    include!(concat!(env!("OUT_DIR"), "/bpf_abi_layout.rs"));
+}
+
 use std::fmt;
 
 use crate::core::model::{ProcessDiskIoCounter, ProcessNetworkIoCounter};

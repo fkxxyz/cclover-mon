@@ -1,7 +1,9 @@
 use std::ffi::CStr;
+use std::mem::offset_of;
 
 use crate::core::model::{ProcessInstanceId, ProcessNetworkIoCounter};
 
+use super::abi;
 use super::runtime::{LoadedObject, read_map};
 use super::{AttributionFailure, AttributionRows, FailureKind};
 use crate::platform::linux::native;
@@ -25,6 +27,23 @@ struct CounterValue {
     process_start_time: u64,
     bytes: u64,
 }
+
+const _: () = {
+    assert!(size_of::<Key>() == abi::network_key::SIZE);
+    assert!(align_of::<Key>() == abi::network_key::ALIGN);
+    assert!(offset_of!(Key, tgid) == abi::network_key::TGID_OFFSET);
+    assert!(offset_of!(Key, ifindex) == abi::network_key::IFINDEX_OFFSET);
+    assert!(offset_of!(Key, direction) == abi::network_key::DIRECTION_OFFSET);
+    assert!(offset_of!(Key, pad) == abi::network_key::PAD_OFFSET);
+
+    assert!(size_of::<CounterValue>() == abi::network_counter_value::SIZE);
+    assert!(align_of::<CounterValue>() == abi::network_counter_value::ALIGN);
+    assert!(
+        offset_of!(CounterValue, process_start_time)
+            == abi::network_counter_value::PROCESS_START_TIME_OFFSET
+    );
+    assert!(offset_of!(CounterValue, bytes) == abi::network_counter_value::BYTES_OFFSET);
+};
 
 pub(super) struct Collector {
     disabled: bool,

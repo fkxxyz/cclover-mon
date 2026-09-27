@@ -49,6 +49,8 @@ Long-lived event-driven collectors own their attach/detach lifecycle and bounded
 
 The libbpf runtime adapter owns raw libbpf object/link/map handles and the unsafe map-access calls. Disk and network attribution collectors consume safe loader/map operations and keep attribution semantics outside that adapter. Small direct libc queries used by otherwise-safe Linux collectors likewise pass through the dedicated Linux native helper rather than introducing local unsafe blocks.
 
+Any BPF map key or value whose bytes are read directly into a Rust type is a cross-language ABI and must be mechanically layout-verified at build time. The Rust type uses `#[repr(C)]`; the build derives `sizeof`, alignment, and every field offset from clang's actual BPF-target C record layout and compilation fails if the Rust layout differs. Adding or changing a userspace-consumed BPF map schema is incomplete until the corresponding layout verification covers its full key/value structure. Manual comparison of C and Rust declarations is not an acceptable compatibility mechanism.
+
 Keep parsing of textual or binary OS formats separable from native IO so representative fixtures can exercise parsers without relying on the developer machine's live `/proc` or `/sys` contents. Development probes must invoke the same production collector path used by normal sampling rather than maintain a parallel collection implementation.
 
 Privileged Linux sources use least authority. Permission, verifier, BTF, or attach failures are surfaced as typed unavailability/diagnostics for the affected metric rather than converted to zero or causing unrelated collectors to fail.

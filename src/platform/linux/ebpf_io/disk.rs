@@ -1,9 +1,11 @@
 use std::ffi::CStr;
 use std::fs;
+use std::mem::offset_of;
 use std::path::Path;
 
 use crate::core::model::{ProcessDiskIoCounter, ProcessInstanceId};
 
+use super::abi;
 use super::runtime::{LoadedObject, read_map};
 use super::{AttributionFailure, AttributionRows, FailureKind};
 use crate::platform::linux::process::birth_marker_from_start_boottime_ns;
@@ -26,6 +28,23 @@ struct CounterValue {
     process_start_time: u64,
     bytes: u64,
 }
+
+const _: () = {
+    assert!(size_of::<Key>() == abi::disk_key::SIZE);
+    assert!(align_of::<Key>() == abi::disk_key::ALIGN);
+    assert!(offset_of!(Key, tgid) == abi::disk_key::TGID_OFFSET);
+    assert!(offset_of!(Key, dev) == abi::disk_key::DEV_OFFSET);
+    assert!(offset_of!(Key, direction) == abi::disk_key::DIRECTION_OFFSET);
+    assert!(offset_of!(Key, pad) == abi::disk_key::PAD_OFFSET);
+
+    assert!(size_of::<CounterValue>() == abi::disk_counter_value::SIZE);
+    assert!(align_of::<CounterValue>() == abi::disk_counter_value::ALIGN);
+    assert!(
+        offset_of!(CounterValue, process_start_time)
+            == abi::disk_counter_value::PROCESS_START_TIME_OFFSET
+    );
+    assert!(offset_of!(CounterValue, bytes) == abi::disk_counter_value::BYTES_OFFSET);
+};
 
 pub(super) struct Collector {
     disabled: bool,

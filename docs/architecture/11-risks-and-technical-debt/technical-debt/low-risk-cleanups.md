@@ -31,7 +31,6 @@ These items are intentionally deferred, but each is local, mechanically verifiab
 - Rename ambiguous projection types such as `ProcessCpu`, `ProcessMemory`, or `DirectionHistory` when a clearer domain name can be applied mechanically without changing semantics.
 - Split metric-specific derivation bodies out of the large core `derive` function into focused helpers for local readability/testability. This does not by itself resolve [metric extension coupling](metric-extension-coupling.md).
 - Split `configure_x11_window` into named protocol-policy steps such as input-shape, WM-state, placement, and client-message helpers where doing so improves reviewability. This does not by itself resolve [desktop hosting boundary](desktop-hosting-boundary.md).
-- Add mechanical C/Rust BPF map-layout assertions as an immediate guard against silent ABI drift. Keep [BPF ABI schema duplication](bpf-abi-schema-duplication.md) active until the guard is strong enough that incompatible layout cannot silently pass.
 - Add a baseline automated validation command/workflow for `fmt`, tests, clippy, and architecture checks where the environment supports them. Keep [architecture enforcement](architecture-enforcement.md) active until dependency-direction and applicable native/build validation are also mechanically protected.
 
 ## Exit criteria

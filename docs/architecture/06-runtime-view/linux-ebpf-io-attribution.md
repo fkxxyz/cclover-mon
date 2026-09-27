@@ -66,6 +66,8 @@ Disk and network eBPF programs share the same architectural pattern but not the 
 
 Normal sampling reads already-aggregated BPF map state; it does not enumerate all processes to discover activity and does not launch helper processes. Rates are derived from monotonic byte counters using the actual elapsed sampling interval. Disk and network counter maps are independent bounded LRU hashes keyed by `TGID × native identity × direction`. Each value stores the process-group leader start time; when a PID is reused, the first event from the new process instance replaces that key's cumulative counter instead of inheriting the old instance's bytes. Userspace normalizes that kernel start time into the same Linux birth-marker domain used by `/proc/<pid>/stat` before constructing the core-owned `ProcessInstanceId`; core rate derivation keys by that identity rather than TGID alone. Map iteration remains bounded.
 
+Map key/value structs consumed directly by Rust are explicit C↔Rust ABI. Build-time validation derives the C-side size, alignment, and field offsets from clang's BPF-target record layout and checks the corresponding Rust `#[repr(C)]` types with compile-time assertions. A schema drift that changes either side's binary layout must therefore fail the normal Rust build before userspace can decode map bytes with an incompatible type.
+
 ## Lifecycle and Failure
 
 The selected Linux backend loads and attaches the required BPF programs during collector initialization and keeps their links alive for the collector lifetime. Normal shutdown releases those links and associated userspace resources.

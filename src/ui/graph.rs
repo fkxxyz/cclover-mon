@@ -4,9 +4,9 @@ use iced::mouse;
 use iced::widget::canvas;
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme};
 
-#[derive(Debug, Clone)]
-pub struct Graph {
-    values: Vec<f64>,
+#[derive(Debug)]
+pub struct Graph<'a> {
+    values: &'a VecDeque<f64>,
     min: f64,
     max: f64,
     auto_scale: bool,
@@ -18,10 +18,10 @@ pub struct Graph {
     capacity: usize,
 }
 
-impl Graph {
-    pub fn new(values: &VecDeque<f64>, capacity: usize, line: Color, area: Color) -> Self {
+impl<'a> Graph<'a> {
+    pub fn new(values: &'a VecDeque<f64>, capacity: usize, line: Color, area: Color) -> Self {
         Self {
-            values: values.iter().copied().collect(),
+            values,
             min: 0.0,
             max: 1.0,
             auto_scale: false,
@@ -64,7 +64,7 @@ impl Graph {
     }
 }
 
-impl<Message> canvas::Program<Message> for Graph {
+impl<Message> canvas::Program<Message> for Graph<'_> {
     type State = ();
 
     fn draw(

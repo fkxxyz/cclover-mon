@@ -43,6 +43,7 @@ const PROGRESS_HEIGHT: u32 = 6;
 const METRIC_GRAPH_HEIGHT: u32 = 28;
 const SMALL_GRAPH_HEIGHT: u32 = 24;
 const NETWORK_GRAPH_HEIGHT: u32 = 22;
+static EMPTY_GRAPH_VALUES: VecDeque<f64> = VecDeque::new();
 
 pub fn view(state: &MonitorState) -> Element<'_, Message> {
     let snapshot = &state.snapshot;
@@ -98,12 +99,11 @@ pub fn view(state: &MonitorState) -> Element<'_, Message> {
         let values = history
             .temperatures
             .get(&temperature.name)
-            .cloned()
-            .unwrap_or_default();
+            .unwrap_or(&EMPTY_GRAPH_VALUES);
         left = left.push(small_graph_card(
             &temperature.name,
             format!("{:.1}°C", temperature.celsius),
-            &values,
+            values,
             20.0,
             100.0,
             false,
@@ -145,11 +145,11 @@ pub fn view(state: &MonitorState) -> Element<'_, Message> {
 
     right = right.push(section_label("DISK I/O"));
     for disk in &snapshot.disks {
-        let values = history.disks.get(&disk.name).cloned().unwrap_or_default();
+        let values = history.disks.get(&disk.name).unwrap_or(&EMPTY_GRAPH_VALUES);
         right = right.push(small_graph_card(
             &disk.name,
             rate(disk.bytes_per_sec),
-            &values,
+            values,
             0.0,
             1.0,
             true,
@@ -164,14 +164,14 @@ pub fn view(state: &MonitorState) -> Element<'_, Message> {
         let net_history = history
             .networks
             .get(&network.name)
-            .cloned()
-            .unwrap_or_default();
+            .map(|values| (&values.down, &values.up))
+            .unwrap_or((&EMPTY_GRAPH_VALUES, &EMPTY_GRAPH_VALUES));
         right = right.push(network_card(
             &network.name,
             rate(network.down_bytes_per_sec),
             rate(network.up_bytes_per_sec),
-            &net_history.down,
-            &net_history.up,
+            net_history.0,
+            net_history.1,
             capacity,
         ));
     }
@@ -248,7 +248,7 @@ fn metric_card<'a>(
     secondary_label: &'a str,
     secondary_value: String,
     progress: Option<f32>,
-    graph_values: &VecDeque<f64>,
+    graph_values: &'a VecDeque<f64>,
     graph_min: f64,
     graph_max: f64,
     auto_scale: bool,
@@ -309,7 +309,7 @@ fn metric_card<'a>(
 fn small_graph_card<'a>(
     name: &'a str,
     value: String,
-    values: &VecDeque<f64>,
+    values: &'a VecDeque<f64>,
     min: f64,
     max: f64,
     auto_scale: bool,
@@ -338,8 +338,8 @@ fn network_card<'a>(
     name: &'a str,
     down_value: String,
     up_value: String,
-    down_values: &VecDeque<f64>,
-    up_values: &VecDeque<f64>,
+    down_values: &'a VecDeque<f64>,
+    up_values: &'a VecDeque<f64>,
     capacity: usize,
 ) -> Element<'a, Message> {
     let down_graph = Graph::new(

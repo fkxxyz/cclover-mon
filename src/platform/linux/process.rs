@@ -1,4 +1,6 @@
 use std::fs;
+use std::io::Read;
+use std::path::PathBuf;
 
 use crate::core::model::ProcessCounter;
 
@@ -6,6 +8,7 @@ use super::diagnostics::{probe_note, report_issue};
 
 pub(super) struct Collector {
     page_size: u64,
+    stat_buffer: String,
 }
 
 impl Collector {
@@ -17,10 +20,11 @@ impl Collector {
             } else {
                 4096
             },
+            stat_buffer: String::with_capacity(512),
         }
     }
 
-    pub(super) fn collect(&self, mut notes: Option<&mut Vec<String>>) -> Vec<ProcessCounter> {
+    pub(super) fn collect(&mut self, mut notes: Option<&mut Vec<String>>) -> Vec<ProcessCounter> {
         let mut processes = Vec::new();
         let entries = match fs::read_dir("/proc") {
             Ok(entries) => entries,
@@ -31,19 +35,27 @@ impl Collector {
         };
         let mut unreadable = 0_u64;
         let mut malformed = 0_u64;
+        let mut stat_path = PathBuf::with_capacity(64);
+        stat_path.push("/proc");
         for entry in entries.flatten() {
-            let Some(pid) = entry
-                .file_name()
-                .to_str()
-                .and_then(|name| name.parse::<u32>().ok())
-            else {
+            let file_name = entry.file_name();
+            let Some(pid) = file_name.to_str().and_then(|name| name.parse::<u32>().ok()) else {
                 continue;
             };
-            let Ok(stat) = fs::read_to_string(entry.path().join("stat")) else {
+
+            stat_path.push(&file_name);
+            stat_path.push("stat");
+            self.stat_buffer.clear();
+            let read_result = fs::File::open(&stat_path)
+                .and_then(|mut file| file.read_to_string(&mut self.stat_buffer));
+            stat_path.pop();
+            stat_path.pop();
+
+            if read_result.is_err() {
                 unreadable += 1;
                 continue;
-            };
-            if let Some(process) = parse_stat(pid, &stat, self.page_size) {
+            }
+            if let Some(process) = parse_stat(pid, &self.stat_buffer, self.page_size) {
                 processes.push(process);
             } else {
                 malformed += 1;
@@ -71,10 +83,10 @@ fn parse_stat(pid: u32, text: &str, page_size: u64) -> Option<ProcessCounter> {
     if right <= left {
         return None;
     }
-    let fields: Vec<&str> = text[right + 1..].split_whitespace().collect();
-    let user = fields.get(11)?.parse::<u64>().ok()?;
-    let system = fields.get(12)?.parse::<u64>().ok()?;
-    let rss_pages = fields.get(21)?.parse::<u64>().ok()?;
+    let mut fields = text[right + 1..].split_ascii_whitespace();
+    let user = fields.nth(11)?.parse::<u64>().ok()?;
+    let system = fields.next()?.parse::<u64>().ok()?;
+    let rss_pages = fields.nth(8)?.parse::<u64>().ok()?;
     Some(ProcessCounter {
         pid,
         name: text[left + 1..right].to_owned(),

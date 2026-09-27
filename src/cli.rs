@@ -2,6 +2,7 @@ use std::time::{Duration, Instant};
 
 use crate::core::{SAMPLE_INTERVAL, Sampler};
 use crate::platform::{Backend, ProbeKind};
+use crate::presentation::{format_bytes, format_percent, format_rate, unavailable};
 
 pub fn run_if_requested() -> bool {
     let mut args = std::env::args().skip(1);
@@ -167,23 +168,29 @@ fn dump(samples: u64) {
     }
     let snapshot = state.snapshot;
 
-    println!("CPU: {}", percent(snapshot.cpu_percent));
+    println!(
+        "CPU: {}",
+        snapshot
+            .cpu_percent
+            .map(format_percent)
+            .unwrap_or_else(unavailable)
+    );
     match snapshot.memory {
         Some(memory) => {
             println!(
                 "Memory: {} / {}",
-                bytes(memory.used_bytes),
-                bytes(memory.total_bytes)
+                format_bytes(memory.used_bytes),
+                format_bytes(memory.total_bytes)
             );
             println!(
                 "Swap: {} / {}",
-                bytes(memory.swap_used_bytes),
-                bytes(memory.swap_total_bytes)
+                format_bytes(memory.swap_used_bytes),
+                format_bytes(memory.swap_total_bytes)
             );
         }
         None => {
-            println!("Memory: unavailable");
-            println!("Swap: unavailable");
+            println!("Memory: {}", unavailable());
+            println!("Swap: {}", unavailable());
         }
     }
 
@@ -192,23 +199,23 @@ fn dump(samples: u64) {
         snapshot
             .top_cpu
             .iter()
-            .map(|item| format!("{}  {:.1}%", item.name, item.percent)),
+            .map(|item| format!("{}  {}", item.name, format_percent(item.percent))),
     );
     print_section(
         "Top memory",
         snapshot
             .top_memory
             .iter()
-            .map(|item| format!("{}  {}", item.name, bytes(item.bytes))),
+            .map(|item| format!("{}  {}", item.name, format_bytes(item.bytes))),
     );
     print_section(
         "Network",
         snapshot.networks.iter().map(|item| {
             format!(
-                "{}  down {}/s  up {}/s",
+                "{}  down {}  up {}",
                 item.name,
-                bytes(item.down_bytes_per_sec as u64),
-                bytes(item.up_bytes_per_sec as u64)
+                format_rate(item.down_bytes_per_sec),
+                format_rate(item.up_bytes_per_sec)
             )
         }),
     );
@@ -217,7 +224,7 @@ fn dump(samples: u64) {
         snapshot
             .disks
             .iter()
-            .map(|item| format!("{}  {}/s", item.name, bytes(item.bytes_per_sec as u64))),
+            .map(|item| format!("{}  {}", item.name, format_rate(item.bytes_per_sec))),
     );
     match snapshot.process_disk_io {
         Some(rows) if rows.is_empty() => println!("Process disk I/O:\n  none"),
@@ -225,15 +232,15 @@ fn dump(samples: u64) {
             "Process disk I/O",
             rows.iter().map(|item| {
                 format!(
-                    "pid={}  {}  read {}/s  write {}/s",
+                    "pid={}  {}  read {}  write {}",
                     item.process.pid,
                     item.device,
-                    bytes(item.read_bytes_per_sec as u64),
-                    bytes(item.write_bytes_per_sec as u64)
+                    format_rate(item.read_bytes_per_sec),
+                    format_rate(item.write_bytes_per_sec)
                 )
             }),
         ),
-        None => println!("Process disk I/O:\n  unavailable"),
+        None => println!("Process disk I/O:\n  {}", unavailable()),
     }
     match snapshot.process_network_io {
         Some(rows) if rows.is_empty() => println!("Process network I/O:\n  none"),
@@ -241,15 +248,15 @@ fn dump(samples: u64) {
             "Process network I/O",
             rows.iter().map(|item| {
                 format!(
-                    "pid={}  {}  rx {}/s  tx {}/s",
+                    "pid={}  {}  rx {}  tx {}",
                     item.process.pid,
                     item.interface,
-                    bytes(item.rx_bytes_per_sec as u64),
-                    bytes(item.tx_bytes_per_sec as u64)
+                    format_rate(item.rx_bytes_per_sec),
+                    format_rate(item.tx_bytes_per_sec)
                 )
             }),
         ),
-        None => println!("Process network I/O:\n  unavailable"),
+        None => println!("Process network I/O:\n  {}", unavailable()),
     }
     print_section(
         "Temperature",
@@ -301,27 +308,7 @@ fn print_section(title: &str, rows: impl Iterator<Item = String>) {
         count += 1;
     }
     if count == 0 {
-        println!("  unavailable");
-    }
-}
-
-fn percent(value: Option<f64>) -> String {
-    value.map_or_else(|| "unavailable".to_owned(), |value| format!("{value:.1}%"))
-}
-
-fn bytes(value: u64) -> String {
-    const KIB: f64 = 1024.0;
-    const MIB: f64 = KIB * 1024.0;
-    const GIB: f64 = MIB * 1024.0;
-    let value = value as f64;
-    if value >= GIB {
-        format!("{:.1} GiB", value / GIB)
-    } else if value >= MIB {
-        format!("{:.1} MiB", value / MIB)
-    } else if value >= KIB {
-        format!("{:.1} KiB", value / KIB)
-    } else {
-        format!("{value:.0} B")
+        println!("  {}", unavailable());
     }
 }
 

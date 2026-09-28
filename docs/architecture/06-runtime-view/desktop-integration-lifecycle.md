@@ -47,7 +47,7 @@ application update loop
 normal application/runtime shutdown
 ```
 
-When application state changes the desired monitor-surface size, the application only updates that platform-neutral geometry. The desktop host compares the requested size with the active host size and realizes the change natively: Linux uses a layer-shell size action on Wayland or an Iced/X11 window resize on X11, while Windows uses its native Iced window host. Protocol-specific resize messages never enter the application message enum.
+When application state changes the desired monitor-surface size, the application only updates that platform-neutral geometry. On Linux, the desktop host distinguishes desired geometry from compositor-realized geometry and treats a resize request as incomplete until window events report that the realized size has converged to the desired size. If an initial or later configure reports a different size, the host re-applies the current desired geometry. Linux uses a layer-shell size action on Wayland or an Iced/X11 window resize on X11, while Windows uses its native Iced window host. Protocol-specific resize messages never enter the application message enum.
 
 Future Windows notification-area integration must emit the same command rather than exposing Win32 menu identifiers or handles to the application lifecycle.
 

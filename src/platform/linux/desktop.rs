@@ -1,5 +1,5 @@
 use iced::futures::SinkExt;
-use iced::{Color, Element, Point, Size, Subscription, Task, Theme, window};
+use iced::{Color, Element, Event, Point, Size, Subscription, Task, Theme, event, window};
 use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
 use iced_layershell::settings::{LayerShellSettings, Settings};
 use ksni::blocking::TrayMethods as _;
@@ -19,8 +19,41 @@ const PANEL_MARGIN: f32 = 16.0;
 struct HostedState<A: DesktopApplication> {
     adapter: A,
     app: A::State,
-    surface_size: (u32, u32),
+    surface_geometry: SurfaceGeometry,
     display_server: DisplayServer,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SurfaceGeometry {
+    desired: (u32, u32),
+    realized: Option<(u32, u32)>,
+}
+
+impl SurfaceGeometry {
+    fn new(desired: (u32, u32)) -> Self {
+        Self {
+            desired,
+            realized: None,
+        }
+    }
+
+    fn update_desired(&mut self, desired: (u32, u32)) -> Option<(u32, u32)> {
+        if desired == self.desired {
+            return None;
+        }
+
+        self.desired = desired;
+        self.resize_target()
+    }
+
+    fn observe_realized(&mut self, realized: (u32, u32)) -> Option<(u32, u32)> {
+        self.realized = Some(realized);
+        self.resize_target()
+    }
+
+    fn resize_target(self) -> Option<(u32, u32)> {
+        (self.realized != Some(self.desired)).then_some(self.desired)
+    }
 }
 
 #[iced_layershell::to_layer_message]
@@ -28,6 +61,7 @@ struct HostedState<A: DesktopApplication> {
 enum HostMessage<Message> {
     App(Message),
     Desktop(DesktopCommand),
+    Surface(Event),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -103,7 +137,7 @@ fn host_boot<A: DesktopApplication>(
     display_server: DisplayServer,
 ) -> (HostedState<A>, Task<HostMessage<A::Message>>) {
     let (state, app_task) = adapter.boot();
-    let surface_size = adapter.surface_size(&state);
+    let surface_geometry = SurfaceGeometry::new(adapter.surface_size(&state));
     let host_task = match display_server {
         DisplayServer::Wayland => Task::none(),
         DisplayServer::X11 => configure_x11_task(),
@@ -113,7 +147,7 @@ fn host_boot<A: DesktopApplication>(
         HostedState {
             adapter,
             app: state,
-            surface_size,
+            surface_geometry,
             display_server,
         },
         Task::batch([app_task.map(HostMessage::App), host_task]),
@@ -124,26 +158,52 @@ fn host_update<A: DesktopApplication>(
     state: &mut HostedState<A>,
     message: HostMessage<A::Message>,
 ) -> Task<HostMessage<A::Message>> {
-    let app_task = match message {
-        HostMessage::App(message) => state.adapter.update(&mut state.app, message),
-        HostMessage::Desktop(command) => state
-            .adapter
-            .handle_desktop_command(&mut state.app, command),
-        _ => Task::none(),
-    }
-    .map(HostMessage::App);
-
-    let next_size = state.adapter.surface_size(&state.app);
-    if next_size == state.surface_size {
-        return app_task;
-    }
-    state.surface_size = next_size;
-
-    let resize_task = match state.display_server {
-        DisplayServer::Wayland => Task::done(HostMessage::SizeChange(next_size)),
-        DisplayServer::X11 => resize_x11_task(next_size.0, next_size.1),
+    let (app_task, resize_target) = match message {
+        HostMessage::App(message) => {
+            let task = state.adapter.update(&mut state.app, message);
+            let desired = state.adapter.surface_size(&state.app);
+            (task, state.surface_geometry.update_desired(desired))
+        }
+        HostMessage::Desktop(command) => {
+            let task = state
+                .adapter
+                .handle_desktop_command(&mut state.app, command);
+            let desired = state.adapter.surface_size(&state.app);
+            (task, state.surface_geometry.update_desired(desired))
+        }
+        HostMessage::Surface(event) => {
+            let resize_target = surface_event_size(&event)
+                .and_then(|size| state.surface_geometry.observe_realized(size));
+            (Task::none(), resize_target)
+        }
+        _ => (Task::none(), None),
     };
+
+    let app_task = app_task.map(HostMessage::App);
+    let resize_task = resize_target
+        .map(|size| resize_surface_task::<A::Message>(state.display_server, size))
+        .unwrap_or_else(Task::none);
     Task::batch([app_task, resize_task])
+}
+
+fn surface_event_size(event: &Event) -> Option<(u32, u32)> {
+    let size = match event {
+        Event::Window(window::Event::Opened { size, .. })
+        | Event::Window(window::Event::Resized(size)) => *size,
+        _ => return None,
+    };
+
+    Some((size.width.round() as u32, size.height.round() as u32))
+}
+
+fn resize_surface_task<Message: Clone + std::fmt::Debug + Send + 'static>(
+    display_server: DisplayServer,
+    size: (u32, u32),
+) -> Task<HostMessage<Message>> {
+    match display_server {
+        DisplayServer::Wayland => Task::done(HostMessage::SizeChange(size)),
+        DisplayServer::X11 => resize_x11_task(size.0, size.1),
+    }
 }
 
 fn host_view<A: DesktopApplication>(
@@ -158,6 +218,7 @@ fn host_subscription<A: DesktopApplication>(
     Subscription::batch([
         state.adapter.subscription(&state.app).map(HostMessage::App),
         subscription().map(HostMessage::Desktop),
+        event::listen().map(HostMessage::Surface),
     ])
 }
 
@@ -437,7 +498,7 @@ fn non_empty_env(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::top_right_position;
+    use super::{SurfaceGeometry, top_right_position};
     use iced::{Point, Size};
 
     #[test]
@@ -446,5 +507,29 @@ mod tests {
             top_right_position(Size::new(320.0, 600.0), Size::new(1920.0, 1080.0)),
             Point::new(1584.0, 16.0)
         );
+    }
+
+    #[test]
+    fn desired_size_change_requests_resize_before_first_realized_size() {
+        let mut geometry = SurfaceGeometry::new((390, 480));
+
+        assert_eq!(geometry.update_desired((390, 672)), Some((390, 672)));
+    }
+
+    #[test]
+    fn late_initial_configure_retries_current_desired_size() {
+        let mut geometry = SurfaceGeometry::new((390, 480));
+        assert_eq!(geometry.update_desired((390, 672)), Some((390, 672)));
+
+        assert_eq!(geometry.observe_realized((390, 480)), Some((390, 672)));
+        assert_eq!(geometry.observe_realized((390, 672)), None);
+    }
+
+    #[test]
+    fn later_compositor_resize_reapplies_desired_size() {
+        let mut geometry = SurfaceGeometry::new((390, 672));
+        assert_eq!(geometry.observe_realized((390, 672)), None);
+
+        assert_eq!(geometry.observe_realized((390, 480)), Some((390, 672)));
     }
 }

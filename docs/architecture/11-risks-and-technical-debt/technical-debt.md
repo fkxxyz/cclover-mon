@@ -23,7 +23,6 @@ Technical debt here means current structure that makes future reasonable change 
 
 | Debt | Status | Why it matters |
 | --- | --- | --- |
-| [Metric extension coupling](technical-debt/metric-extension-coupling.md) | Active | Adding a metric propagates through multiple central switchboards and authorities. |
 | [Architecture enforcement](technical-debt/architecture-enforcement.md) | Active | Important dependency and validation rules rely too heavily on developer memory and manual execution. |
 
 ## P2

@@ -2,51 +2,71 @@ use std::str::FromStr;
 
 use crate::core::model::CollectionStatus;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ProbeKind {
-    Cpu,
-    Memory,
-    Processes,
-    Network,
-    NetworkAttribution,
-    Disk,
-    DiskAttribution,
-    Temperatures,
+macro_rules! define_probe_kinds {
+    ($($variant:ident => { name: $name:literal, aliases: [$($alias:literal),* $(,)?], follow_up: $follow_up:expr }),+ $(,)?) => {
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        pub enum ProbeKind {
+            $($variant),+
+        }
+
+        impl ProbeKind {
+            pub const ALL: &'static [Self] = &[$(Self::$variant),+];
+
+            pub fn as_str(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $name),+
+                }
+            }
+
+            fn aliases(self) -> &'static [&'static str] {
+                match self {
+                    $(Self::$variant => &[$($alias),*]),+
+                }
+            }
+
+            pub fn needs_probe_follow_up(self) -> bool {
+                match self {
+                    $(Self::$variant => $follow_up),+
+                }
+            }
+
+            pub fn names_csv() -> String {
+                Self::ALL
+                    .iter()
+                    .map(|kind| kind.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            }
+        }
+
+        impl FromStr for ProbeKind {
+            type Err = String;
+
+            fn from_str(value: &str) -> Result<Self, Self::Err> {
+                Self::ALL
+                    .iter()
+                    .copied()
+                    .find(|kind| value == kind.as_str() || kind.aliases().contains(&value))
+                    .ok_or_else(|| {
+                        format!(
+                            "unknown collector {value:?}; expected {}",
+                            Self::names_csv()
+                        )
+                    })
+            }
+        }
+    };
 }
 
-impl ProbeKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Cpu => "cpu",
-            Self::Memory => "memory",
-            Self::Processes => "processes",
-            Self::Network => "network",
-            Self::NetworkAttribution => "network-attribution",
-            Self::Disk => "disk",
-            Self::DiskAttribution => "disk-attribution",
-            Self::Temperatures => "temperatures",
-        }
-    }
-}
-
-impl FromStr for ProbeKind {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "cpu" => Ok(Self::Cpu),
-            "memory" => Ok(Self::Memory),
-            "process" | "processes" => Ok(Self::Processes),
-            "network" | "networks" => Ok(Self::Network),
-            "network-attribution" => Ok(Self::NetworkAttribution),
-            "disk" | "disks" => Ok(Self::Disk),
-            "disk-attribution" => Ok(Self::DiskAttribution),
-            "temperature" | "temperatures" => Ok(Self::Temperatures),
-            _ => Err(format!(
-                "unknown collector {value:?}; expected cpu, memory, processes, network, network-attribution, disk, disk-attribution, or temperatures"
-            )),
-        }
-    }
+define_probe_kinds! {
+    Cpu => { name: "cpu", aliases: [], follow_up: false },
+    Memory => { name: "memory", aliases: [], follow_up: false },
+    Processes => { name: "processes", aliases: ["process"], follow_up: false },
+    Network => { name: "network", aliases: ["networks"], follow_up: false },
+    NetworkAttribution => { name: "network-attribution", aliases: [], follow_up: true },
+    Disk => { name: "disk", aliases: ["disks"], follow_up: false },
+    DiskAttribution => { name: "disk-attribution", aliases: [], follow_up: true },
+    Temperatures => { name: "temperatures", aliases: ["temperature"], follow_up: false },
 }
 
 pub struct ProbeReport {
@@ -55,6 +75,8 @@ pub struct ProbeReport {
     pub raw: Vec<String>,
     pub notes: Vec<String>,
 }
+
+mod probe;
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -68,3 +90,23 @@ pub use windows::Backend;
 
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
 compile_error!("cclover-mon currently supports Linux and Windows targets only");
+
+#[cfg(test)]
+mod tests {
+    use super::ProbeKind;
+
+    #[test]
+    fn canonical_probe_names_round_trip() {
+        for kind in ProbeKind::ALL {
+            assert_eq!(kind.as_str().parse::<ProbeKind>(), Ok(*kind));
+        }
+    }
+
+    #[test]
+    fn legacy_probe_aliases_still_parse() {
+        assert_eq!("process".parse(), Ok(ProbeKind::Processes));
+        assert_eq!("networks".parse(), Ok(ProbeKind::Network));
+        assert_eq!("disks".parse(), Ok(ProbeKind::Disk));
+        assert_eq!("temperature".parse(), Ok(ProbeKind::Temperatures));
+    }
+}

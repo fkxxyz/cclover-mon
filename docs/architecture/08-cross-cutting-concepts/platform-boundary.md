@@ -57,6 +57,8 @@ Any BPF map key or value whose bytes are read directly into a Rust type is a cro
 
 Keep parsing of textual or binary OS formats separable from native IO so representative fixtures can exercise parsers without relying on the developer machine's live `/proc` or `/sys` contents. Development probes must invoke the same production collector path used by normal sampling rather than maintain a parallel collection implementation.
 
+Development collector identity has one metadata authority: `ProbeKind` owns canonical CLI names, accepted aliases, and probe-only follow-up-sampling policy. CLI parsing and help derive from that metadata rather than maintaining parallel collector lists. Within each platform backend, `probe` and `perf collector` share one `ProbeKind` → production-collector dispatch; they may consume the resulting typed sample differently, but must not duplicate collector selection. Normal batch snapshot composition remains explicit because its `RawSnapshot` fields are the production sampling contract, not a second development-command registry.
+
 Privileged Linux sources use least authority. Permission, verifier, BTF, or attach failures are surfaced as typed unavailability/diagnostics for the affected metric rather than converted to zero or causing unrelated collectors to fail. Program decisions consume only typed collection state; diagnostic text is human-readable evidence and must never be parsed to infer availability or degradation. When a delta-based source is unavailable, that sample cannot serve as a comparison baseline; the next observable sample starts a new zero-rate baseline rather than spanning the unavailable interval.
 
 ## Windows

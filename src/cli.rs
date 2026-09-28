@@ -452,9 +452,10 @@ fn print_help() {
            --http-bind <ip:port>     HTTP listen address (default 127.0.0.1:9847)\n  \
            No frontend flag defaults to --desktop.\n\n\
          Collectors:\n  \
-           cpu, memory, processes, network, network-attribution, disk, disk-attribution, temperatures\n\n\
+           {}\n\n\
          Development logging:\n  \
-           CCLOVER_MON_DEBUG=1 cclover-mon"
+           CCLOVER_MON_DEBUG=1 cclover-mon",
+        ProbeKind::names_csv()
     );
 }
 

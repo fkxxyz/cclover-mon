@@ -4,12 +4,26 @@ use std::time::{Duration, Instant};
 use crate::core::model::CollectionStatus;
 use crate::core::{SampleCycle, Sampler};
 use crate::platform::{Backend, ProbeKind};
-use crate::presentation::{format_bytes, format_percent, format_rate, unavailable};
+use crate::presentation::{Dashboard, format_bytes, format_percent, format_rate, unavailable};
+use crate::runtime::StateSource;
+use crate::tui::TerminalUi;
 use crate::web::{DEFAULT_HTTP_BIND, HttpConfig};
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LaunchOptions {
+    pub desktop: bool,
+    pub tui: bool,
     pub http: Option<HttpConfig>,
+}
+
+impl Default for LaunchOptions {
+    fn default() -> Self {
+        Self {
+            desktop: true,
+            tui: false,
+            http: None,
+        }
+    }
 }
 
 pub fn parse() -> Option<LaunchOptions> {
@@ -53,17 +67,35 @@ pub fn parse() -> Option<LaunchOptions> {
 }
 
 fn parse_launch_options(mut args: impl Iterator<Item = String>) -> LaunchOptions {
+    let mut desktop = false;
+    let mut tui = false;
     let mut http = false;
     let mut bind = DEFAULT_HTTP_BIND;
     let mut bind_explicit = false;
+    let mut frontend_explicit = false;
 
     while let Some(option) = args.next() {
         match option.as_str() {
+            "--desktop" => {
+                if desktop {
+                    fail("--desktop may only be specified once");
+                }
+                desktop = true;
+                frontend_explicit = true;
+            }
+            "--tui" => {
+                if tui {
+                    fail("--tui may only be specified once");
+                }
+                tui = true;
+                frontend_explicit = true;
+            }
             "--http" => {
                 if http {
                     fail("--http may only be specified once");
                 }
                 http = true;
+                frontend_explicit = true;
             }
             "--http-bind" => {
                 if bind_explicit {
@@ -86,6 +118,8 @@ fn parse_launch_options(mut args: impl Iterator<Item = String>) -> LaunchOptions
     }
 
     LaunchOptions {
+        desktop: if frontend_explicit { desktop } else { true },
+        tui,
         http: http.then_some(HttpConfig { bind }),
     }
 }
@@ -202,6 +236,31 @@ fn run_perf(limit: PerfLimit, mut work: impl FnMut()) {
         if !sleep_for.is_zero() {
             std::thread::sleep(sleep_for);
         }
+    }
+}
+
+pub fn run_tui(states: StateSource) -> std::io::Result<()> {
+    use std::sync::mpsc::TryRecvError;
+
+    let receiver = states.subscribe();
+    let mut ui = TerminalUi::enter()?;
+    let mut state = receiver.recv().map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::BrokenPipe, "monitor runtime stopped")
+    })?;
+    ui.draw(Dashboard::new(&state))?;
+
+    loop {
+        if ui.wait_for_quit(Duration::from_millis(100))? {
+            return Ok(());
+        }
+        loop {
+            match receiver.try_recv() {
+                Ok(next) => state = next,
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => return Ok(()),
+            }
+        }
+        ui.draw(Dashboard::new(&state))?;
     }
 }
 
@@ -368,14 +427,17 @@ fn print_help() {
         "cclover-mon\n\n\
          Usage:\n  \
            cclover-mon\n  \
-           cclover-mon --http [--http-bind <ip:port>]\n  \
+           cclover-mon [--desktop] [--tui] [--http] [--http-bind <ip:port>]\n  \
            cclover-mon dump [--samples <count>]\n  \
            cclover-mon probe <collector> [--raw]\n  \
            cclover-mon perf headless [--duration <seconds> | --samples <count>]\n  \
            cclover-mon perf collector <collector> [--duration <seconds> | --samples <count>]\n\n\
-         HTTP monitor:\n  \
+         Frontends:\n  \
+           --desktop                 Enable the desktop panel\n  \
+           --tui                     Enable the terminal panel\n  \
            --http                    Enable the read-only web panel\n  \
-           --http-bind <ip:port>     Listen address (default 127.0.0.1:9847)\n\n\
+           --http-bind <ip:port>     HTTP listen address (default 127.0.0.1:9847)\n  \
+           No frontend flag defaults to --desktop.\n\n\
          Collectors:\n  \
            cpu, memory, processes, network, network-attribution, disk, disk-attribution, temperatures\n\n\
          Development logging:\n  \
@@ -387,4 +449,38 @@ fn fail(message: &str) -> ! {
     eprintln!("cclover-mon: {message}\n");
     print_help();
     std::process::exit(2);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn options(args: &[&str]) -> LaunchOptions {
+        parse_launch_options(args.iter().map(|arg| (*arg).to_owned()))
+    }
+
+    #[test]
+    fn no_frontend_flag_defaults_to_desktop() {
+        assert_eq!(options(&[]), LaunchOptions::default());
+    }
+
+    #[test]
+    fn explicit_frontends_are_composable_and_disable_implicit_desktop() {
+        assert_eq!(
+            options(&["--tui", "--http"]),
+            LaunchOptions {
+                desktop: false,
+                tui: true,
+                http: Some(HttpConfig::default()),
+            }
+        );
+        assert_eq!(
+            options(&["--desktop", "--tui", "--http"]),
+            LaunchOptions {
+                desktop: true,
+                tui: true,
+                http: Some(HttpConfig::default()),
+            }
+        );
+    }
 }

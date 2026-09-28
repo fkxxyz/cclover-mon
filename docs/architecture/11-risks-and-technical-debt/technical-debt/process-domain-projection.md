@@ -28,7 +28,7 @@ The core has a stable `ProcessInstanceId`, but `ProcessCpuUsage` and `ProcessMem
 
 ## Maintenance impact
 
-A future htop-like terminal frontend or richer process drill-down will need to join CPU, memory, disk, and network data by process. The current projections can force ad-hoc joins, duplicated lookup logic, or a disruptive model redesign when that frontend arrives.
+The current metric-card TUI does not require a unified process table, but an htop-like process view or richer process drill-down will need to join CPU, memory, disk, and network data by process. The current projections can force ad-hoc joins, duplicated lookup logic, or a disruptive model redesign when that frontend arrives.
 
 ## Governing constraint
 

@@ -24,6 +24,6 @@ facets:
 - Separate sampling cadence from UI rendering cadence.
 - Pass typed data directly inside the native process; JSON serialization is used only at explicit external transport boundaries such as the optional HTTP monitor.
 - Derive renderer-neutral dashboard presentation from `MonitorState`, then let each frontend own its rendering and layout policy.
-- Reuse one Iced panel implementation across Linux/Windows native desktop and browser/WASM delivery; a future terminal frontend reuses core and presentation semantics rather than Iced widgets or pixel layout.
-- Keep one native sampler as the authority when HTTP monitoring is enabled; Web clients consume bounded complete-state updates and never start collectors.
+- Reuse one Iced panel implementation across Linux/Windows native desktop and browser/WASM delivery; the terminal frontend reuses core and presentation semantics rather than Iced widgets or pixel layout.
+- Keep one native sampler as the authority regardless of enabled frontends; desktop, terminal, and HTTP delivery consume the same completed states without creating additional collectors or cadences.
 - Prefer event-driven discovery for devices whose lifecycle is exposed by the platform.

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative, resolve, sep } from "node:path";
 
-export type Domain = "core" | "platform" | "presentation" | "ui";
+export type Domain = "core" | "platform" | "presentation" | "ui" | "tui";
 
 export interface Violation {
   file: string;
@@ -11,13 +11,14 @@ export interface Violation {
 }
 
 const FORBIDDEN: Record<Domain, ReadonlySet<Domain>> = {
-  core: new Set(["platform", "presentation", "ui"]),
-  platform: new Set(["presentation", "ui"]),
-  presentation: new Set(["platform", "ui"]),
-  ui: new Set(["platform"]),
+  core: new Set(["platform", "presentation", "ui", "tui"]),
+  platform: new Set(["presentation", "ui", "tui"]),
+  presentation: new Set(["platform", "ui", "tui"]),
+  ui: new Set(["platform", "tui"]),
+  tui: new Set(["core", "platform", "ui"]),
 };
 
-const DOMAINS = new Set<Domain>(["core", "platform", "presentation", "ui"]);
+const DOMAINS = new Set<Domain>(["core", "platform", "presentation", "ui", "tui"]);
 
 function isDomain(value: string): value is Domain {
   return DOMAINS.has(value as Domain);

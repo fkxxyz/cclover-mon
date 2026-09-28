@@ -31,7 +31,7 @@ core: sampling + derivation + history
           ↓
 presentation: renderer-neutral dashboard semantics
           ↓
-frontends: shared Iced native/Web panel | future terminal
+frontends: shared Iced native/Web panel | terminal TUI
 ```
 
 Static source dependencies use inversion at the collection boundary:
@@ -54,7 +54,7 @@ app composition root ───────→ frontend
 - **core** owns platform-neutral metric types, history, aggregation, and sampling contracts, including `Collector` and the generic `Collection<T>` observation outcome used by every raw metric.
 - **platform** owns OS-specific collection and desktop integration, implements core-owned sampling contracts, and produces core-owned platform-neutral snapshots. Desktop integration owns the complete native monitor-surface host: display-protocol selection, runtime creation, protocol-specific placement/input/window policy, host-side resize realization, and shell integration such as the system tray. Linux monitor hosting selects Wayland layer-shell or X11 without changing shared drawing, while both display sessions share one StatusNotifierItem tray backend. A platform backend is the batch composition point; metric-specific native IO, parsing, and mutable state belong to the corresponding metric responsibility rather than the backend itself.
 - **presentation** converts `MonitorState` into renderer-neutral dashboard semantics: panel meaning, display values, shared formatting, and access to the corresponding history. It depends on core model types but not on Iced, terminal libraries, platform APIs, or application messages.
-- **frontend** owns renderer-specific widgets, interaction, and layout. One Iced panel implementation is shared by Linux/Windows native desktop and browser/WASM builds; native and Web runtimes differ only in hosting and state transport. A future terminal frontend may consume the same presentation model while owning terminal-specific layout and interaction.
+- **frontend** owns renderer-specific widgets, interaction, and layout. One Iced panel implementation is shared by Linux/Windows native desktop and browser/WASM builds; native and Web runtimes differ only in hosting and state transport. The terminal frontend consumes the same presentation model while owning terminal-specific layout and interaction. It does not own sampling or depend on platform collection; the execution adapter composes those concerns.
 - **app** supplies platform-neutral application lifecycle behavior to the selected desktop host and composes the selected platform collector, shared presentation, and frontend lifecycle. It may expose desired surface geometry, but it does not select or manipulate native display protocols. Frontends do not depend back on application message types when they only render data.
 - **native bridge** adapts C++-only dependencies through a small C ABI.
 
@@ -70,7 +70,7 @@ Renderer-specific layout has one authority inside each frontend. For the shared 
 
 Frontend helper APIs group related semantic inputs into small purpose-specific parameter structures once positional arguments span multiple independent concerns. Do not preserve argument explosion with lint suppression, and do not generalize this rule into a renderer-agnostic widget framework when a local semantic structure is sufficient.
 
-The native application owns the only sampler. Optional HTTP delivery observes completed `MonitorState` values after sampling, projects them into an explicit Web transport schema containing only remotely rendered panel state, keeps one serialized latest projection plus bounded per-client delivery, and exposes it through read-only SSE. Browser/WASM code contains no platform backend or collector; it deserializes that projection back into panel-consumable state and feeds it into the same Iced presentation/view path. Core model types themselves are not the wire schema.
+The native runtime owns the only sampler. Each completed typed `MonitorState` is published once to a bounded native latest-state hub consumed independently by enabled desktop and terminal frontends, while optional HTTP delivery projects that same completed state into the explicit Web transport schema and serialized latest-state hub. Enabling multiple frontends must not create additional samplers, collectors, or sampling cadences. Browser/WASM code contains no platform backend or collector; it deserializes the Web projection back into panel-consumable state and feeds it into the same Iced presentation/view path. Core model types themselves are not the wire schema.
 
 Within a platform backend, dependencies point from the backend to independent metric collectors:
 

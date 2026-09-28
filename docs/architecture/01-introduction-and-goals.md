@@ -29,5 +29,5 @@ facets:
 
 - Native collection of CPU, memory, process, disk, network, sensor, and future system metrics.
 - Linux first; Windows is a first-class platform backend.
-- Shared Iced panel today on native desktop and optional browser/WASM delivery; a future terminal frontend reuses core and presentation semantics without reusing Iced pixel layout.
+- Shared Iced panel on native desktop and optional browser/WASM delivery; the terminal frontend reuses core and presentation semantics without reusing Iced pixel layout.
 - One native application process and one final executable artifact per target platform; optional Web assets are embedded and served by that process.

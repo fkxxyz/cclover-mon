@@ -12,6 +12,10 @@ pub mod cli;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 pub mod platform;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
+pub mod runtime;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+pub mod tui;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 pub mod web;
 
 #[cfg(target_arch = "wasm32")]

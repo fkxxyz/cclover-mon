@@ -1,12 +1,13 @@
-use iced::futures::SinkExt;
+use iced::futures::stream::BoxStream;
+use iced::futures::{SinkExt, StreamExt};
 use iced::{Element, Subscription, Task};
+use std::sync::{Arc, Mutex};
 
 use crate::core::model::MonitorState;
-use crate::core::{SampleCycle, Sampler};
-use crate::platform::{Backend, DesktopCommand};
+use crate::platform::DesktopCommand;
 use crate::presentation::Dashboard;
+use crate::runtime::StateSource;
 use crate::ui;
-use crate::web::StateHub;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -16,39 +17,31 @@ pub enum Message {
 pub struct App {
     state: MonitorState,
     panel: ui::PanelState,
-    web_state: Option<StateHub>,
 }
 
-pub fn boot(web_state: Option<StateHub>) -> App {
+pub fn boot() -> App {
     let state = MonitorState::default();
     let panel = ui::PanelState::new(Dashboard::new(&state));
-    App {
-        state,
-        panel,
-        web_state,
-    }
+    App { state, panel }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
 #[derive(Clone)]
 pub struct DesktopApp {
-    web_state: Option<StateHub>,
+    states: StateSource,
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
 impl DesktopApp {
-    pub fn new(web_state: Option<StateHub>) -> Self {
-        Self { web_state }
+    pub fn new(states: StateSource) -> Self {
+        Self { states }
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
 impl crate::platform::desktop::DesktopApplication for DesktopApp {
     type State = App;
     type Message = Message;
 
     fn boot(&self) -> (Self::State, Task<Self::Message>) {
-        (boot(self.web_state.clone()), Task::none())
+        (boot(), Task::none())
     }
 
     fn update(&self, state: &mut Self::State, message: Self::Message) -> Task<Self::Message> {
@@ -59,8 +52,8 @@ impl crate::platform::desktop::DesktopApplication for DesktopApp {
         view(state)
     }
 
-    fn subscription(&self, state: &Self::State) -> Subscription<Self::Message> {
-        subscription(state)
+    fn subscription(&self, _state: &Self::State) -> Subscription<Self::Message> {
+        monitor_subscription(self.states.clone())
     }
 
     fn theme(&self, _state: &Self::State) -> iced::Theme {
@@ -89,9 +82,6 @@ impl crate::platform::desktop::DesktopApplication for DesktopApp {
 pub fn update(app: &mut App, message: Message) -> Task<Message> {
     match message {
         Message::Monitor(state) => {
-            if let Some(web_state) = &app.web_state {
-                web_state.publish(&state);
-            }
             app.state = state;
             app.panel.update(Dashboard::new(&app.state));
             Task::none()
@@ -103,26 +93,29 @@ pub fn view(app: &App) -> Element<'_, Message> {
     app.panel.view(Dashboard::new(&app.state))
 }
 
-pub fn subscription(_app: &App) -> Subscription<Message> {
-    Subscription::run(monitor_stream)
+fn monitor_subscription(states: StateSource) -> Subscription<Message> {
+    Subscription::run_with(states, monitor_stream)
 }
 
-fn monitor_stream() -> impl iced::futures::Stream<Item = Message> {
+fn monitor_stream(states: &StateSource) -> BoxStream<'static, Message> {
+    let receiver = Arc::new(Mutex::new(states.subscribe()));
     iced::stream::channel(1, async move |mut output| {
-        let mut monitor = Sampler::new(Backend::new());
         loop {
-            let cycle = SampleCycle::begin();
-            if output
-                .send(Message::Monitor(monitor.sample()))
-                .await
-                .is_err()
-            {
+            let receiver = Arc::clone(&receiver);
+            let next = smol::unblock(move || {
+                receiver
+                    .lock()
+                    .expect("desktop monitor receiver lock poisoned")
+                    .recv()
+            })
+            .await;
+            let Ok(state) = next else {
                 break;
-            }
-            let remaining = cycle.remaining();
-            if !remaining.is_zero() {
-                smol::Timer::after(remaining).await;
+            };
+            if output.send(Message::Monitor(state)).await.is_err() {
+                break;
             }
         }
     })
+    .boxed()
 }

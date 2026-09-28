@@ -3,6 +3,7 @@ use std::fs;
 use std::io::Read;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
+#[cfg(any(feature = "ebpf-io", test))]
 use std::sync::OnceLock;
 
 use crate::core::model::{Collection, ProcessCounter, ProcessInstanceId};
@@ -147,6 +148,7 @@ fn parse_stat_counters(tail: &str) -> Option<(u64, u64, u64, u64)> {
     Some((user, system, starttime, rss_pages))
 }
 
+#[cfg(any(feature = "ebpf-io", test))]
 pub(super) fn birth_marker_from_start_boottime_ns(start_boottime_ns: u64) -> u64 {
     static TICKS_PER_SECOND: OnceLock<u64> = OnceLock::new();
     let ticks_per_second =

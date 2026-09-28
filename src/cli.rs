@@ -116,6 +116,9 @@ fn parse_launch_options(mut args: impl Iterator<Item = String>) -> LaunchOptions
     if bind_explicit && !http {
         fail("--http-bind requires --http");
     }
+    if http && !cfg!(feature = "http") {
+        fail("--http is unavailable in this build; rebuild with the `http` feature");
+    }
 
     LaunchOptions {
         desktop: if frontend_explicit { desktop } else { true },
@@ -474,6 +477,7 @@ mod tests {
         assert_eq!(options(&[]), LaunchOptions::default());
     }
 
+    #[cfg(feature = "http")]
     #[test]
     fn explicit_frontends_are_composable_and_disable_implicit_desktop() {
         assert_eq!(
@@ -490,6 +494,19 @@ mod tests {
                 desktop: true,
                 tui: true,
                 http: Some(HttpConfig::default()),
+            }
+        );
+    }
+
+    #[cfg(not(feature = "http"))]
+    #[test]
+    fn minimal_build_composes_native_frontends_without_http() {
+        assert_eq!(
+            options(&["--desktop", "--tui"]),
+            LaunchOptions {
+                desktop: true,
+                tui: true,
+                http: None,
             }
         );
     }

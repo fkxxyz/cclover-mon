@@ -17,7 +17,7 @@ facets:
 
 ## Status
 
-Active — P2.
+Resolved.
 
 ## Problem
 
@@ -25,12 +25,9 @@ Capabilities that are optional or degradable at runtime still impose mandatory t
 
 ## Evidence
 
-Two current capabilities have this shape:
+The default/full build enables both `http` and `ebpf-io`, preserving the existing release artifact: HTTP embeds the browser bundle, and Linux eBPF attribution compiles and links its BPF/libbpf path.
 
-- Linux eBPF I/O attribution is degradable at runtime, but normal Linux builds unconditionally compile BPF objects with clang and link libbpf.
-- HTTP/Web monitoring is disabled by default at runtime, but every native build unconditionally compiles the shared Iced frontend for `wasm32-unknown-unknown`, runs `wasm-bindgen`, and embeds the generated JavaScript/WASM assets into the native executable.
-
-The Web path therefore requires the WASM target and bindgen build dependencies even for developers or packaging jobs that never enable `--http`, and it increases every native artifact by the embedded Web bundle.
+A supported minimal native build uses `--no-default-features`. It omits the optional `wasm-bindgen-cli-support` build dependency, skips the nested `wasm32-unknown-unknown` build, does not compile the eBPF objects, and does not link libbpf. `--http` is rejected explicitly, while disk/network process attribution reports `Disabled`; unrelated native metrics and frontends continue to build and run.
 
 ## Maintenance impact
 
@@ -40,11 +37,9 @@ Developers changing unrelated native UI/core code, minimal packages, cross-compi
 
 Runtime-optional capabilities should not automatically become mandatory build dependencies unless that cost is an explicit supported-build baseline with demonstrated packaging value.
 
-## Resolution direction
+## Resolution
 
-Define the supported build matrix before introducing a large abstraction. Decide which capabilities are mandatory in release artifacts versus optional in developer/minimal builds, then introduce the narrowest build/package boundary that preserves the single-process/single-executable deployment model for full builds.
-
-Possible mechanisms include Cargo features, dedicated packaging profiles, or prebuilt/generated asset stages, but the mechanism should follow the supported artifact policy rather than precede it.
+The supported build matrix is explicit. Default/full native builds retain HTTP/Web, eBPF attribution, and the single-process/single-executable deployment model. Minimal native builds omit both optional capabilities with Cargo features and therefore avoid their toolchains and generated artifacts without changing unrelated functionality.
 
 ## Exit criteria
 

@@ -12,7 +12,7 @@ use x11rb::protocol::xproto::{
 use x11rb::rust_connection::RustConnection;
 use x11rb::wrapper::ConnectionExt as _;
 
-use crate::platform::{DesktopCommand, desktop::DesktopApplication};
+use crate::host::{DesktopApplication, DesktopCommand};
 
 const PANEL_MARGIN: f32 = 16.0;
 

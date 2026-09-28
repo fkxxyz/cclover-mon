@@ -1,5 +1,6 @@
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) mod devlog;
+#[doc(hidden)]
+pub mod devlog;
 #[cfg(not(target_arch = "wasm32"))]
 mod history;
 pub mod model;

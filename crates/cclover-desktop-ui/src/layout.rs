@@ -1,4 +1,4 @@
-use crate::presentation::{DISK_SECTION, Dashboard, NETWORK_SECTION, TEMPERATURE_SECTION};
+use cclover_presentation::{DISK_SECTION, Dashboard, NETWORK_SECTION, TEMPERATURE_SECTION};
 
 pub const PANEL_WIDTH: u32 = 390;
 pub const INITIAL_PANEL_HEIGHT: u32 = 480;
@@ -251,7 +251,7 @@ fn column_height(blocks: impl Iterator<Item = PanelBlock>) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::model::{Collection, MonitorState, TemperatureSnapshot};
+    use cclover_core::model::{Collection, MonitorState, TemperatureSnapshot};
 
     use super::*;
 

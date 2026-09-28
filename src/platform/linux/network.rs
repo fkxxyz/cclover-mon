@@ -9,6 +9,7 @@ fn network_id(identity_path: &Path, ifindex: u64) -> NetworkId {
     NetworkId::from_opaque_key(format!("{}#{ifindex}", identity_path.display()))
 }
 
+#[cfg(feature = "ebpf-io")]
 pub(super) fn id_for_interface(name: &str, ifindex: u32) -> Option<NetworkId> {
     let path = Path::new("/sys/class/net").join(name);
     let identity_path = fs::canonicalize(path.join("device"))

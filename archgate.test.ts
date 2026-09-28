@@ -9,6 +9,10 @@ const cases: Array<[string, string, string, number]> = [
   ["core -> platform", "src/core/model.rs", "use crate::platform::Backend;", 1],
   ["core -> presentation", "src/core/model.rs", "crate::presentation::Dashboard::default();", 1],
   ["core -> ui", "src/core/model.rs", "pub use crate::ui::PanelLayout;", 1],
+  ["workspace core -> platform", "crates/cclover-core/src/model.rs", "use crate::platform::Backend;", 1],
+  ["workspace core -> presentation crate", "crates/cclover-core/src/model.rs", "use cclover_presentation::Dashboard;", 1],
+  ["workspace presentation -> core crate allowed", "crates/cclover-presentation/src/lib.rs", "use cclover_core::model::MonitorState;", 0],
+  ["workspace presentation -> platform", "crates/cclover-presentation/src/lib.rs", "use crate::platform::Backend;", 1],
   ["platform -> core allowed", "src/platform/linux/mod.rs", "use crate::core::Collector;", 0],
   ["platform -> presentation", "src/platform/linux/mod.rs", "use crate::presentation::Dashboard;", 1],
   ["platform -> ui", "src/platform/linux/mod.rs", "use crate::ui::PanelLayout;", 1],
@@ -19,6 +23,12 @@ const cases: Array<[string, string, string, number]> = [
   ["ui -> core allowed", "src/ui/layout.rs", "use crate::core::model::MonitorState;", 0],
   ["ui -> platform", "src/ui/layout.rs", "use crate::platform::Backend;", 1],
   ["tui -> presentation allowed", "src/tui.rs", "use crate::presentation::Dashboard;", 0],
+  ["workspace tui -> presentation crate allowed", "crates/cclover-tui/src/lib.rs", "use cclover_presentation::Dashboard;", 0],
+  ["workspace tui -> core crate", "crates/cclover-tui/src/lib.rs", "use cclover_core::Sampler;", 1],
+  ["workspace desktop ui -> presentation allowed", "crates/cclover-desktop-ui/src/lib.rs", "use cclover_presentation::Dashboard;", 0],
+  ["workspace desktop ui -> platform", "crates/cclover-desktop-ui/src/lib.rs", "use crate::platform::Backend;", 1],
+  ["workspace desktop -> presentation allowed", "crates/cclover-desktop/src/app.rs", "use cclover_presentation::Dashboard;", 0],
+  ["workspace desktop -> platform", "crates/cclover-desktop/src/app.rs", "use crate::platform::Backend;", 1],
   ["tui -> core", "src/tui.rs", "use crate::core::Sampler;", 1],
   ["tui -> platform", "src/tui.rs", "use crate::platform::Backend;", 1],
   ["tui -> ui", "src/tui.rs", "use crate::ui::PanelLayout;", 1],
@@ -59,7 +69,7 @@ use crate::core::model::MonitorState;
 
 describe("repository gate", () => {
   test("current source tree satisfies architecture direction", () => {
-    expect(scanArchitecture(resolve(import.meta.dir, "src"))).toEqual([]);
+    expect(scanArchitecture(resolve(import.meta.dir))).toEqual([]);
   });
 
   test("fixture violation fails with source location", () => {

@@ -104,7 +104,7 @@ fn retain_present<K: Clone + Ord, T>(map: &mut BTreeMap<K, T>, ids: impl Iterato
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::model::{
+    use crate::model::{
         CollectionUnavailable, DiskId, DiskSnapshot, NetworkId, NetworkSnapshot, SystemSnapshot,
         TemperatureSnapshot,
     };

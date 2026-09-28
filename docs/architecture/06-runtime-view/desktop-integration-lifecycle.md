@@ -15,7 +15,7 @@ facets:
 
 # Desktop Integration Lifecycle
 
-Desktop integration has two independent native responsibilities: hosting the monitor surface and exposing platform shell integration such as a system tray item. Both remain behind the platform boundary while application lifecycle semantics and desired surface geometry remain platform-neutral. Every native desktop target enters the same platform-owned host contract; only the host implementation differs by OS/display protocol.
+Desktop integration has two independent native responsibilities: hosting the monitor surface and exposing platform shell integration such as a system tray item. Both remain behind the native desktop boundary in `cclover-desktop` while application lifecycle semantics and desired surface geometry remain platform-neutral. Every native desktop target enters the same desktop-host contract; only the host implementation differs by OS/display protocol.
 
 Normal startup is:
 

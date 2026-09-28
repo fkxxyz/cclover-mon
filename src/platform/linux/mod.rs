@@ -1,5 +1,4 @@
 mod cpu;
-pub(crate) mod desktop;
 mod diagnostics;
 mod disk;
 mod ebpf_io;

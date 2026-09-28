@@ -1,17 +1,31 @@
-use std::io::{self, Read, Write};
-use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
+use std::io;
+#[cfg(feature = "http")]
+use std::io::{Read, Write};
+use std::net::{IpAddr, SocketAddr};
+#[cfg(feature = "http")]
+use std::net::{TcpListener, TcpStream};
+#[cfg(feature = "http")]
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
+#[cfg(feature = "http")]
+use std::sync::mpsc::RecvTimeoutError;
+#[cfg(any(feature = "http", test))]
+use std::sync::mpsc::{self, Receiver};
+use std::sync::mpsc::{SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
+#[cfg(feature = "http")]
 use std::thread::{self, JoinHandle};
+#[cfg(any(feature = "http", test))]
 use std::time::Duration;
 
 use crate::core::model::MonitorState;
-use crate::web_transport::{WebApiSlice, WebMonitorState};
+#[cfg(feature = "http")]
+use crate::web_transport::WebApiSlice;
+use crate::web_transport::WebMonitorState;
 
 pub const DEFAULT_HTTP_BIND: SocketAddr =
     SocketAddr::new(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), 9847);
 
+#[cfg(feature = "http")]
 const INDEX_HTML: &str = r#"<!doctype html>
 <html>
 <head>
@@ -29,10 +43,13 @@ const INDEX_HTML: &str = r#"<!doctype html>
 </html>
 "#;
 
+#[cfg(feature = "http")]
 const BOOTSTRAP_JS: &str = r#"import init from './cclover_mon_web.js';
 await init({ module_or_path: './cclover_mon_web_bg.wasm' });
 "#;
+#[cfg(feature = "http")]
 const WEB_JS: &str = include_str!(concat!(env!("OUT_DIR"), "/web/cclover_mon_web.js"));
+#[cfg(feature = "http")]
 const WEB_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/web/cclover_mon_web_bg.wasm"));
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -60,6 +77,7 @@ struct HubState {
 }
 
 impl StateHub {
+    #[cfg(any(feature = "http", test))]
     fn new() -> Self {
         let latest = Arc::new(WebMonitorState::from(&MonitorState::default()));
         let latest_json: Arc<str> = serde_json::to_string(latest.as_ref())
@@ -92,16 +110,19 @@ impl StateHub {
         );
     }
 
+    #[cfg(feature = "http")]
     fn latest(&self) -> Arc<WebMonitorState> {
         let inner = self.inner.lock().expect("HTTP state hub lock poisoned");
         Arc::clone(&inner.latest)
     }
 
+    #[cfg(feature = "http")]
     fn latest_json(&self) -> Arc<str> {
         let inner = self.inner.lock().expect("HTTP state hub lock poisoned");
         Arc::clone(&inner.latest_json)
     }
 
+    #[cfg(any(feature = "http", test))]
     fn subscribe(&self) -> (Arc<str>, Receiver<Arc<str>>) {
         let (sender, receiver) = mpsc::sync_channel(1);
         let mut inner = self.inner.lock().expect("HTTP state hub lock poisoned");
@@ -111,6 +132,24 @@ impl StateHub {
     }
 }
 
+#[cfg(not(feature = "http"))]
+pub struct HttpServer;
+
+#[cfg(not(feature = "http"))]
+impl HttpServer {
+    pub fn start(_config: HttpConfig) -> io::Result<Self> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "HTTP monitoring is unavailable in this build; rebuild with the `http` feature",
+        ))
+    }
+
+    pub fn state_hub(&self) -> StateHub {
+        unreachable!("HTTP server cannot exist without the `http` feature")
+    }
+}
+
+#[cfg(feature = "http")]
 pub struct HttpServer {
     hub: StateHub,
     local_addr: SocketAddr,
@@ -119,6 +158,7 @@ pub struct HttpServer {
     thread: Option<JoinHandle<()>>,
 }
 
+#[cfg(feature = "http")]
 impl HttpServer {
     pub fn start(config: HttpConfig) -> io::Result<Self> {
         let listener = TcpListener::bind(config.bind)?;
@@ -152,6 +192,7 @@ impl HttpServer {
     }
 }
 
+#[cfg(feature = "http")]
 impl Drop for HttpServer {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::Release);
@@ -162,6 +203,7 @@ impl Drop for HttpServer {
     }
 }
 
+#[cfg(feature = "http")]
 fn run_listener(listener: TcpListener, hub: StateHub, shutdown: Arc<AtomicBool>) {
     while !shutdown.load(Ordering::Acquire) {
         let (stream, _) = match listener.accept() {
@@ -195,6 +237,7 @@ fn run_listener(listener: TcpListener, hub: StateHub, shutdown: Arc<AtomicBool>)
     }
 }
 
+#[cfg(feature = "http")]
 fn handle_connection(
     mut stream: TcpStream,
     hub: StateHub,
@@ -267,6 +310,7 @@ fn handle_connection(
     }
 }
 
+#[cfg(feature = "http")]
 fn write_api_slice(stream: &mut TcpStream, hub: &StateHub, slice: WebApiSlice) -> io::Result<()> {
     match hub.latest().serialize_api_slice(slice) {
         Ok(body) => write_json_response(stream, body.as_bytes()),
@@ -282,10 +326,12 @@ fn write_api_slice(stream: &mut TcpStream, hub: &StateHub, slice: WebApiSlice) -
     }
 }
 
+#[cfg(feature = "http")]
 fn write_json_response(stream: &mut TcpStream, body: &[u8]) -> io::Result<()> {
     write_response(stream, 200, "application/json", body)
 }
 
+#[cfg(feature = "http")]
 fn read_request(stream: &mut TcpStream) -> io::Result<Vec<u8>> {
     const LIMIT: usize = 16 * 1024;
     let mut request = Vec::with_capacity(1024);
@@ -309,6 +355,7 @@ fn read_request(stream: &mut TcpStream) -> io::Result<Vec<u8>> {
     Ok(request)
 }
 
+#[cfg(feature = "http")]
 fn parse_request_line(request: &[u8]) -> Option<(&str, &str)> {
     let request = std::str::from_utf8(request).ok()?;
     let line = request.lines().next()?;
@@ -322,6 +369,7 @@ fn parse_request_line(request: &[u8]) -> Option<(&str, &str)> {
     Some((method, path))
 }
 
+#[cfg(feature = "http")]
 fn write_response(
     stream: &mut TcpStream,
     status: u16,
@@ -345,6 +393,7 @@ fn write_response(
     stream.flush()
 }
 
+#[cfg(feature = "http")]
 fn stream_events(
     mut stream: TcpStream,
     hub: StateHub,
@@ -371,6 +420,7 @@ fn stream_events(
     Ok(())
 }
 
+#[cfg(feature = "http")]
 fn write_event(stream: &mut TcpStream, state: &str) -> io::Result<()> {
     stream.write_all(b"data: ")?;
     stream.write_all(state.as_bytes())?;
@@ -378,6 +428,7 @@ fn write_event(stream: &mut TcpStream, state: &str) -> io::Result<()> {
     stream.flush()
 }
 
+#[cfg(feature = "http")]
 fn wake_address(address: SocketAddr) -> SocketAddr {
     match address.ip() {
         IpAddr::V4(ip) if ip.is_unspecified() => {
@@ -394,6 +445,7 @@ fn wake_address(address: SocketAddr) -> SocketAddr {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "http")]
     #[test]
     fn request_line_parsing_is_strict() {
         assert_eq!(
@@ -403,6 +455,7 @@ mod tests {
         assert_eq!(parse_request_line(b"broken\r\n\r\n"), None);
     }
 
+    #[cfg(feature = "http")]
     #[test]
     fn unspecified_bind_uses_loopback_to_wake_listener() {
         let address: SocketAddr = "0.0.0.0:9847".parse().unwrap();
@@ -428,6 +481,7 @@ mod tests {
         assert_eq!(received.history_capacity, 42);
     }
 
+    #[cfg(feature = "http")]
     #[test]
     fn embedded_http_server_serves_page_and_wasm() {
         let server = HttpServer::start(HttpConfig {
@@ -448,6 +502,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "http")]
     #[test]
     fn state_api_serves_latest_web_transport_state() {
         let server = HttpServer::start(HttpConfig {
@@ -470,6 +525,7 @@ mod tests {
         assert_eq!(state.history_capacity, 42);
     }
 
+    #[cfg(feature = "http")]
     #[test]
     fn split_state_apis_serve_only_requested_domains() {
         let server = HttpServer::start(HttpConfig {
@@ -515,10 +571,12 @@ mod tests {
         assert!(history.get("memory_used").is_none());
     }
 
+    #[cfg(feature = "http")]
     fn get(address: SocketAddr, path: &str) -> String {
         String::from_utf8(get_bytes(address, path)).unwrap()
     }
 
+    #[cfg(feature = "http")]
     fn response_json(address: SocketAddr, path: &str) -> serde_json::Value {
         let response = get(address, path);
         assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
@@ -527,6 +585,7 @@ mod tests {
         serde_json::from_str(body).unwrap()
     }
 
+    #[cfg(feature = "http")]
     fn get_bytes(address: SocketAddr, path: &str) -> Vec<u8> {
         let mut stream = TcpStream::connect(address).unwrap();
         write!(

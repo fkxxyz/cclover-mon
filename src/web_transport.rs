@@ -16,7 +16,7 @@ pub struct WebMonitorState {
     history_capacity: usize,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "http"))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum WebApiSlice {
     Cpu,
@@ -32,7 +32,7 @@ pub(crate) enum WebApiSlice {
     HistoryTemperatures,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "http"))]
 impl WebMonitorState {
     pub(crate) fn serialize_api_slice(&self, slice: WebApiSlice) -> serde_json::Result<String> {
         match slice {
@@ -245,41 +245,41 @@ struct WebMonitorHistory {
     temperatures: BTreeMap<String, VecDeque<f64>>,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "http"))]
 #[derive(Serialize)]
 struct WebCpuApi<'a> {
     cpu_percent: &'a WebCollection<f64>,
     top_cpu: &'a WebCollection<Vec<WebProcessCpu>>,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "http"))]
 #[derive(Serialize)]
 struct WebMemoryApi<'a> {
     memory: &'a WebCollection<WebMemorySnapshot>,
     top_memory: &'a WebCollection<Vec<WebProcessMemory>>,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "http"))]
 #[derive(Serialize)]
 struct WebDisksApi<'a> {
     disks: &'a WebCollection<Vec<WebDiskSnapshot>>,
     process_disk_io: &'a WebCollection<Vec<WebProcessDiskIo>>,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "http"))]
 #[derive(Serialize)]
 struct WebNetworksApi<'a> {
     networks: &'a WebCollection<Vec<WebNetworkSnapshot>>,
     process_network_io: &'a WebCollection<Vec<WebProcessNetworkIo>>,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "http"))]
 #[derive(Serialize)]
 struct WebTemperaturesApi<'a> {
     temperatures: &'a WebCollection<Vec<WebTemperatureSnapshot>>,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "http"))]
 #[derive(Serialize)]
 struct WebProcessesApi<'a> {
     top_cpu: &'a WebCollection<Vec<WebProcessCpu>>,
@@ -288,14 +288,14 @@ struct WebProcessesApi<'a> {
     network_io: &'a WebCollection<Vec<WebProcessNetworkIo>>,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "http"))]
 #[derive(Serialize)]
 struct WebCpuHistoryApi<'a> {
     history_capacity: usize,
     cpu: &'a VecDeque<f64>,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "http"))]
 #[derive(Serialize)]
 struct WebMemoryHistoryApi<'a> {
     history_capacity: usize,
@@ -303,21 +303,21 @@ struct WebMemoryHistoryApi<'a> {
     swap_used: &'a VecDeque<f64>,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "http"))]
 #[derive(Serialize)]
 struct WebDisksHistoryApi<'a> {
     history_capacity: usize,
     disks: &'a BTreeMap<String, VecDeque<f64>>,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "http"))]
 #[derive(Serialize)]
 struct WebNetworksHistoryApi<'a> {
     history_capacity: usize,
     networks: &'a BTreeMap<String, WebDirectionHistory>,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "http"))]
 #[derive(Serialize)]
 struct WebTemperaturesHistoryApi<'a> {
     history_capacity: usize,

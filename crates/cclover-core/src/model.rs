@@ -31,11 +31,11 @@ pub struct ProcessInstanceId {
 pub struct NetworkId(String);
 
 impl NetworkId {
-    pub(crate) fn from_opaque_key(key: impl Into<String>) -> Self {
+    pub fn from_opaque_key(key: impl Into<String>) -> Self {
         Self(key.into())
     }
 
-    pub(crate) fn as_opaque_key(&self) -> &str {
+    pub fn as_opaque_key(&self) -> &str {
         &self.0
     }
 }
@@ -44,11 +44,11 @@ impl NetworkId {
 pub struct DiskId(String);
 
 impl DiskId {
-    pub(crate) fn from_opaque_key(key: impl Into<String>) -> Self {
+    pub fn from_opaque_key(key: impl Into<String>) -> Self {
         Self(key.into())
     }
 
-    pub(crate) fn as_opaque_key(&self) -> &str {
+    pub fn as_opaque_key(&self) -> &str {
         &self.0
     }
 }

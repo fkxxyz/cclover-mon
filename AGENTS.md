@@ -35,7 +35,7 @@ app composition root ───────→ ui frontend ───────�
 Ownership rules:
 
 - `core` owns platform-neutral metric types, delta/rate derivation, Top-N aggregation, bounded history, and sampling contracts, including `Collector`.
-- `platform` owns OS-specific collection and desktop integration, implements core-owned sampling contracts, and returns core-owned platform-neutral snapshots. `core` must not depend on `platform`.
+- `platform` owns OS-specific collection; the `cclover-desktop` package owns OS-specific native desktop hosting/integration. Platform collectors implement core-owned sampling contracts and return core-owned platform-neutral snapshots. `core` must not depend on either native boundary.
 - `presentation` derives renderer-neutral dashboard semantics from shared `MonitorState`; it does not depend on Iced, terminal libraries, platform APIs, or app messages.
 - `ui` is the shared Iced desktop frontend. It owns pixel layout and rendering, not metric semantics or platform APIs.
 - Native data stays typed and in-process. Do not introduce internal JSON or frontend/backend IPC for metric flow.
@@ -47,16 +47,19 @@ Ownership rules:
 ## Project Structure
 
 ```text
-src/app.rs                 application state, sampling subscription, UI update flow
-src/core/model.rs          shared typed snapshots and history model
-src/core/sampler.rs        delta/rate derivation, Top-N, sampling state
-src/core/history.rs        bounded history updates
+crates/cclover-desktop/src/app.rs      desktop application state, subscription, UI update flow
+crates/cclover-desktop/src/host.rs     shared native desktop-host contract
+crates/cclover-desktop/src/linux.rs    Linux Wayland/X11 hosting and tray integration
+crates/cclover-core/src/model.rs    shared typed snapshots and history model
+crates/cclover-core/src/sampler.rs  delta/rate derivation, Top-N, sampling state
+crates/cclover-core/src/history.rs  bounded history updates
 src/platform/linux/        Linux native collectors split by metric responsibility
 src/platform/windows.rs    Windows backend; collector is currently a placeholder
-src/presentation.rs        renderer-neutral dashboard presentation model and formatting
-src/ui/mod.rs              shared Iced desktop frontend
-src/ui/layout.rs           Iced panel structure and single-source panel sizing
-src/ui/graph.rs            history graph rendering
+crates/cclover-presentation/src/lib.rs  renderer-neutral dashboard presentation model and formatting
+crates/cclover-tui/src/lib.rs           terminal frontend rendering and terminal lifecycle
+crates/cclover-desktop-ui/src/lib.rs    shared Iced desktop frontend
+crates/cclover-desktop-ui/src/layout.rs panel structure and single-source panel sizing
+crates/cclover-desktop-ui/src/graph.rs  history graph rendering
 docs/architecture/         architecture Views and governance data
 archdoc.ts                 architecture documentation navigator and validator
 ```
@@ -106,10 +109,12 @@ Run the complete project validation set after implementation changes:
 ```bash
 bun archgate.ts
 bun test archgate.test.ts
-cargo fmt --check
-cargo test
-cargo clippy --all-targets --all-features -- -D warnings
+cargo fmt --all --check
+cargo test --workspace
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo build --release
+cargo test -p cclover-mon --no-default-features
+cargo clippy -p cclover-mon --no-default-features --all-targets -- -D warnings
 bun archdoc.ts check
 ```
 
@@ -124,10 +129,16 @@ For Linux UI or window-placement changes, also perform a real Wayland runtime ch
 
 ## Build and Run
 
-Release build:
+Release build (full artifact, including HTTP/Web and eBPF attribution):
 
 ```bash
 cargo build --release
+```
+
+Minimal native validation without the HTTP/WASM or eBPF/libbpf build toolchains:
+
+```bash
+cargo check --no-default-features
 ```
 
 Development launch:

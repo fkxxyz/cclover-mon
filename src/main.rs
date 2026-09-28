@@ -1,6 +1,6 @@
 #![deny(unsafe_code)]
 
-use cclover_mon::{app, cli, platform, runtime, web};
+use cclover_mon::{cli, runtime, web};
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,7 +21,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .expect("failed to spawn TUI thread")
         });
 
-        platform::desktop::run(app::DesktopApp::new(runtime.states()))?;
+        cclover_desktop::run(cclover_desktop::DesktopApp::new(
+            runtime.states().subscribe(),
+        ))?;
         drop(runtime);
         if let Some(thread) = tui_thread {
             thread.join().map_err(|_| "TUI thread panicked")??;
@@ -44,7 +46,6 @@ mod architecture_tests {
     #[test]
     fn execution_adapters_do_not_own_sampling_interval_arithmetic() {
         for (path, source) in [
-            ("src/app.rs", include_str!("app.rs")),
             ("src/cli.rs", include_str!("cli.rs")),
             ("src/runtime.rs", include_str!("runtime.rs")),
             ("src/tui.rs", include_str!("tui.rs")),

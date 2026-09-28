@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative, resolve, sep } from "node:path";
 
 export type Domain = "core" | "platform" | "presentation" | "ui" | "tui";
@@ -39,6 +39,18 @@ function modulePath(file: string): string[] | null {
 }
 
 function sourceDomain(file: string): Domain | null {
+  const normalized = file.split(sep).join("/");
+  for (const [crateName, domain] of [
+    ["cclover-core", "core"],
+    ["cclover-presentation", "presentation"],
+    ["cclover-tui", "tui"],
+    ["cclover-desktop-ui", "ui"],
+    ["cclover-desktop", "ui"],
+  ] as const) {
+    if (normalized.includes(`/crates/${crateName}/src/`) || normalized.startsWith(`crates/${crateName}/src/`)) {
+      return domain;
+    }
+  }
   const path = modulePath(file);
   const root = path?.[0];
   return root && isDomain(root) ? root : null;
@@ -193,6 +205,12 @@ export function findViolationsInSource(source: string, file: string): Violation[
     candidates.push({ to: match[1] as Domain, offset: match.index });
   }
 
+  const workspaceCratePath = /\bcclover_(core|presentation|tui|desktop_ui|desktop)\s*::/g;
+  while ((match = workspaceCratePath.exec(code))) {
+    const workspaceDomain = match[1] === "desktop_ui" ? "ui" : match[1];
+    candidates.push({ to: workspaceDomain as Domain, offset: match.index });
+  }
+
   const superPath = /\b((?:super\s*::\s*)+)(core|platform|presentation|ui)\b/g;
   while ((match = superPath.exec(code))) {
     const supers = (match[1].match(/super/g) ?? []).length;
@@ -226,8 +244,20 @@ function rustFiles(root: string): string[] {
   return files;
 }
 
-export function scanArchitecture(root = resolve(import.meta.dir, "src")): Violation[] {
-  return rustFiles(root).flatMap((file) => findViolationsInSource(readFileSync(file, "utf8"), file));
+export function scanArchitecture(root = resolve(import.meta.dir)): Violation[] {
+  const roots = root.endsWith(`${sep}src`)
+    ? [root]
+    : [
+        join(root, "src"),
+        join(root, "crates", "cclover-core", "src"),
+        join(root, "crates", "cclover-presentation", "src"),
+        join(root, "crates", "cclover-tui", "src"),
+        join(root, "crates", "cclover-desktop-ui", "src"),
+        join(root, "crates", "cclover-desktop", "src"),
+      ].filter(existsSync);
+  return roots.flatMap((sourceRoot) =>
+    rustFiles(sourceRoot).flatMap((file) => findViolationsInSource(readFileSync(file, "utf8"), file)),
+  );
 }
 
 export function formatViolation(violation: Violation, cwd = import.meta.dir): string {

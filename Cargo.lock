@@ -475,24 +475,66 @@ dependencies = [
 ]
 
 [[package]]
-name = "cclover-mon"
+name = "cclover-core"
+version = "0.1.0"
+
+[[package]]
+name = "cclover-desktop"
 version = "0.1.0"
 dependencies = [
- "crossterm",
+ "cclover-core",
+ "cclover-desktop-ui",
+ "cclover-presentation",
  "iced",
  "iced_layershell",
  "ksni",
- "libc",
- "ratatui",
- "serde",
- "serde_json",
  "smol",
- "wasm-bindgen",
- "wasm-bindgen-cli-support",
- "web-sys",
  "winit-common",
  "winit-core",
  "x11rb",
+]
+
+[[package]]
+name = "cclover-desktop-ui"
+version = "0.1.0"
+dependencies = [
+ "cclover-core",
+ "cclover-presentation",
+ "iced",
+]
+
+[[package]]
+name = "cclover-mon"
+version = "0.1.0"
+dependencies = [
+ "cclover-core",
+ "cclover-desktop",
+ "cclover-desktop-ui",
+ "cclover-presentation",
+ "cclover-tui",
+ "iced",
+ "libc",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-cli-support",
+ "web-sys",
+]
+
+[[package]]
+name = "cclover-presentation"
+version = "0.1.0"
+dependencies = [
+ "cclover-core",
+]
+
+[[package]]
+name = "cclover-tui"
+version = "0.1.0"
+dependencies = [
+ "cclover-presentation",
+ "crossterm",
+ "ratatui",
 ]
 
 [[package]]

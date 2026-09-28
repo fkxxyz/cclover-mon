@@ -1,0 +1,9 @@
+[package]
+name = "cclover-tui"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cclover-presentation = { path = "../cclover-presentation" }
+crossterm = "0.28"
+ratatui = "0.29"

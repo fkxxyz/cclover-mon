@@ -1,5 +1,7 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(feature = "ebpf-io")]
+use std::path::PathBuf;
 
 use crate::core::model::{Collection, DiskCounter, DiskId};
 
@@ -9,6 +11,7 @@ fn disk_id(identity_path: &Path, device_number: &str) -> DiskId {
     DiskId::from_opaque_key(format!("{}#{device_number}", identity_path.display()))
 }
 
+#[cfg(feature = "ebpf-io")]
 pub(super) fn id_for_name(name: &str) -> Option<DiskId> {
     let path = PathBuf::from("/sys/block").join(name);
     let device_number = fs::read_to_string(path.join("dev")).ok()?;

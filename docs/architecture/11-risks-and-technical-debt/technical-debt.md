@@ -25,14 +25,12 @@ Technical debt here means current structure that makes future reasonable change 
 | --- | --- | --- |
 | [Metric extension coupling](technical-debt/metric-extension-coupling.md) | Active | Adding a metric propagates through multiple central switchboards and authorities. |
 | [Architecture enforcement](technical-debt/architecture-enforcement.md) | Active | Important dependency and validation rules rely too heavily on developer memory and manual execution. |
-| [Crate boundary compilation coupling](technical-debt/crate-boundary-compilation-coupling.md) | Active | Cargo boundaries do not match architectural change axes, so local refactors compile and validate unrelated heavyweight stacks. |
 
 ## P2
 
 | Debt | Status | Why it matters |
 | --- | --- | --- |
 | [Native collector test seams](technical-debt/native-collector-test-seams.md) | Active | Discovery and filesystem/native IO remain expensive to validate without the live host. |
-| [Optional capability build coupling](technical-debt/optional-capability-build-coupling.md) | Active | Runtime-optional eBPF and Web capabilities still impose mandatory toolchain and artifact costs on normal native builds. |
 
 ## P3
 

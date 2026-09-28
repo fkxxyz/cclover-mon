@@ -14,7 +14,7 @@ use layout::{
     NETWORK_CARD_GEOMETRY, PANEL_GEOMETRY, PanelBlock, SMALL_GRAPH_CARD_GEOMETRY,
 };
 
-use crate::presentation::{CpuPanel, Dashboard, IoProcessRow, MemoryPanel, ProcessRow};
+use cclover_presentation::{CpuPanel, Dashboard, IoProcessRow, MemoryPanel, ProcessRow};
 
 pub use layout::{INITIAL_PANEL_HEIGHT, PANEL_WIDTH, PanelLayout};
 

@@ -1,6 +1,9 @@
 use iced::{Element, Subscription, Task, Theme};
 
-use crate::platform::DesktopCommand;
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DesktopCommand {
+    Quit,
+}
 
 pub trait DesktopApplication: Clone + 'static {
     type State: 'static;
@@ -22,7 +25,7 @@ pub trait DesktopApplication: Clone + 'static {
 
 #[cfg(target_os = "linux")]
 pub fn run<A: DesktopApplication>(app: A) -> Result<(), Box<dyn std::error::Error>> {
-    super::linux::desktop::run(app)
+    crate::linux::run(app)
 }
 
 #[cfg(target_os = "windows")]

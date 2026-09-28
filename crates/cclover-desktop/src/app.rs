@@ -1,13 +1,34 @@
+use std::hash::{Hash, Hasher};
+use std::sync::mpsc::Receiver;
+use std::sync::{Arc, Mutex};
+
+use cclover_core::model::MonitorState;
+use cclover_desktop_ui as ui;
+use cclover_presentation::Dashboard;
 use iced::futures::stream::BoxStream;
 use iced::futures::{SinkExt, StreamExt};
 use iced::{Element, Subscription, Task};
-use std::sync::{Arc, Mutex};
 
-use crate::core::model::MonitorState;
-use crate::platform::DesktopCommand;
-use crate::presentation::Dashboard;
-use crate::runtime::StateSource;
-use crate::ui;
+use crate::host::{DesktopApplication, DesktopCommand};
+
+#[derive(Clone)]
+struct ReceiverSource {
+    receiver: Arc<Mutex<Option<Receiver<MonitorState>>>>,
+}
+
+impl ReceiverSource {
+    fn new(receiver: Receiver<MonitorState>) -> Self {
+        Self {
+            receiver: Arc::new(Mutex::new(Some(receiver))),
+        }
+    }
+}
+
+impl Hash for ReceiverSource {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Arc::as_ptr(&self.receiver).hash(state);
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -27,16 +48,18 @@ pub fn boot() -> App {
 
 #[derive(Clone)]
 pub struct DesktopApp {
-    states: StateSource,
+    states: ReceiverSource,
 }
 
 impl DesktopApp {
-    pub fn new(states: StateSource) -> Self {
-        Self { states }
+    pub fn new(receiver: Receiver<MonitorState>) -> Self {
+        Self {
+            states: ReceiverSource::new(receiver),
+        }
     }
 }
 
-impl crate::platform::desktop::DesktopApplication for DesktopApp {
+impl DesktopApplication for DesktopApp {
     type State = App;
     type Message = Message;
 
@@ -93,12 +116,18 @@ pub fn view(app: &App) -> Element<'_, Message> {
     app.panel.view(Dashboard::new(&app.state))
 }
 
-fn monitor_subscription(states: StateSource) -> Subscription<Message> {
+fn monitor_subscription(states: ReceiverSource) -> Subscription<Message> {
     Subscription::run_with(states, monitor_stream)
 }
 
-fn monitor_stream(states: &StateSource) -> BoxStream<'static, Message> {
-    let receiver = Arc::new(Mutex::new(states.subscribe()));
+fn monitor_stream(states: &ReceiverSource) -> BoxStream<'static, Message> {
+    let receiver = states
+        .receiver
+        .lock()
+        .expect("desktop monitor receiver source lock poisoned")
+        .take()
+        .expect("desktop monitor subscription created more than once");
+    let receiver = Arc::new(Mutex::new(receiver));
     iced::stream::channel(1, async move |mut output| {
         loop {
             let receiver = Arc::clone(&receiver);

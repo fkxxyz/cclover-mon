@@ -1,6 +1,6 @@
 #[test]
 fn linux_tray_tolerates_late_status_notifier_watcher() {
-    let source = include_str!("../src/platform/linux/desktop.rs");
+    let source = include_str!("../crates/cclover-desktop/src/linux.rs");
 
     assert!(
         source.contains("assume_sni_available(true)"),
@@ -9,11 +9,8 @@ fn linux_tray_tolerates_late_status_notifier_watcher() {
 }
 
 #[test]
-fn native_desktop_hosting_stays_in_platform_desktop() {
-    for (path, source) in [
-        ("src/main.rs", include_str!("../src/main.rs")),
-        ("src/app.rs", include_str!("../src/app.rs")),
-    ] {
+fn native_desktop_hosting_stays_in_desktop_crate() {
+    for (path, source) in [("src/main.rs", include_str!("../src/main.rs"))] {
         for forbidden in [
             "iced_layershell",
             "DisplayServer",
@@ -26,7 +23,7 @@ fn native_desktop_hosting_stays_in_platform_desktop() {
         ] {
             assert!(
                 !source.contains(forbidden),
-                "{path} must not own native desktop-host policy ({forbidden}); keep it in platform desktop integration"
+                "{path} must not own native desktop-host policy ({forbidden}); keep it in the desktop crate"
             );
         }
     }

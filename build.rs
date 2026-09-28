@@ -1,21 +1,36 @@
+#[cfg(any(feature = "http", feature = "ebpf-io"))]
 use std::env;
+#[cfg(feature = "ebpf-io")]
 use std::fs;
-use std::path::{Path, PathBuf};
+#[cfg(feature = "ebpf-io")]
+use std::path::Path;
+#[cfg(any(feature = "http", feature = "ebpf-io"))]
+use std::path::PathBuf;
+#[cfg(any(feature = "http", feature = "ebpf-io"))]
 use std::process::Command;
 
 fn main() {
+    #[cfg(any(feature = "http", feature = "ebpf-io"))]
+    build_optional_capabilities();
+}
+
+#[cfg(any(feature = "http", feature = "ebpf-io"))]
+fn build_optional_capabilities() {
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").expect("target arch");
     if target_arch == "wasm32" {
         return;
     }
 
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"));
+    #[cfg(feature = "ebpf-io")]
     if env::var_os("CARGO_CFG_TARGET_OS").as_deref() == Some(std::ffi::OsStr::new("linux")) {
         build_linux_bpf(&out, &target_arch);
     }
+    #[cfg(feature = "http")]
     build_web_bundle(&out);
 }
 
+#[cfg(feature = "ebpf-io")]
 fn build_linux_bpf(out: &Path, target_arch: &str) {
     let bpf_arch = match target_arch {
         "x86" | "x86_64" => "x86",
@@ -47,6 +62,7 @@ fn build_linux_bpf(out: &Path, target_arch: &str) {
     println!("cargo:rustc-link-lib=bpf");
 }
 
+#[cfg(feature = "http")]
 fn build_web_bundle(out: &Path) {
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=Cargo.lock");
@@ -95,6 +111,7 @@ fn build_web_bundle(out: &Path) {
         .unwrap_or_else(|error| panic!("failed to generate embedded web bindings: {error}"));
 }
 
+#[cfg(feature = "http")]
 fn isolate_nested_cargo(command: &mut Command) {
     command
         .env_remove("RUSTFLAGS")
@@ -109,6 +126,7 @@ fn isolate_nested_cargo(command: &mut Command) {
     }
 }
 
+#[cfg(feature = "ebpf-io")]
 fn compile_bpf(source: &Path, output: &Path, bpf_arch: &str, clang: &std::ffi::OsStr) {
     println!("cargo:rerun-if-changed={}", source.display());
     let target_arch_define = format!("-D__TARGET_ARCH_{bpf_arch}");
@@ -135,12 +153,14 @@ fn compile_bpf(source: &Path, output: &Path, bpf_arch: &str, clang: &std::ffi::O
     );
 }
 
+#[cfg(feature = "ebpf-io")]
 struct RecordLayout<'a> {
     rust_module: &'a str,
     c_struct: &'a str,
     fields: &'a [&'a str],
 }
 
+#[cfg(feature = "ebpf-io")]
 fn write_bpf_abi_layouts(
     out: &Path,
     bpf_arch: &str,
@@ -186,6 +206,7 @@ fn write_bpf_abi_layouts(
         .expect("failed to write generated BPF ABI layout constants");
 }
 
+#[cfg(feature = "ebpf-io")]
 fn append_source_layouts(
     generated: &mut String,
     clang: &std::ffi::OsStr,
@@ -246,6 +267,7 @@ fn append_source_layouts(
     }
 }
 
+#[cfg(feature = "ebpf-io")]
 fn parse_record_layout(
     dump: &str,
     struct_name: &str,

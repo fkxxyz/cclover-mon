@@ -78,6 +78,7 @@ pub struct TemperatureSnapshot {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProcessDiskIoCounter {
     pub process: ProcessInstanceId,
+    pub disk_id: DiskId,
     pub device: String,
     pub read_bytes: u64,
     pub write_bytes: u64,
@@ -86,6 +87,7 @@ pub struct ProcessDiskIoCounter {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProcessNetworkIoCounter {
     pub process: ProcessInstanceId,
+    pub network_id: NetworkId,
     pub interface: String,
     pub rx_bytes: u64,
     pub tx_bytes: u64,
@@ -94,6 +96,8 @@ pub struct ProcessNetworkIoCounter {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProcessDiskIo {
     pub process: ProcessInstanceId,
+    pub name: Option<String>,
+    pub disk_id: DiskId,
     pub device: String,
     pub read_bytes_per_sec: f64,
     pub write_bytes_per_sec: f64,
@@ -102,6 +106,8 @@ pub struct ProcessDiskIo {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProcessNetworkIo {
     pub process: ProcessInstanceId,
+    pub name: Option<String>,
+    pub network_id: NetworkId,
     pub interface: String,
     pub rx_bytes_per_sec: f64,
     pub tx_bytes_per_sec: f64,

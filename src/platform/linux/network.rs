@@ -5,6 +5,18 @@ use crate::core::model::{Collection, NetworkCounter, NetworkId};
 
 use super::diagnostics::{probe_note, report_issue, unavailable_from_io};
 
+fn network_id(identity_path: &Path, ifindex: u64) -> NetworkId {
+    NetworkId::from_opaque_key(format!("{}#{ifindex}", identity_path.display()))
+}
+
+pub(super) fn id_for_interface(name: &str, ifindex: u32) -> Option<NetworkId> {
+    let path = Path::new("/sys/class/net").join(name);
+    let identity_path = fs::canonicalize(path.join("device"))
+        .or_else(|_| fs::canonicalize(&path))
+        .ok()?;
+    Some(network_id(&identity_path, u64::from(ifindex)))
+}
+
 pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Collection<Vec<NetworkCounter>> {
     let mut rows = Vec::new();
     let mut degraded = false;
@@ -65,7 +77,7 @@ pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Collection<Vec<Net
             continue;
         };
         rows.push(NetworkCounter {
-            id: NetworkId::from_opaque_key(format!("{}#{ifindex}", device_path.display())),
+            id: network_id(&device_path, ifindex),
             name,
             rx_bytes: received_bytes,
             tx_bytes: transmitted_bytes,

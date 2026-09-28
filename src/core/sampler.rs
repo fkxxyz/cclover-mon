@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant};
 
 use super::devlog;
@@ -6,6 +6,7 @@ use super::history;
 use super::model::*;
 
 const TOP_N: usize = 8;
+const PROCESS_IO_TOP_N: usize = 3;
 const HISTORY_CAPACITY: usize = 60;
 pub const SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 
@@ -91,6 +92,10 @@ fn derive(previous: Option<&RawSnapshot>, current: &RawSnapshot) -> SystemSnapsh
         .value()
         .map(Vec::as_slice)
         .unwrap_or_default();
+    let process_names: HashMap<ProcessInstanceId, &str> = current_processes
+        .iter()
+        .map(|process| (process.process, process.name.as_str()))
+        .collect();
     let (cpu_percent, top_cpu) = derive_cpu(previous, current, current_processes);
     let dt = sample_interval_seconds(previous, current);
     let mut out = SystemSnapshot {
@@ -107,11 +112,13 @@ fn derive(previous: Option<&RawSnapshot>, current: &RawSnapshot) -> SystemSnapsh
     out.process_disk_io = derive_process_disk_io(
         previous.and_then(|snapshot| snapshot.process_disk_io.value().map(Vec::as_slice)),
         current.process_disk_io.value().map(Vec::as_slice),
+        &process_names,
         dt,
     );
     out.process_network_io = derive_process_network_io(
         previous.and_then(|snapshot| snapshot.process_network_io.value().map(Vec::as_slice)),
         current.process_network_io.value().map(Vec::as_slice),
+        &process_names,
         dt,
     );
 
@@ -232,69 +239,97 @@ fn derive_disks(
 fn derive_process_disk_io(
     previous: Option<&[ProcessDiskIoCounter]>,
     current: Option<&[ProcessDiskIoCounter]>,
+    process_names: &HashMap<ProcessInstanceId, &str>,
     dt: f64,
 ) -> Option<Vec<ProcessDiskIo>> {
     let current = current?;
-    let old: HashMap<(ProcessInstanceId, &str), &ProcessDiskIoCounter> = previous
+    let old: HashMap<(ProcessInstanceId, &DiskId), &ProcessDiskIoCounter> = previous
         .into_iter()
         .flatten()
-        .map(|item| ((item.process, item.device.as_str()), item))
+        .map(|item| ((item.process, &item.disk_id), item))
         .collect();
-    Some(
-        current
-            .iter()
-            .map(|item| {
-                let (read, write) =
-                    old.get(&(item.process, item.device.as_str()))
-                        .map_or((0.0, 0.0), |old| {
-                            (
-                                item.read_bytes.saturating_sub(old.read_bytes) as f64 / dt,
-                                item.write_bytes.saturating_sub(old.write_bytes) as f64 / dt,
-                            )
-                        });
-                ProcessDiskIo {
-                    process: item.process,
-                    device: item.device.clone(),
-                    read_bytes_per_sec: read,
-                    write_bytes_per_sec: write,
-                }
-            })
-            .collect(),
-    )
+    let mut by_disk: BTreeMap<DiskId, Vec<ProcessDiskIo>> = BTreeMap::new();
+    for item in current {
+        let (read, write) = old
+            .get(&(item.process, &item.disk_id))
+            .map_or((0.0, 0.0), |old| {
+                (
+                    item.read_bytes.saturating_sub(old.read_bytes) as f64 / dt,
+                    item.write_bytes.saturating_sub(old.write_bytes) as f64 / dt,
+                )
+            });
+        by_disk
+            .entry(item.disk_id.clone())
+            .or_default()
+            .push(ProcessDiskIo {
+                process: item.process,
+                name: process_names
+                    .get(&item.process)
+                    .map(|name| (*name).to_owned()),
+                disk_id: item.disk_id.clone(),
+                device: item.device.clone(),
+                read_bytes_per_sec: read,
+                write_bytes_per_sec: write,
+            });
+    }
+    for rows in by_disk.values_mut() {
+        keep_top_n_by(rows, PROCESS_IO_TOP_N, |a, b| {
+            let a_total = a.read_bytes_per_sec + a.write_bytes_per_sec;
+            let b_total = b.read_bytes_per_sec + b.write_bytes_per_sec;
+            b_total
+                .total_cmp(&a_total)
+                .then_with(|| a.process.cmp(&b.process))
+        });
+    }
+    Some(by_disk.into_values().flatten().collect())
 }
 
 fn derive_process_network_io(
     previous: Option<&[ProcessNetworkIoCounter]>,
     current: Option<&[ProcessNetworkIoCounter]>,
+    process_names: &HashMap<ProcessInstanceId, &str>,
     dt: f64,
 ) -> Option<Vec<ProcessNetworkIo>> {
     let current = current?;
-    let old: HashMap<(ProcessInstanceId, &str), &ProcessNetworkIoCounter> = previous
+    let old: HashMap<(ProcessInstanceId, &NetworkId), &ProcessNetworkIoCounter> = previous
         .into_iter()
         .flatten()
-        .map(|item| ((item.process, item.interface.as_str()), item))
+        .map(|item| ((item.process, &item.network_id), item))
         .collect();
-    Some(
-        current
-            .iter()
-            .map(|item| {
-                let (rx, tx) =
-                    old.get(&(item.process, item.interface.as_str()))
-                        .map_or((0.0, 0.0), |old| {
-                            (
-                                item.rx_bytes.saturating_sub(old.rx_bytes) as f64 / dt,
-                                item.tx_bytes.saturating_sub(old.tx_bytes) as f64 / dt,
-                            )
-                        });
-                ProcessNetworkIo {
-                    process: item.process,
-                    interface: item.interface.clone(),
-                    rx_bytes_per_sec: rx,
-                    tx_bytes_per_sec: tx,
-                }
-            })
-            .collect(),
-    )
+    let mut by_network: BTreeMap<NetworkId, Vec<ProcessNetworkIo>> = BTreeMap::new();
+    for item in current {
+        let (rx, tx) = old
+            .get(&(item.process, &item.network_id))
+            .map_or((0.0, 0.0), |old| {
+                (
+                    item.rx_bytes.saturating_sub(old.rx_bytes) as f64 / dt,
+                    item.tx_bytes.saturating_sub(old.tx_bytes) as f64 / dt,
+                )
+            });
+        by_network
+            .entry(item.network_id.clone())
+            .or_default()
+            .push(ProcessNetworkIo {
+                process: item.process,
+                name: process_names
+                    .get(&item.process)
+                    .map(|name| (*name).to_owned()),
+                network_id: item.network_id.clone(),
+                interface: item.interface.clone(),
+                rx_bytes_per_sec: rx,
+                tx_bytes_per_sec: tx,
+            });
+    }
+    for rows in by_network.values_mut() {
+        keep_top_n_by(rows, PROCESS_IO_TOP_N, |a, b| {
+            let a_total = a.rx_bytes_per_sec + a.tx_bytes_per_sec;
+            let b_total = b.rx_bytes_per_sec + b.tx_bytes_per_sec;
+            b_total
+                .total_cmp(&a_total)
+                .then_with(|| a.process.cmp(&b.process))
+        });
+    }
+    Some(by_network.into_values().flatten().collect())
 }
 
 fn baseline_top_cpu(current: &[ProcessCounter]) -> Vec<ProcessCpuUsage> {
@@ -428,12 +463,14 @@ mod tests {
             }]),
             process_disk_io: Collection::available(vec![ProcessDiskIoCounter {
                 process: process_id(10, 1),
+                disk_id: disk_id("disk-a"),
                 device: "nvme0n1".into(),
                 read_bytes: 300,
                 write_bytes: 400,
             }]),
             process_network_io: Collection::available(vec![ProcessNetworkIoCounter {
                 process: process_id(10, 1),
+                network_id: network_id("network-a"),
                 interface: "eth0".into(),
                 rx_bytes: 100,
                 tx_bytes: 200,
@@ -714,13 +751,15 @@ mod tests {
             collected_at: t,
             process_disk_io: Collection::available(vec![ProcessDiskIoCounter {
                 process: process_id(10, 1),
-                device: "nvme0n1".into(),
+                disk_id: disk_id("disk-a"),
+                device: "old-disk-name".into(),
                 read_bytes: 100,
                 write_bytes: 200,
             }]),
             process_network_io: Collection::available(vec![ProcessNetworkIoCounter {
                 process: process_id(20, 1),
-                interface: "eth0".into(),
+                network_id: network_id("network-a"),
+                interface: "old-network-name".into(),
                 rx_bytes: 300,
                 tx_bytes: 400,
             }]),
@@ -728,14 +767,30 @@ mod tests {
         };
         let new = RawSnapshot {
             collected_at: t + Duration::from_secs(2),
+            processes: Collection::available(vec![
+                ProcessCounter {
+                    process: process_id(10, 1),
+                    name: "disk-worker".into(),
+                    cpu_time_units: 0,
+                    rss_bytes: 0,
+                },
+                ProcessCounter {
+                    process: process_id(20, 1),
+                    name: "network-worker".into(),
+                    cpu_time_units: 0,
+                    rss_bytes: 0,
+                },
+            ]),
             process_disk_io: Collection::available(vec![ProcessDiskIoCounter {
                 process: process_id(10, 1),
+                disk_id: disk_id("disk-a"),
                 device: "nvme0n1".into(),
                 read_bytes: 500,
                 write_bytes: 1000,
             }]),
             process_network_io: Collection::available(vec![ProcessNetworkIoCounter {
                 process: process_id(20, 1),
+                network_id: network_id("network-a"),
                 interface: "eth0".into(),
                 rx_bytes: 900,
                 tx_bytes: 1400,
@@ -746,14 +801,128 @@ mod tests {
         let out = derive(Some(&old), &new);
         let disk = &out.process_disk_io.unwrap()[0];
         assert_eq!(disk.process.pid, 10);
+        assert_eq!(disk.name.as_deref(), Some("disk-worker"));
         assert_eq!(disk.device, "nvme0n1");
         assert_eq!(disk.read_bytes_per_sec, 200.0);
         assert_eq!(disk.write_bytes_per_sec, 400.0);
         let network = &out.process_network_io.unwrap()[0];
         assert_eq!(network.process.pid, 20);
+        assert_eq!(network.name.as_deref(), Some("network-worker"));
         assert_eq!(network.interface, "eth0");
         assert_eq!(network.rx_bytes_per_sec, 300.0);
         assert_eq!(network.tx_bytes_per_sec, 500.0);
+    }
+
+    #[test]
+    fn process_io_keeps_top_three_per_device() {
+        let mut old_disk: Vec<_> = (1..=4)
+            .map(|pid| ProcessDiskIoCounter {
+                process: process_id(pid, 1),
+                disk_id: disk_id("disk-a"),
+                device: "sda".into(),
+                read_bytes: 0,
+                write_bytes: 0,
+            })
+            .collect();
+        old_disk.push(ProcessDiskIoCounter {
+            process: process_id(5, 1),
+            disk_id: disk_id("disk-b"),
+            device: "sdb".into(),
+            read_bytes: 0,
+            write_bytes: 0,
+        });
+        let mut new_disk: Vec<_> = (1..=4)
+            .map(|pid| ProcessDiskIoCounter {
+                process: process_id(pid, 1),
+                disk_id: disk_id("disk-a"),
+                device: "sda".into(),
+                read_bytes: u64::from(pid) * 100,
+                write_bytes: u64::from(pid) * 10,
+            })
+            .collect();
+        new_disk.push(ProcessDiskIoCounter {
+            process: process_id(5, 1),
+            disk_id: disk_id("disk-b"),
+            device: "sdb".into(),
+            read_bytes: 1,
+            write_bytes: 0,
+        });
+
+        let mut old_network: Vec<_> = (1..=4)
+            .map(|pid| ProcessNetworkIoCounter {
+                process: process_id(pid, 1),
+                network_id: network_id("network-a"),
+                interface: "eth0".into(),
+                rx_bytes: 0,
+                tx_bytes: 0,
+            })
+            .collect();
+        old_network.push(ProcessNetworkIoCounter {
+            process: process_id(5, 1),
+            network_id: network_id("network-b"),
+            interface: "eth1".into(),
+            rx_bytes: 0,
+            tx_bytes: 0,
+        });
+        let mut new_network: Vec<_> = (1..=4)
+            .map(|pid| ProcessNetworkIoCounter {
+                process: process_id(pid, 1),
+                network_id: network_id("network-a"),
+                interface: "eth0".into(),
+                rx_bytes: u64::from(pid) * 100,
+                tx_bytes: u64::from(pid) * 10,
+            })
+            .collect();
+        new_network.push(ProcessNetworkIoCounter {
+            process: process_id(5, 1),
+            network_id: network_id("network-b"),
+            interface: "eth1".into(),
+            rx_bytes: 1,
+            tx_bytes: 0,
+        });
+
+        let process_names: HashMap<_, _> = (1..=5)
+            .map(|pid| {
+                (
+                    process_id(pid, 1),
+                    match pid {
+                        1 => "p1",
+                        2 => "p2",
+                        3 => "p3",
+                        4 => "p4",
+                        _ => "p5",
+                    },
+                )
+            })
+            .collect();
+
+        let disk =
+            derive_process_disk_io(Some(&old_disk), Some(&new_disk), &process_names, 1.0).unwrap();
+        let network =
+            derive_process_network_io(Some(&old_network), Some(&new_network), &process_names, 1.0)
+                .unwrap();
+
+        assert_eq!(disk.len(), PROCESS_IO_TOP_N + 1);
+        assert_eq!(network.len(), PROCESS_IO_TOP_N + 1);
+        assert_eq!(
+            disk.iter()
+                .filter(|row| row.disk_id == disk_id("disk-a"))
+                .map(|row| row.process.pid)
+                .collect::<Vec<_>>(),
+            [4, 3, 2]
+        );
+        assert_eq!(
+            network
+                .iter()
+                .filter(|row| row.network_id == network_id("network-a"))
+                .map(|row| row.process.pid)
+                .collect::<Vec<_>>(),
+            [4, 3, 2]
+        );
+        assert!(disk.iter().any(|row| row.process.pid == 5));
+        assert!(network.iter().any(|row| row.process.pid == 5));
+        assert_eq!(disk[0].name.as_deref(), Some("p4"));
+        assert_eq!(network[0].name.as_deref(), Some("p4"));
     }
 
     #[test]
@@ -763,12 +932,14 @@ mod tests {
             collected_at: t,
             process_disk_io: Collection::available(vec![ProcessDiskIoCounter {
                 process: process_id(10, 1),
+                disk_id: disk_id("disk-a"),
                 device: "nvme0n1".into(),
                 read_bytes: 10_000,
                 write_bytes: 20_000,
             }]),
             process_network_io: Collection::available(vec![ProcessNetworkIoCounter {
                 process: process_id(20, 1),
+                network_id: network_id("network-a"),
                 interface: "eth0".into(),
                 rx_bytes: 30_000,
                 tx_bytes: 40_000,
@@ -779,12 +950,14 @@ mod tests {
             collected_at: t + Duration::from_secs(1),
             process_disk_io: Collection::available(vec![ProcessDiskIoCounter {
                 process: process_id(10, 1),
+                disk_id: disk_id("disk-a"),
                 device: "nvme0n1".into(),
                 read_bytes: 5,
                 write_bytes: 7,
             }]),
             process_network_io: Collection::available(vec![ProcessNetworkIoCounter {
                 process: process_id(20, 1),
+                network_id: network_id("network-a"),
                 interface: "eth0".into(),
                 rx_bytes: 11,
                 tx_bytes: 13,
@@ -830,32 +1003,38 @@ mod tests {
     fn pid_reuse_does_not_inherit_process_io_delta() {
         let old_disk = [ProcessDiskIoCounter {
             process: process_id(42, 100),
+            disk_id: disk_id("disk-a"),
             device: "sda".into(),
             read_bytes: 10_000,
             write_bytes: 20_000,
         }];
         let new_disk = [ProcessDiskIoCounter {
             process: process_id(42, 200),
+            disk_id: disk_id("disk-a"),
             device: "sda".into(),
             read_bytes: 100,
             write_bytes: 200,
         }];
         let old_network = [ProcessNetworkIoCounter {
             process: process_id(42, 100),
+            network_id: network_id("network-a"),
             interface: "eth0".into(),
             rx_bytes: 30_000,
             tx_bytes: 40_000,
         }];
         let new_network = [ProcessNetworkIoCounter {
             process: process_id(42, 200),
+            network_id: network_id("network-a"),
             interface: "eth0".into(),
             rx_bytes: 300,
             tx_bytes: 400,
         }];
 
-        let disk = derive_process_disk_io(Some(&old_disk), Some(&new_disk), 1.0).unwrap();
+        let disk =
+            derive_process_disk_io(Some(&old_disk), Some(&new_disk), &HashMap::new(), 1.0).unwrap();
         let network =
-            derive_process_network_io(Some(&old_network), Some(&new_network), 1.0).unwrap();
+            derive_process_network_io(Some(&old_network), Some(&new_network), &HashMap::new(), 1.0)
+                .unwrap();
 
         assert_eq!(disk[0].process, process_id(42, 200));
         assert_eq!(

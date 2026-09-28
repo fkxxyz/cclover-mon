@@ -7,6 +7,7 @@ use super::abi;
 use super::runtime::{LoadedObject, read_map};
 use super::{AttributionFailure, AttributionRows, FailureKind};
 use crate::platform::linux::native;
+use crate::platform::linux::network as network_metric;
 use crate::platform::linux::process::birth_marker_from_start_boottime_ns;
 
 const OBJECT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/network_attribution.bpf.o"));
@@ -69,11 +70,16 @@ impl Collector {
                 unresolved_native_ids += 1;
                 continue;
             };
+            let Some(network_id) = network_metric::id_for_interface(&interface, key.ifindex) else {
+                unresolved_native_ids += 1;
+                continue;
+            };
             rows.push(ProcessNetworkIoCounter {
                 process: ProcessInstanceId {
                     pid: key.tgid,
                     birth_marker: birth_marker_from_start_boottime_ns(value.process_start_time),
                 },
+                network_id,
                 interface,
                 rx_bytes: if key.direction == 0 { value.bytes } else { 0 },
                 tx_bytes: if key.direction == 1 { value.bytes } else { 0 },
@@ -106,12 +112,12 @@ impl Collector {
 }
 
 fn merge_rows(rows: &mut Vec<ProcessNetworkIoCounter>) {
-    rows.sort_by(|a, b| (a.process, &a.interface).cmp(&(b.process, &b.interface)));
+    rows.sort_by(|a, b| (a.process, &a.network_id).cmp(&(b.process, &b.network_id)));
     let mut merged: Vec<ProcessNetworkIoCounter> = Vec::with_capacity(rows.len());
     for row in rows.drain(..) {
         if let Some(last) = merged.last_mut()
             && last.process == row.process
-            && last.interface == row.interface
+            && last.network_id == row.network_id
         {
             last.rx_bytes = last.rx_bytes.saturating_add(row.rx_bytes);
             last.tx_bytes = last.tx_bytes.saturating_add(row.tx_bytes);
@@ -125,6 +131,11 @@ fn merge_rows(rows: &mut Vec<ProcessNetworkIoCounter>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::model::NetworkId;
+
+    fn network_id(key: &str) -> NetworkId {
+        NetworkId::from_opaque_key(key)
+    }
 
     const BPF_SOURCE: &str = include_str!("../../../../bpf/network_attribution.bpf.c");
 
@@ -172,6 +183,7 @@ mod tests {
                     pid: 7,
                     birth_marker: 1,
                 },
+                network_id: network_id("network-a"),
                 interface: "lo".into(),
                 rx_bytes: 11,
                 tx_bytes: 0,
@@ -181,6 +193,7 @@ mod tests {
                     pid: 7,
                     birth_marker: 1,
                 },
+                network_id: network_id("network-a"),
                 interface: "lo".into(),
                 rx_bytes: 0,
                 tx_bytes: 22,
@@ -190,6 +203,7 @@ mod tests {
                     pid: 7,
                     birth_marker: 1,
                 },
+                network_id: network_id("network-b"),
                 interface: "eth0".into(),
                 rx_bytes: 33,
                 tx_bytes: 0,

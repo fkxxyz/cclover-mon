@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::model::{
     DiskId, DiskSnapshot, MemorySnapshot, MonitorHistory, MonitorState, NetworkDirectionHistory,
-    NetworkId, NetworkSnapshot, ProcessCpuUsage, ProcessMemoryUsage, SystemSnapshot,
-    TemperatureSnapshot,
+    NetworkId, NetworkSnapshot, ProcessCpuUsage, ProcessDiskIo, ProcessInstanceId,
+    ProcessMemoryUsage, ProcessNetworkIo, SystemSnapshot, TemperatureSnapshot,
 };
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -23,6 +23,10 @@ struct WebSystemSnapshot {
     top_memory: Vec<WebProcessMemory>,
     networks: Vec<WebNetworkSnapshot>,
     disks: Vec<WebDiskSnapshot>,
+    #[serde(default)]
+    process_disk_io: Option<Vec<WebProcessDiskIo>>,
+    #[serde(default)]
+    process_network_io: Option<Vec<WebProcessNetworkIo>>,
     temperatures: Vec<WebTemperatureSnapshot>,
 }
 
@@ -59,6 +63,28 @@ struct WebDiskSnapshot {
     id: String,
     name: String,
     bytes_per_sec: f64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct WebProcessDiskIo {
+    pid: u32,
+    birth_marker: u64,
+    name: Option<String>,
+    disk_id: String,
+    device: String,
+    read_bytes_per_sec: f64,
+    write_bytes_per_sec: f64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct WebProcessNetworkIo {
+    pid: u32,
+    birth_marker: u64,
+    name: Option<String>,
+    network_id: String,
+    interface: String,
+    rx_bytes_per_sec: f64,
+    tx_bytes_per_sec: f64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -121,6 +147,15 @@ impl From<&SystemSnapshot> for WebSystemSnapshot {
                 .map(WebNetworkSnapshot::from)
                 .collect(),
             disks: snapshot.disks.iter().map(WebDiskSnapshot::from).collect(),
+            process_disk_io: snapshot
+                .process_disk_io
+                .as_ref()
+                .map(|rows| rows.iter().map(WebProcessDiskIo::from).collect::<Vec<_>>()),
+            process_network_io: snapshot.process_network_io.as_ref().map(|rows| {
+                rows.iter()
+                    .map(WebProcessNetworkIo::from)
+                    .collect::<Vec<_>>()
+            }),
             temperatures: snapshot
                 .temperatures
                 .iter()
@@ -151,8 +186,12 @@ impl From<WebSystemSnapshot> for SystemSnapshot {
                 .map(NetworkSnapshot::from)
                 .collect(),
             disks: snapshot.disks.into_iter().map(DiskSnapshot::from).collect(),
-            process_disk_io: None,
-            process_network_io: None,
+            process_disk_io: snapshot
+                .process_disk_io
+                .map(|rows| rows.into_iter().map(ProcessDiskIo::from).collect()),
+            process_network_io: snapshot
+                .process_network_io
+                .map(|rows| rows.into_iter().map(ProcessNetworkIo::from).collect()),
             temperatures: snapshot
                 .temperatures
                 .into_iter()
@@ -262,6 +301,66 @@ impl From<WebDiskSnapshot> for DiskSnapshot {
     }
 }
 
+impl From<&ProcessDiskIo> for WebProcessDiskIo {
+    fn from(value: &ProcessDiskIo) -> Self {
+        Self {
+            pid: value.process.pid,
+            birth_marker: value.process.birth_marker,
+            name: value.name.clone(),
+            disk_id: value.disk_id.as_opaque_key().to_owned(),
+            device: value.device.clone(),
+            read_bytes_per_sec: value.read_bytes_per_sec,
+            write_bytes_per_sec: value.write_bytes_per_sec,
+        }
+    }
+}
+
+impl From<WebProcessDiskIo> for ProcessDiskIo {
+    fn from(value: WebProcessDiskIo) -> Self {
+        Self {
+            process: ProcessInstanceId {
+                pid: value.pid,
+                birth_marker: value.birth_marker,
+            },
+            name: value.name,
+            disk_id: DiskId::from_opaque_key(value.disk_id),
+            device: value.device,
+            read_bytes_per_sec: value.read_bytes_per_sec,
+            write_bytes_per_sec: value.write_bytes_per_sec,
+        }
+    }
+}
+
+impl From<&ProcessNetworkIo> for WebProcessNetworkIo {
+    fn from(value: &ProcessNetworkIo) -> Self {
+        Self {
+            pid: value.process.pid,
+            birth_marker: value.process.birth_marker,
+            name: value.name.clone(),
+            network_id: value.network_id.as_opaque_key().to_owned(),
+            interface: value.interface.clone(),
+            rx_bytes_per_sec: value.rx_bytes_per_sec,
+            tx_bytes_per_sec: value.tx_bytes_per_sec,
+        }
+    }
+}
+
+impl From<WebProcessNetworkIo> for ProcessNetworkIo {
+    fn from(value: WebProcessNetworkIo) -> Self {
+        Self {
+            process: ProcessInstanceId {
+                pid: value.pid,
+                birth_marker: value.birth_marker,
+            },
+            name: value.name,
+            network_id: NetworkId::from_opaque_key(value.network_id),
+            interface: value.interface,
+            rx_bytes_per_sec: value.rx_bytes_per_sec,
+            tx_bytes_per_sec: value.tx_bytes_per_sec,
+        }
+    }
+}
+
 impl From<&TemperatureSnapshot> for WebTemperatureSnapshot {
     fn from(value: &TemperatureSnapshot) -> Self {
         Self {
@@ -355,10 +454,9 @@ impl From<WebMonitorHistory> for MonitorHistory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::model::{ProcessDiskIo, ProcessInstanceId, ProcessNetworkIo};
 
     #[test]
-    fn transport_excludes_core_only_process_attribution() {
+    fn transport_includes_process_attribution_for_shared_panel() {
         let mut state = MonitorState::default();
         let process = ProcessInstanceId {
             pid: 42,
@@ -366,23 +464,36 @@ mod tests {
         };
         state.snapshot.process_disk_io = Some(vec![ProcessDiskIo {
             process,
+            name: Some("worker".to_owned()),
+            disk_id: DiskId::from_opaque_key("disk-a"),
             device: "nvme0n1".to_owned(),
             read_bytes_per_sec: 1.0,
             write_bytes_per_sec: 2.0,
         }]);
         state.snapshot.process_network_io = Some(vec![ProcessNetworkIo {
             process,
+            name: Some("worker".to_owned()),
+            network_id: NetworkId::from_opaque_key("network-a"),
             interface: "eth0".to_owned(),
             rx_bytes_per_sec: 3.0,
             tx_bytes_per_sec: 4.0,
         }]);
 
         let json = serde_json::to_string(&WebMonitorState::from(&state)).unwrap();
+        let decoded = MonitorState::from(serde_json::from_str::<WebMonitorState>(&json).unwrap());
 
-        assert!(!json.contains("process_disk_io"));
-        assert!(!json.contains("process_network_io"));
-        assert!(!json.contains("nvme0n1"));
-        assert!(!json.contains("eth0"));
+        assert!(json.contains("process_disk_io"));
+        assert!(json.contains("process_network_io"));
+        let disk = &decoded.snapshot.process_disk_io.unwrap()[0];
+        assert_eq!(disk.process, process);
+        assert_eq!(disk.name.as_deref(), Some("worker"));
+        assert_eq!(disk.disk_id.as_opaque_key(), "disk-a");
+        assert_eq!(disk.device, "nvme0n1");
+        let network = &decoded.snapshot.process_network_io.unwrap()[0];
+        assert_eq!(network.process, process);
+        assert_eq!(network.name.as_deref(), Some("worker"));
+        assert_eq!(network.network_id.as_opaque_key(), "network-a");
+        assert_eq!(network.interface, "eth0");
     }
 
     #[test]

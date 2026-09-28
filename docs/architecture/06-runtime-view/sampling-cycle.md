@@ -57,6 +57,8 @@ Event-driven native collectors may accumulate state continuously between samplin
 
 Cross-sample association is identity-driven. Delta derivation, history, joins, caches, and deduplication may reuse prior state only when the current observation carries the same stable semantic identity. Matching PID, device name, display label, enumeration position, or another incidental value is insufficient unless its stability is part of the declared identity contract. If a process reuses a PID with a different `ProcessInstanceId`, it is a new entity and inherits no CPU or I/O counters from the earlier process instance.
 
+Core also owns process-I/O ranking semantics. After disk/network attribution counters become rates, core associates the current process name by `ProcessInstanceId`, groups rows by stable `DiskId` / `NetworkId`, ranks each group by the sum of its two directional rates, and retains the three highest rows for that device. Presentation may omit zero-rate rows from display, but frontend code must not redo attribution joins, ranking, or platform lookup.
+
 Development observability attaches to this same path rather than creating a parallel collector:
 
 ```text

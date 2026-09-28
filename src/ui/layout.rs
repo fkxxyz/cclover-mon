@@ -87,6 +87,48 @@ pub(super) const SMALL_GRAPH_CARD_GEOMETRY: SmallGraphCardGeometry = SmallGraphC
 };
 
 #[derive(Debug, Clone, Copy)]
+pub(super) struct IoProcessGeometry {
+    pub spacing: u32,
+    pub row_height: u32,
+    pub slots: u32,
+}
+
+impl IoProcessGeometry {
+    pub(super) const fn height(self) -> u32 {
+        self.slots * self.row_height + self.slots.saturating_sub(1) * self.spacing
+    }
+}
+
+pub(super) const IO_PROCESS_GEOMETRY: IoProcessGeometry = IoProcessGeometry {
+    spacing: 2,
+    row_height: 17,
+    slots: 3,
+};
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct DiskCardGeometry {
+    pub spacing: u32,
+    pub header_height: u32,
+    pub graph_height: u32,
+}
+
+impl DiskCardGeometry {
+    pub(super) const fn height(self) -> u32 {
+        let content_height = self.header_height
+            + self.graph_height
+            + IO_PROCESS_GEOMETRY.height()
+            + self.spacing * 2;
+        CARD_FRAME_GEOMETRY.height_with_content(content_height)
+    }
+}
+
+pub(super) const DISK_CARD_GEOMETRY: DiskCardGeometry = DiskCardGeometry {
+    spacing: 4,
+    header_height: 17,
+    graph_height: 24,
+};
+
+#[derive(Debug, Clone, Copy)]
 pub(super) struct NetworkCardGeometry {
     pub spacing: u32,
     pub header_height: u32,
@@ -99,7 +141,8 @@ impl NetworkCardGeometry {
         let content_height = self.header_height
             + self.value_row_height * 2
             + self.graph_height * 2
-            + self.spacing * 4;
+            + IO_PROCESS_GEOMETRY.height()
+            + self.spacing * 5;
         CARD_FRAME_GEOMETRY.height_with_content(content_height)
     }
 }
@@ -145,7 +188,8 @@ impl PanelBlock {
                 METRIC_CARD_GEOMETRY.height(process_count as u32)
             }
             Self::Section(_) => PANEL_GEOMETRY.section_height,
-            Self::Temperature(_) | Self::Disk(_) => SMALL_GRAPH_CARD_GEOMETRY.height(),
+            Self::Temperature(_) => SMALL_GRAPH_CARD_GEOMETRY.height(),
+            Self::Disk(_) => DISK_CARD_GEOMETRY.height(),
             Self::Network(_) => NETWORK_CARD_GEOMETRY.height(),
         }
     }
@@ -252,10 +296,20 @@ mod tests {
         let network_content = NETWORK_CARD_GEOMETRY.header_height
             + NETWORK_CARD_GEOMETRY.value_row_height * 2
             + NETWORK_CARD_GEOMETRY.graph_height * 2
-            + NETWORK_CARD_GEOMETRY.spacing * 4;
+            + IO_PROCESS_GEOMETRY.height()
+            + NETWORK_CARD_GEOMETRY.spacing * 5;
         assert_eq!(
             NETWORK_CARD_GEOMETRY.height(),
             CARD_FRAME_GEOMETRY.height_with_content(network_content)
+        );
+
+        let disk_content = DISK_CARD_GEOMETRY.header_height
+            + DISK_CARD_GEOMETRY.graph_height
+            + IO_PROCESS_GEOMETRY.height()
+            + DISK_CARD_GEOMETRY.spacing * 2;
+        assert_eq!(
+            DISK_CARD_GEOMETRY.height(),
+            CARD_FRAME_GEOMETRY.height_with_content(disk_content)
         );
     }
 }

@@ -1,8 +1,22 @@
 use std::fs;
+use std::path::{Path, PathBuf};
 
 use crate::core::model::{Collection, DiskCounter, DiskId};
 
 use super::diagnostics::{probe_note, report_issue, unavailable_from_io};
+
+fn disk_id(identity_path: &Path, device_number: &str) -> DiskId {
+    DiskId::from_opaque_key(format!("{}#{device_number}", identity_path.display()))
+}
+
+pub(super) fn id_for_name(name: &str) -> Option<DiskId> {
+    let path = PathBuf::from("/sys/block").join(name);
+    let device_number = fs::read_to_string(path.join("dev")).ok()?;
+    let identity_path = fs::canonicalize(path.join("device"))
+        .or_else(|_| fs::canonicalize(&path))
+        .ok()?;
+    Some(disk_id(&identity_path, device_number.trim()))
+}
 
 pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Collection<Vec<DiskCounter>> {
     let mut rows = Vec::new();
@@ -48,7 +62,7 @@ pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Collection<Vec<Dis
                 continue;
             }
         };
-        let id = DiskId::from_opaque_key(format!("{}#{device_number}", device_path.display()));
+        let id = disk_id(&device_path, &device_number);
         match parse_stat(id, name.clone(), &stat) {
             Ok(counter) => rows.push(counter),
             Err(field_count) => {

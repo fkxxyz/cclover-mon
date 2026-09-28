@@ -10,11 +10,11 @@ use iced::widget::text::Wrapping;
 use iced::widget::{Column, Space, canvas, column, container, progress_bar, row, text};
 use iced::{Alignment, Border, Color, Element, Fill, Font, Theme};
 use layout::{
-    CARD_FRAME_GEOMETRY, METRIC_CARD_GEOMETRY, NETWORK_CARD_GEOMETRY, PANEL_GEOMETRY, PanelBlock,
-    SMALL_GRAPH_CARD_GEOMETRY,
+    CARD_FRAME_GEOMETRY, DISK_CARD_GEOMETRY, IO_PROCESS_GEOMETRY, METRIC_CARD_GEOMETRY,
+    NETWORK_CARD_GEOMETRY, PANEL_GEOMETRY, PanelBlock, SMALL_GRAPH_CARD_GEOMETRY,
 };
 
-use crate::presentation::{CpuPanel, Dashboard, MemoryPanel, ProcessRow};
+use crate::presentation::{CpuPanel, Dashboard, IoProcessRow, MemoryPanel, ProcessRow};
 
 pub use layout::{INITIAL_PANEL_HEIGHT, PANEL_WIDTH, PanelLayout};
 
@@ -192,7 +192,7 @@ where
             let disk = dashboard
                 .disk(index)
                 .expect("panel layout must match dashboard disk entries");
-            small_graph_card(SmallGraphCardParams {
+            disk_card(IoGraphCardParams {
                 name: disk.name(),
                 value: disk.value(),
                 graph: GraphParams {
@@ -204,6 +204,7 @@ where
                     fill_color: Color::from_rgba8(0xff, 0xb8, 0x6b, 0.13),
                     capacity,
                 },
+                processes: disk.processes().collect(),
             })
         }
         PanelBlock::Network(index) => {
@@ -221,6 +222,7 @@ where
                 down_history,
                 up_history,
                 capacity,
+                network.processes().collect(),
             )
         }
     }
@@ -321,6 +323,13 @@ struct SmallGraphCardParams<'a> {
     graph: GraphParams<'a>,
 }
 
+struct IoGraphCardParams<'a> {
+    name: &'a str,
+    value: String,
+    graph: GraphParams<'a>,
+    processes: Vec<IoProcessRow<'a>>,
+}
+
 fn small_graph_card<'a, Message>(params: SmallGraphCardParams<'a>) -> Element<'a, Message>
 where
     Message: 'a,
@@ -349,6 +358,41 @@ where
     )
 }
 
+fn disk_card<'a, Message>(params: IoGraphCardParams<'a>) -> Element<'a, Message>
+where
+    Message: 'a,
+{
+    let IoGraphCardParams {
+        name,
+        value,
+        graph,
+        processes,
+    } = params;
+    let header = row![
+        bold_label(name, 13, FG)
+            .wrapping(Wrapping::None)
+            .width(Fill),
+        label_owned(value, 12, FG)
+    ]
+    .height(DISK_CARD_GEOMETRY.header_height)
+    .align_y(Alignment::Center);
+    let graph = Graph::new(graph.values, graph.capacity, graph.color, graph.fill_color)
+        .range(graph.min, graph.max)
+        .auto_scale(graph.auto_scale);
+
+    card(
+        column![
+            header,
+            canvas(graph)
+                .width(Fill)
+                .height(DISK_CARD_GEOMETRY.graph_height),
+            io_process_body(processes, "R", "W", GREEN, ORANGE),
+        ]
+        .spacing(DISK_CARD_GEOMETRY.spacing),
+        DISK_CARD_GEOMETRY.height(),
+    )
+}
+
 fn network_card<'a, Message>(
     name: &'a str,
     down_value: String,
@@ -356,6 +400,7 @@ fn network_card<'a, Message>(
     down_values: &'a VecDeque<f64>,
     up_values: &'a VecDeque<f64>,
     capacity: usize,
+    processes: Vec<IoProcessRow<'a>>,
 ) -> Element<'a, Message>
 where
     Message: 'a,
@@ -393,10 +438,72 @@ where
             canvas(up_graph)
                 .width(Fill)
                 .height(NETWORK_CARD_GEOMETRY.graph_height),
+            io_process_body(processes, "↓", "↑", GREEN, ORANGE),
         ]
         .spacing(NETWORK_CARD_GEOMETRY.spacing),
         NETWORK_CARD_GEOMETRY.height(),
     )
+}
+
+fn io_process_body<'a, Message>(
+    processes: Vec<IoProcessRow<'a>>,
+    first_label: &'static str,
+    second_label: &'static str,
+    first_color: Color,
+    second_color: Color,
+) -> Column<'a, Message>
+where
+    Message: 'a,
+{
+    let mut body = column![]
+        .spacing(IO_PROCESS_GEOMETRY.spacing)
+        .height(IO_PROCESS_GEOMETRY.height())
+        .width(Fill);
+    for process in processes {
+        body = body.push(io_process_row(
+            process,
+            first_label,
+            second_label,
+            first_color,
+            second_color,
+        ));
+    }
+    body
+}
+
+fn io_process_row<'a, Message>(
+    process: IoProcessRow<'a>,
+    first_label: &'static str,
+    second_label: &'static str,
+    first_color: Color,
+    second_color: Color,
+) -> Element<'a, Message>
+where
+    Message: 'a,
+{
+    let identity = row![
+        label(process.name.unwrap_or("process"), 10, FG).wrapping(Wrapping::None),
+        label_owned(format!("·{}", process.pid), 9, MUTED),
+    ]
+    .spacing(2)
+    .align_y(Alignment::Center);
+    row![
+        container(identity).width(Fill).clip(true),
+        label_owned(
+            format!("{first_label}{}", process.first_value),
+            9,
+            first_color
+        ),
+        label_owned(
+            format!("{second_label}{}", process.second_value),
+            9,
+            second_color
+        ),
+    ]
+    .spacing(3)
+    .height(IO_PROCESS_GEOMETRY.row_height)
+    .align_y(Alignment::Center)
+    .into()
 }
 
 fn process_row<'a, Message>(process: ProcessRow<'a>) -> Element<'a, Message>

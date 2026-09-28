@@ -1,13 +1,15 @@
+use std::collections::HashMap;
 use std::ffi::CStr;
 use std::fs;
 use std::mem::offset_of;
 use std::path::Path;
 
-use crate::core::model::{ProcessDiskIoCounter, ProcessInstanceId};
+use crate::core::model::{DiskId, ProcessDiskIoCounter, ProcessInstanceId};
 
 use super::abi;
 use super::runtime::{LoadedObject, read_map};
 use super::{AttributionFailure, AttributionRows, FailureKind};
+use crate::platform::linux::disk as disk_metric;
 use crate::platform::linux::process::birth_marker_from_start_boottime_ns;
 
 const OBJECT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/disk_attribution.bpf.o"));
@@ -65,8 +67,13 @@ impl Collector {
         let object = self.object()?;
         let mut rows = Vec::new();
         let mut unresolved_native_ids = 0;
+        let mut resolved_devices = HashMap::new();
         for (key, value) in read_map::<Key, CounterValue>(object.map_fd(MAP)?)? {
-            let Some(device) = resolve_device(key.dev) else {
+            let Some((disk_id, device)) = resolved_devices
+                .entry(key.dev)
+                .or_insert_with(|| resolve_device(key.dev))
+                .as_ref()
+            else {
                 unresolved_native_ids += 1;
                 continue;
             };
@@ -75,7 +82,8 @@ impl Collector {
                     pid: key.tgid,
                     birth_marker: birth_marker_from_start_boottime_ns(value.process_start_time),
                 },
-                device,
+                disk_id: disk_id.clone(),
+                device: device.clone(),
                 read_bytes: if key.direction == 0 { value.bytes } else { 0 },
                 write_bytes: if key.direction == 1 { value.bytes } else { 0 },
             });
@@ -106,11 +114,13 @@ impl Collector {
     }
 }
 
-fn resolve_device(dev: u32) -> Option<String> {
+fn resolve_device(dev: u32) -> Option<(DiskId, String)> {
     let (major, minor) = decode_kernel_dev(dev);
     let sys_path = std::path::PathBuf::from(format!("/sys/dev/block/{major}:{minor}"));
     let path = fs::canonicalize(&sys_path).ok()?;
-    block_name_from_sysfs_path(&path, sys_path.join("partition").is_file())
+    let device = block_name_from_sysfs_path(&path, sys_path.join("partition").is_file())?;
+    let disk_id = disk_metric::id_for_name(&device)?;
+    Some((disk_id, device))
 }
 
 fn decode_kernel_dev(dev: u32) -> (u32, u32) {
@@ -125,12 +135,12 @@ fn block_name_from_sysfs_path(path: &Path, is_partition: bool) -> Option<String>
 }
 
 fn merge_rows(rows: &mut Vec<ProcessDiskIoCounter>) {
-    rows.sort_by(|a, b| (a.process, &a.device).cmp(&(b.process, &b.device)));
+    rows.sort_by(|a, b| (a.process, &a.disk_id).cmp(&(b.process, &b.disk_id)));
     let mut merged: Vec<ProcessDiskIoCounter> = Vec::with_capacity(rows.len());
     for row in rows.drain(..) {
         if let Some(last) = merged.last_mut()
             && last.process == row.process
-            && last.device == row.device
+            && last.disk_id == row.disk_id
         {
             last.read_bytes = last.read_bytes.saturating_add(row.read_bytes);
             last.write_bytes = last.write_bytes.saturating_add(row.write_bytes);
@@ -145,6 +155,10 @@ fn merge_rows(rows: &mut Vec<ProcessDiskIoCounter>) {
 mod tests {
     use super::*;
 
+    fn disk_id(key: &str) -> DiskId {
+        DiskId::from_opaque_key(key)
+    }
+
     #[test]
     fn merges_directions_without_crossing_pid_or_device() {
         let mut rows = vec![
@@ -153,6 +167,7 @@ mod tests {
                     pid: 7,
                     birth_marker: 1,
                 },
+                disk_id: disk_id("disk-a"),
                 device: "sda".into(),
                 read_bytes: 10,
                 write_bytes: 0,
@@ -162,6 +177,7 @@ mod tests {
                     pid: 7,
                     birth_marker: 1,
                 },
+                disk_id: disk_id("disk-a"),
                 device: "sda".into(),
                 read_bytes: 0,
                 write_bytes: 20,
@@ -171,6 +187,7 @@ mod tests {
                     pid: 8,
                     birth_marker: 1,
                 },
+                disk_id: disk_id("disk-a"),
                 device: "sda".into(),
                 read_bytes: 30,
                 write_bytes: 0,
@@ -190,6 +207,7 @@ mod tests {
                     pid: 7,
                     birth_marker: 1,
                 },
+                disk_id: disk_id("disk-a"),
                 device: "sda".into(),
                 read_bytes: 10,
                 write_bytes: 0,
@@ -199,6 +217,7 @@ mod tests {
                     pid: 7,
                     birth_marker: 2,
                 },
+                disk_id: disk_id("disk-a"),
                 device: "sda".into(),
                 read_bytes: 0,
                 write_bytes: 20,

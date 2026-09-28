@@ -1,4 +1,14 @@
 #[test]
+fn linux_tray_tolerates_late_status_notifier_watcher() {
+    let source = include_str!("../src/platform/linux/desktop.rs");
+
+    assert!(
+        source.contains("assume_sni_available(true)"),
+        "Linux tray startup must tolerate StatusNotifierWatcher appearing after the application starts"
+    );
+}
+
+#[test]
 fn native_desktop_hosting_stays_in_platform_desktop() {
     for (path, source) in [
         ("src/main.rs", include_str!("../src/main.rs")),

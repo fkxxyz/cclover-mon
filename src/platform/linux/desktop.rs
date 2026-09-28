@@ -269,7 +269,7 @@ fn tray_stream() -> impl iced::futures::Stream<Item = DesktopCommand> {
     iced::stream::channel(1, async move |mut output| {
         let (commands, receiver) = smol::channel::bounded(4);
         let tray = TrayIcon { commands };
-        let _handle = match tray.spawn() {
+        let _handle = match tray.assume_sni_available(true).spawn() {
             Ok(handle) => handle,
             Err(error) => {
                 eprintln!("cclover-mon: system tray unavailable: {error}");

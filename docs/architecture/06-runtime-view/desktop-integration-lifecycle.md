@@ -53,4 +53,6 @@ Future Windows notification-area integration must emit the same command rather t
 
 Tray availability is optional desktop integration. Failure to connect to the session bus, register a StatusNotifierItem, or find a compatible tray host emits a diagnostic and leaves the monitor surface and metric sampling operational. Tray failure must not be represented as metric unavailability and must not terminate the application.
 
+The tray host and application have independent startup and restart ordering. On Linux, absence of `org.kde.StatusNotifierWatcher` during application startup is transient rather than a permanent tray failure: the tray service remains alive, observes the watcher appearing later, and registers then. If the watcher disappears and returns while the application remains running, tray registration must recover without restarting the application.
+
 The tray service lives in the same process as the application. Its lifetime is bounded by the application runtime; no helper daemon or second executable owns tray state.

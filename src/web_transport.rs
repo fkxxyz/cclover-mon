@@ -16,6 +16,76 @@ pub struct WebMonitorState {
     history_capacity: usize,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum WebApiSlice {
+    Cpu,
+    Memory,
+    Disks,
+    Networks,
+    Temperatures,
+    Processes,
+    HistoryCpu,
+    HistoryMemory,
+    HistoryDisks,
+    HistoryNetworks,
+    HistoryTemperatures,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl WebMonitorState {
+    pub(crate) fn serialize_api_slice(&self, slice: WebApiSlice) -> serde_json::Result<String> {
+        match slice {
+            WebApiSlice::Cpu => serde_json::to_string(&WebCpuApi {
+                cpu_percent: &self.snapshot.cpu_percent,
+                top_cpu: &self.snapshot.top_cpu,
+            }),
+            WebApiSlice::Memory => serde_json::to_string(&WebMemoryApi {
+                memory: &self.snapshot.memory,
+                top_memory: &self.snapshot.top_memory,
+            }),
+            WebApiSlice::Disks => serde_json::to_string(&WebDisksApi {
+                disks: &self.snapshot.disks,
+                process_disk_io: &self.snapshot.process_disk_io,
+            }),
+            WebApiSlice::Networks => serde_json::to_string(&WebNetworksApi {
+                networks: &self.snapshot.networks,
+                process_network_io: &self.snapshot.process_network_io,
+            }),
+            WebApiSlice::Temperatures => serde_json::to_string(&WebTemperaturesApi {
+                temperatures: &self.snapshot.temperatures,
+            }),
+            WebApiSlice::Processes => serde_json::to_string(&WebProcessesApi {
+                top_cpu: &self.snapshot.top_cpu,
+                top_memory: &self.snapshot.top_memory,
+                disk_io: &self.snapshot.process_disk_io,
+                network_io: &self.snapshot.process_network_io,
+            }),
+            WebApiSlice::HistoryCpu => serde_json::to_string(&WebCpuHistoryApi {
+                history_capacity: self.history_capacity,
+                cpu: &self.history.cpu,
+            }),
+            WebApiSlice::HistoryMemory => serde_json::to_string(&WebMemoryHistoryApi {
+                history_capacity: self.history_capacity,
+                memory_used: &self.history.memory_used,
+                swap_used: &self.history.swap_used,
+            }),
+            WebApiSlice::HistoryDisks => serde_json::to_string(&WebDisksHistoryApi {
+                history_capacity: self.history_capacity,
+                disks: &self.history.disks,
+            }),
+            WebApiSlice::HistoryNetworks => serde_json::to_string(&WebNetworksHistoryApi {
+                history_capacity: self.history_capacity,
+                networks: &self.history.networks,
+            }),
+            WebApiSlice::HistoryTemperatures => serde_json::to_string(&WebTemperaturesHistoryApi {
+                history_capacity: self.history_capacity,
+                temperatures: &self.history.temperatures,
+            }),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 struct WebSystemSnapshot {
     cpu_percent: WebCollection<f64>,
@@ -173,6 +243,85 @@ struct WebMonitorHistory {
     networks: BTreeMap<String, WebDirectionHistory>,
     disks: BTreeMap<String, VecDeque<f64>>,
     temperatures: BTreeMap<String, VecDeque<f64>>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Serialize)]
+struct WebCpuApi<'a> {
+    cpu_percent: &'a WebCollection<f64>,
+    top_cpu: &'a WebCollection<Vec<WebProcessCpu>>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Serialize)]
+struct WebMemoryApi<'a> {
+    memory: &'a WebCollection<WebMemorySnapshot>,
+    top_memory: &'a WebCollection<Vec<WebProcessMemory>>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Serialize)]
+struct WebDisksApi<'a> {
+    disks: &'a WebCollection<Vec<WebDiskSnapshot>>,
+    process_disk_io: &'a WebCollection<Vec<WebProcessDiskIo>>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Serialize)]
+struct WebNetworksApi<'a> {
+    networks: &'a WebCollection<Vec<WebNetworkSnapshot>>,
+    process_network_io: &'a WebCollection<Vec<WebProcessNetworkIo>>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Serialize)]
+struct WebTemperaturesApi<'a> {
+    temperatures: &'a WebCollection<Vec<WebTemperatureSnapshot>>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Serialize)]
+struct WebProcessesApi<'a> {
+    top_cpu: &'a WebCollection<Vec<WebProcessCpu>>,
+    top_memory: &'a WebCollection<Vec<WebProcessMemory>>,
+    disk_io: &'a WebCollection<Vec<WebProcessDiskIo>>,
+    network_io: &'a WebCollection<Vec<WebProcessNetworkIo>>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Serialize)]
+struct WebCpuHistoryApi<'a> {
+    history_capacity: usize,
+    cpu: &'a VecDeque<f64>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Serialize)]
+struct WebMemoryHistoryApi<'a> {
+    history_capacity: usize,
+    memory_used: &'a VecDeque<f64>,
+    swap_used: &'a VecDeque<f64>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Serialize)]
+struct WebDisksHistoryApi<'a> {
+    history_capacity: usize,
+    disks: &'a BTreeMap<String, VecDeque<f64>>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Serialize)]
+struct WebNetworksHistoryApi<'a> {
+    history_capacity: usize,
+    networks: &'a BTreeMap<String, WebDirectionHistory>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Serialize)]
+struct WebTemperaturesHistoryApi<'a> {
+    history_capacity: usize,
+    temperatures: &'a BTreeMap<String, VecDeque<f64>>,
 }
 
 impl From<&MonitorState> for WebMonitorState {

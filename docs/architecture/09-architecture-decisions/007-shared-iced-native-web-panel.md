@@ -21,7 +21,7 @@ facets:
 
 Use one Iced panel implementation for both native desktop rendering and the browser monitor page.
 
-The native process remains the single sampling authority. When HTTP monitoring is enabled, each completed `MonitorState` is projected into an explicit Web transport schema containing only state required by the remotely rendered panel, then published to a bounded latest-state hub and serialized at the external HTTP boundary. Browser clients receive the current projection and subsequent complete-state updates over Server-Sent Events (SSE), deserialize them in a `wasm32-unknown-unknown` Iced runtime, convert them back to panel-consumable state, and render through the same `ui::view` and `PanelLayout` used by the native desktop runtime.
+The native process remains the single sampling authority. When HTTP monitoring is enabled, each completed `MonitorState` is projected into an explicit Web transport schema containing only state required by the remotely rendered panel, then published to a bounded latest-state hub and serialized at the external HTTP boundary. `GET /api/v1/state` returns the current complete projection as JSON. Domain endpoints expose slices of that same projection for CPU, memory, disks, networks, temperatures, and processes, while `/api/v1/history/*` exposes the corresponding bounded histories. Browser clients receive the same current projection and subsequent complete-state updates over Server-Sent Events (SSE) at `/events`. Browser clients deserialize the Web projection in a `wasm32-unknown-unknown` Iced runtime, convert it back to panel-consumable state, and render through the same `ui::view` and `PanelLayout` used by the native desktop runtime.
 
 Do not create an HTML/CSS reimplementation of the dashboard. Native and Web runtimes may differ in lifecycle, transport, window/canvas hosting, and target-specific dependencies, but panel structure, Iced widgets, colors, graph drawing, spacing, and layout authority stay shared.
 
@@ -34,6 +34,8 @@ A second browser-specific renderer would make every visual change a two-implemen
 SSE matches the current one-way, one-Hertz state delivery requirement and is simpler than a bidirectional WebSocket protocol. Sending complete bounded Web-state projections keeps reconnect semantics trivial and avoids introducing a second incremental domain model.
 
 Serialization belongs only at the process/network boundary. Native desktop rendering continues to consume typed state directly in-process and does not route through JSON or HTTP. The transport schema is an explicit exposure allowlist owned by the Web boundary; adding a core-only field does not alter the wire payload unless the projection is deliberately updated.
+
+The complete snapshot API, domain/history API slices, and SSE stream share this one Web transport schema and latest-state authority. Domain endpoints are views over the Web projection, not independently owned models. Do not create a separate sampling path or duplicate schema authority for polling clients.
 
 ## Consequences
 

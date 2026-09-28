@@ -7,7 +7,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crate::core::model::MonitorState;
-use crate::web_transport::WebMonitorState;
+use crate::web_transport::{WebApiSlice, WebMonitorState};
 
 pub const DEFAULT_HTTP_BIND: SocketAddr =
     SocketAddr::new(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), 9847);
@@ -54,32 +54,36 @@ pub struct StateHub {
 }
 
 struct HubState {
-    latest: Arc<str>,
+    latest: Arc<WebMonitorState>,
+    latest_json: Arc<str>,
     subscribers: Vec<SyncSender<Arc<str>>>,
 }
 
 impl StateHub {
     fn new() -> Self {
-        let latest: Arc<str> =
-            serde_json::to_string(&WebMonitorState::from(&MonitorState::default()))
-                .expect("default monitor state must serialize")
-                .into();
+        let latest = Arc::new(WebMonitorState::from(&MonitorState::default()));
+        let latest_json: Arc<str> = serde_json::to_string(latest.as_ref())
+            .expect("default monitor state must serialize")
+            .into();
         Self {
             inner: Arc::new(Mutex::new(HubState {
                 latest,
+                latest_json,
                 subscribers: Vec::new(),
             })),
         }
     }
 
     pub fn publish(&self, state: &MonitorState) {
-        let Ok(serialized) = serde_json::to_string(&WebMonitorState::from(state)) else {
+        let latest = Arc::new(WebMonitorState::from(state));
+        let Ok(serialized) = serde_json::to_string(latest.as_ref()) else {
             eprintln!("cclover-mon: failed to serialize monitor state for HTTP clients");
             return;
         };
         let serialized: Arc<str> = serialized.into();
         let mut inner = self.inner.lock().expect("HTTP state hub lock poisoned");
-        inner.latest = Arc::clone(&serialized);
+        inner.latest = latest;
+        inner.latest_json = Arc::clone(&serialized);
         inner.subscribers.retain(
             |subscriber| match subscriber.try_send(Arc::clone(&serialized)) {
                 Ok(()) | Err(TrySendError::Full(_)) => true,
@@ -88,10 +92,20 @@ impl StateHub {
         );
     }
 
+    fn latest(&self) -> Arc<WebMonitorState> {
+        let inner = self.inner.lock().expect("HTTP state hub lock poisoned");
+        Arc::clone(&inner.latest)
+    }
+
+    fn latest_json(&self) -> Arc<str> {
+        let inner = self.inner.lock().expect("HTTP state hub lock poisoned");
+        Arc::clone(&inner.latest_json)
+    }
+
     fn subscribe(&self) -> (Arc<str>, Receiver<Arc<str>>) {
         let (sender, receiver) = mpsc::sync_channel(1);
         let mut inner = self.inner.lock().expect("HTTP state hub lock poisoned");
-        let latest = Arc::clone(&inner.latest);
+        let latest = Arc::clone(&inner.latest_json);
         inner.subscribers.push(sender);
         (latest, receiver)
     }
@@ -227,6 +241,22 @@ fn handle_connection(
         "/cclover_mon_web_bg.wasm" => {
             write_response(&mut stream, 200, "application/wasm", WEB_WASM)
         }
+        "/api/v1/state" => write_json_response(&mut stream, hub.latest_json().as_bytes()),
+        "/api/v1/cpu" => write_api_slice(&mut stream, &hub, WebApiSlice::Cpu),
+        "/api/v1/memory" => write_api_slice(&mut stream, &hub, WebApiSlice::Memory),
+        "/api/v1/disks" => write_api_slice(&mut stream, &hub, WebApiSlice::Disks),
+        "/api/v1/networks" => write_api_slice(&mut stream, &hub, WebApiSlice::Networks),
+        "/api/v1/temperatures" => write_api_slice(&mut stream, &hub, WebApiSlice::Temperatures),
+        "/api/v1/processes" => write_api_slice(&mut stream, &hub, WebApiSlice::Processes),
+        "/api/v1/history/cpu" => write_api_slice(&mut stream, &hub, WebApiSlice::HistoryCpu),
+        "/api/v1/history/memory" => write_api_slice(&mut stream, &hub, WebApiSlice::HistoryMemory),
+        "/api/v1/history/disks" => write_api_slice(&mut stream, &hub, WebApiSlice::HistoryDisks),
+        "/api/v1/history/networks" => {
+            write_api_slice(&mut stream, &hub, WebApiSlice::HistoryNetworks)
+        }
+        "/api/v1/history/temperatures" => {
+            write_api_slice(&mut stream, &hub, WebApiSlice::HistoryTemperatures)
+        }
         "/events" => stream_events(stream, hub, shutdown),
         _ => write_response(
             &mut stream,
@@ -235,6 +265,25 @@ fn handle_connection(
             b"not found\n",
         ),
     }
+}
+
+fn write_api_slice(stream: &mut TcpStream, hub: &StateHub, slice: WebApiSlice) -> io::Result<()> {
+    match hub.latest().serialize_api_slice(slice) {
+        Ok(body) => write_json_response(stream, body.as_bytes()),
+        Err(error) => {
+            eprintln!("cclover-mon: failed to serialize HTTP API response: {error}");
+            write_response(
+                stream,
+                500,
+                "text/plain; charset=utf-8",
+                b"internal server error\n",
+            )
+        }
+    }
+}
+
+fn write_json_response(stream: &mut TcpStream, body: &[u8]) -> io::Result<()> {
+    write_response(stream, 200, "application/json", body)
 }
 
 fn read_request(stream: &mut TcpStream) -> io::Result<Vec<u8>> {
@@ -284,6 +333,7 @@ fn write_response(
         400 => "Bad Request",
         404 => "Not Found",
         405 => "Method Not Allowed",
+        500 => "Internal Server Error",
         _ => "Error",
     };
     write!(
@@ -398,8 +448,83 @@ mod tests {
         );
     }
 
+    #[test]
+    fn state_api_serves_latest_web_transport_state() {
+        let server = HttpServer::start(HttpConfig {
+            bind: "127.0.0.1:0".parse().unwrap(),
+        })
+        .unwrap();
+
+        let state = MonitorState {
+            history_capacity: 42,
+            ..MonitorState::default()
+        };
+        server.state_hub().publish(&state);
+
+        let response = get(server.local_addr(), "/api/v1/state");
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(response.contains("Content-Type: application/json\r\n"));
+        let (_, body) = response.split_once("\r\n\r\n").unwrap();
+        let state: WebMonitorState = serde_json::from_str(body).unwrap();
+        let state = MonitorState::from(state);
+        assert_eq!(state.history_capacity, 42);
+    }
+
+    #[test]
+    fn split_state_apis_serve_only_requested_domains() {
+        let server = HttpServer::start(HttpConfig {
+            bind: "127.0.0.1:0".parse().unwrap(),
+        })
+        .unwrap();
+        server.state_hub().publish(&MonitorState {
+            history_capacity: 42,
+            ..MonitorState::default()
+        });
+
+        for path in [
+            "/api/v1/cpu",
+            "/api/v1/memory",
+            "/api/v1/disks",
+            "/api/v1/networks",
+            "/api/v1/temperatures",
+            "/api/v1/processes",
+            "/api/v1/history/cpu",
+            "/api/v1/history/memory",
+            "/api/v1/history/disks",
+            "/api/v1/history/networks",
+            "/api/v1/history/temperatures",
+        ] {
+            let _ = response_json(server.local_addr(), path);
+        }
+
+        let cpu = response_json(server.local_addr(), "/api/v1/cpu");
+        assert!(cpu.get("cpu_percent").is_some());
+        assert!(cpu.get("top_cpu").is_some());
+        assert!(cpu.get("memory").is_none());
+        assert!(cpu.get("history").is_none());
+
+        let processes = response_json(server.local_addr(), "/api/v1/processes");
+        assert!(processes.get("top_cpu").is_some());
+        assert!(processes.get("top_memory").is_some());
+        assert!(processes.get("disk_io").is_some());
+        assert!(processes.get("network_io").is_some());
+
+        let history = response_json(server.local_addr(), "/api/v1/history/cpu");
+        assert_eq!(history["history_capacity"], 42);
+        assert!(history.get("cpu").is_some());
+        assert!(history.get("memory_used").is_none());
+    }
+
     fn get(address: SocketAddr, path: &str) -> String {
         String::from_utf8(get_bytes(address, path)).unwrap()
+    }
+
+    fn response_json(address: SocketAddr, path: &str) -> serde_json::Value {
+        let response = get(address, path);
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(response.contains("Content-Type: application/json\r\n"));
+        let (_, body) = response.split_once("\r\n\r\n").unwrap();
+        serde_json::from_str(body).unwrap()
     }
 
     fn get_bytes(address: SocketAddr, path: &str) -> Vec<u8> {

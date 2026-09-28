@@ -3,9 +3,10 @@ use std::collections::{BTreeMap, VecDeque};
 use serde::{Deserialize, Serialize};
 
 use crate::core::model::{
-    DiskId, DiskSnapshot, MemorySnapshot, MonitorHistory, MonitorState, NetworkDirectionHistory,
-    NetworkId, NetworkSnapshot, ProcessCpuUsage, ProcessDiskIo, ProcessInstanceId,
-    ProcessMemoryUsage, ProcessNetworkIo, SystemSnapshot, TemperatureSnapshot,
+    Collection, CollectionUnavailable, DiskId, DiskSnapshot, MemorySnapshot, MonitorHistory,
+    MonitorState, NetworkDirectionHistory, NetworkId, NetworkSnapshot, ProcessCpuUsage,
+    ProcessDiskIo, ProcessInstanceId, ProcessMemoryUsage, ProcessNetworkIo, SystemSnapshot,
+    TemperatureSnapshot,
 };
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -17,17 +18,81 @@ pub struct WebMonitorState {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 struct WebSystemSnapshot {
-    cpu_percent: Option<f64>,
-    memory: Option<WebMemorySnapshot>,
-    top_cpu: Vec<WebProcessCpu>,
-    top_memory: Vec<WebProcessMemory>,
-    networks: Vec<WebNetworkSnapshot>,
-    disks: Vec<WebDiskSnapshot>,
-    #[serde(default)]
-    process_disk_io: Option<Vec<WebProcessDiskIo>>,
-    #[serde(default)]
-    process_network_io: Option<Vec<WebProcessNetworkIo>>,
-    temperatures: Vec<WebTemperatureSnapshot>,
+    cpu_percent: WebCollection<f64>,
+    memory: WebCollection<WebMemorySnapshot>,
+    top_cpu: WebCollection<Vec<WebProcessCpu>>,
+    top_memory: WebCollection<Vec<WebProcessMemory>>,
+    networks: WebCollection<Vec<WebNetworkSnapshot>>,
+    disks: WebCollection<Vec<WebDiskSnapshot>>,
+    process_disk_io: WebCollection<Vec<WebProcessDiskIo>>,
+    process_network_io: WebCollection<Vec<WebProcessNetworkIo>>,
+    temperatures: WebCollection<Vec<WebTemperatureSnapshot>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "status", content = "value", rename_all = "snake_case")]
+enum WebCollection<T> {
+    Available(T),
+    Degraded(T),
+    Unavailable(WebCollectionUnavailable),
+}
+
+impl<T> Default for WebCollection<T> {
+    fn default() -> Self {
+        Self::Unavailable(WebCollectionUnavailable::Unavailable)
+    }
+}
+
+impl<T> WebCollection<T> {
+    fn from_core<S>(source: &Collection<S>, map: impl FnOnce(&S) -> T) -> Self {
+        match source {
+            Collection::Available(value) => Self::Available(map(value)),
+            Collection::Degraded(value) => Self::Degraded(map(value)),
+            Collection::Unavailable(reason) => Self::Unavailable((*reason).into()),
+        }
+    }
+
+    fn into_core<U>(self, map: impl FnOnce(T) -> U) -> Collection<U> {
+        match self {
+            Self::Available(value) => Collection::Available(map(value)),
+            Self::Degraded(value) => Collection::Degraded(map(value)),
+            Self::Unavailable(reason) => Collection::Unavailable(reason.into()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum WebCollectionUnavailable {
+    Unsupported,
+    Disabled,
+    PermissionDenied,
+    Unavailable,
+    InvalidData,
+}
+
+impl From<CollectionUnavailable> for WebCollectionUnavailable {
+    fn from(value: CollectionUnavailable) -> Self {
+        match value {
+            CollectionUnavailable::Unsupported => Self::Unsupported,
+            CollectionUnavailable::Disabled => Self::Disabled,
+            CollectionUnavailable::PermissionDenied => Self::PermissionDenied,
+            CollectionUnavailable::Unavailable => Self::Unavailable,
+            CollectionUnavailable::InvalidData => Self::InvalidData,
+        }
+    }
+}
+
+impl From<WebCollectionUnavailable> for CollectionUnavailable {
+    fn from(value: WebCollectionUnavailable) -> Self {
+        match value {
+            WebCollectionUnavailable::Unsupported => Self::Unsupported,
+            WebCollectionUnavailable::Disabled => Self::Disabled,
+            WebCollectionUnavailable::PermissionDenied => Self::PermissionDenied,
+            WebCollectionUnavailable::Unavailable => Self::Unavailable,
+            WebCollectionUnavailable::InvalidData => Self::InvalidData,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -133,34 +198,31 @@ impl From<WebMonitorState> for MonitorState {
 impl From<&SystemSnapshot> for WebSystemSnapshot {
     fn from(snapshot: &SystemSnapshot) -> Self {
         Self {
-            cpu_percent: snapshot.cpu_percent,
-            memory: snapshot.memory.as_ref().map(WebMemorySnapshot::from),
-            top_cpu: snapshot.top_cpu.iter().map(WebProcessCpu::from).collect(),
-            top_memory: snapshot
-                .top_memory
-                .iter()
-                .map(WebProcessMemory::from)
-                .collect(),
-            networks: snapshot
-                .networks
-                .iter()
-                .map(WebNetworkSnapshot::from)
-                .collect(),
-            disks: snapshot.disks.iter().map(WebDiskSnapshot::from).collect(),
-            process_disk_io: snapshot
-                .process_disk_io
-                .as_ref()
-                .map(|rows| rows.iter().map(WebProcessDiskIo::from).collect::<Vec<_>>()),
-            process_network_io: snapshot.process_network_io.as_ref().map(|rows| {
-                rows.iter()
-                    .map(WebProcessNetworkIo::from)
-                    .collect::<Vec<_>>()
+            cpu_percent: WebCollection::from_core(&snapshot.cpu_percent, |value| *value),
+            memory: WebCollection::from_core(&snapshot.memory, |value| {
+                WebMemorySnapshot::from(value)
             }),
-            temperatures: snapshot
-                .temperatures
-                .iter()
-                .map(WebTemperatureSnapshot::from)
-                .collect(),
+            top_cpu: WebCollection::from_core(&snapshot.top_cpu, |rows| {
+                rows.iter().map(WebProcessCpu::from).collect()
+            }),
+            top_memory: WebCollection::from_core(&snapshot.top_memory, |rows| {
+                rows.iter().map(WebProcessMemory::from).collect()
+            }),
+            networks: WebCollection::from_core(&snapshot.networks, |rows| {
+                rows.iter().map(WebNetworkSnapshot::from).collect()
+            }),
+            disks: WebCollection::from_core(&snapshot.disks, |rows| {
+                rows.iter().map(WebDiskSnapshot::from).collect()
+            }),
+            process_disk_io: WebCollection::from_core(&snapshot.process_disk_io, |rows| {
+                rows.iter().map(WebProcessDiskIo::from).collect()
+            }),
+            process_network_io: WebCollection::from_core(&snapshot.process_network_io, |rows| {
+                rows.iter().map(WebProcessNetworkIo::from).collect()
+            }),
+            temperatures: WebCollection::from_core(&snapshot.temperatures, |rows| {
+                rows.iter().map(WebTemperatureSnapshot::from).collect()
+            }),
         }
     }
 }
@@ -168,35 +230,29 @@ impl From<&SystemSnapshot> for WebSystemSnapshot {
 impl From<WebSystemSnapshot> for SystemSnapshot {
     fn from(snapshot: WebSystemSnapshot) -> Self {
         Self {
-            cpu_percent: snapshot.cpu_percent,
-            memory: snapshot.memory.map(MemorySnapshot::from),
+            cpu_percent: snapshot.cpu_percent.into_core(|value| value),
+            memory: snapshot.memory.into_core(MemorySnapshot::from),
             top_cpu: snapshot
                 .top_cpu
-                .into_iter()
-                .map(ProcessCpuUsage::from)
-                .collect(),
+                .into_core(|rows| rows.into_iter().map(ProcessCpuUsage::from).collect()),
             top_memory: snapshot
                 .top_memory
-                .into_iter()
-                .map(ProcessMemoryUsage::from)
-                .collect(),
+                .into_core(|rows| rows.into_iter().map(ProcessMemoryUsage::from).collect()),
             networks: snapshot
                 .networks
-                .into_iter()
-                .map(NetworkSnapshot::from)
-                .collect(),
-            disks: snapshot.disks.into_iter().map(DiskSnapshot::from).collect(),
+                .into_core(|rows| rows.into_iter().map(NetworkSnapshot::from).collect()),
+            disks: snapshot
+                .disks
+                .into_core(|rows| rows.into_iter().map(DiskSnapshot::from).collect()),
             process_disk_io: snapshot
                 .process_disk_io
-                .map(|rows| rows.into_iter().map(ProcessDiskIo::from).collect()),
+                .into_core(|rows| rows.into_iter().map(ProcessDiskIo::from).collect()),
             process_network_io: snapshot
                 .process_network_io
-                .map(|rows| rows.into_iter().map(ProcessNetworkIo::from).collect()),
+                .into_core(|rows| rows.into_iter().map(ProcessNetworkIo::from).collect()),
             temperatures: snapshot
                 .temperatures
-                .into_iter()
-                .map(TemperatureSnapshot::from)
-                .collect(),
+                .into_core(|rows| rows.into_iter().map(TemperatureSnapshot::from).collect()),
         }
     }
 }
@@ -462,7 +518,7 @@ mod tests {
             pid: 42,
             birth_marker: 7,
         };
-        state.snapshot.process_disk_io = Some(vec![ProcessDiskIo {
+        state.snapshot.process_disk_io = Collection::available(vec![ProcessDiskIo {
             process,
             name: Some("worker".to_owned()),
             disk_id: DiskId::from_opaque_key("disk-a"),
@@ -470,7 +526,7 @@ mod tests {
             read_bytes_per_sec: 1.0,
             write_bytes_per_sec: 2.0,
         }]);
-        state.snapshot.process_network_io = Some(vec![ProcessNetworkIo {
+        state.snapshot.process_network_io = Collection::available(vec![ProcessNetworkIo {
             process,
             name: Some("worker".to_owned()),
             network_id: NetworkId::from_opaque_key("network-a"),
@@ -484,12 +540,12 @@ mod tests {
 
         assert!(json.contains("process_disk_io"));
         assert!(json.contains("process_network_io"));
-        let disk = &decoded.snapshot.process_disk_io.unwrap()[0];
+        let disk = &decoded.snapshot.process_disk_io.value().unwrap()[0];
         assert_eq!(disk.process, process);
         assert_eq!(disk.name.as_deref(), Some("worker"));
         assert_eq!(disk.disk_id.as_opaque_key(), "disk-a");
         assert_eq!(disk.device, "nvme0n1");
-        let network = &decoded.snapshot.process_network_io.unwrap()[0];
+        let network = &decoded.snapshot.process_network_io.value().unwrap()[0];
         assert_eq!(network.process, process);
         assert_eq!(network.name.as_deref(), Some("worker"));
         assert_eq!(network.network_id.as_opaque_key(), "network-a");
@@ -500,19 +556,19 @@ mod tests {
     fn transport_round_trip_preserves_panel_state() {
         let mut state = MonitorState::default();
         let network_id = NetworkId::from_opaque_key("network-a");
-        state.snapshot.cpu_percent = Some(37.5);
-        state.snapshot.memory = Some(MemorySnapshot {
+        state.snapshot.cpu_percent = Collection::available(37.5);
+        state.snapshot.memory = Collection::available(MemorySnapshot {
             used_bytes: 10,
             total_bytes: 20,
             swap_used_bytes: 3,
             swap_total_bytes: 4,
         });
-        state.snapshot.networks.push(NetworkSnapshot {
+        state.snapshot.networks = Collection::available(vec![NetworkSnapshot {
             id: network_id.clone(),
             name: "eth0".to_owned(),
             down_bytes_per_sec: 12.0,
             up_bytes_per_sec: 5.0,
-        });
+        }]);
         state.history.cpu.push_back(11.0);
         state.history.networks.insert(
             network_id,
@@ -527,16 +583,40 @@ mod tests {
         let decoded: WebMonitorState = serde_json::from_str(&json).unwrap();
         let decoded = MonitorState::from(decoded);
 
-        assert_eq!(decoded.snapshot.cpu_percent, Some(37.5));
-        assert_eq!(decoded.snapshot.memory.unwrap().used_bytes, 10);
-        assert_eq!(decoded.snapshot.networks[0].name, "eth0");
+        assert_eq!(decoded.snapshot.cpu_percent.value().copied(), Some(37.5));
+        assert_eq!(decoded.snapshot.memory.value().unwrap().used_bytes, 10);
+        assert_eq!(decoded.snapshot.networks.value().unwrap()[0].name, "eth0");
         assert_eq!(
-            decoded.history.networks[&decoded.snapshot.networks[0].id].down,
+            decoded.history.networks[&decoded.snapshot.networks.value().unwrap()[0].id].down,
             VecDeque::from([7.0, 12.0])
         );
         assert_eq!(decoded.history.cpu, VecDeque::from([11.0]));
         assert_eq!(decoded.history_capacity, 120);
-        assert!(decoded.snapshot.process_disk_io.is_none());
-        assert!(decoded.snapshot.process_network_io.is_none());
+        assert!(!decoded.snapshot.process_disk_io.is_observable());
+        assert!(!decoded.snapshot.process_network_io.is_observable());
+    }
+
+    #[test]
+    fn transport_round_trip_preserves_collection_outcomes() {
+        let mut state = MonitorState::default();
+        state.snapshot.process_disk_io = Collection::available(Vec::new());
+        state.snapshot.process_network_io =
+            Collection::unavailable(CollectionUnavailable::PermissionDenied);
+        state.snapshot.networks = Collection::degraded(Vec::new());
+
+        let json = serde_json::to_string(&WebMonitorState::from(&state)).unwrap();
+        let decoded = MonitorState::from(serde_json::from_str::<WebMonitorState>(&json).unwrap());
+
+        assert_eq!(decoded.snapshot.process_disk_io.value(), Some(&Vec::new()));
+        assert_eq!(
+            decoded.snapshot.process_network_io.status(),
+            crate::core::model::CollectionStatus::Unavailable(
+                CollectionUnavailable::PermissionDenied
+            )
+        );
+        assert_eq!(
+            decoded.snapshot.networks.status(),
+            crate::core::model::CollectionStatus::Degraded
+        );
     }
 }

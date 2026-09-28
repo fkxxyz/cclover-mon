@@ -1,8 +1,9 @@
 use std::collections::VecDeque;
 
 use crate::core::model::{
-    DiskSnapshot, MemorySnapshot, MonitorState, NetworkDirectionHistory, NetworkSnapshot,
-    ProcessCpuUsage, ProcessDiskIo, ProcessMemoryUsage, ProcessNetworkIo, TemperatureSnapshot,
+    Collection, DiskSnapshot, MemorySnapshot, MonitorState, NetworkDirectionHistory,
+    NetworkSnapshot, ProcessCpuUsage, ProcessDiskIo, ProcessMemoryUsage, ProcessNetworkIo,
+    TemperatureSnapshot,
 };
 
 pub const TEMPERATURE_SECTION: &str = "TEMPERATURE";
@@ -25,26 +26,38 @@ impl<'a> Dashboard<'a> {
 
     pub fn memory(self) -> MemoryPanel<'a> {
         MemoryPanel {
-            memory: self.state.snapshot.memory.as_ref(),
-            processes: &self.state.snapshot.top_memory,
+            memory: self.state.snapshot.memory.value(),
+            processes: self
+                .state
+                .snapshot
+                .top_memory
+                .value()
+                .map(Vec::as_slice)
+                .unwrap_or_default(),
             history: &self.state.history.memory_used,
         }
     }
 
     pub fn cpu(self) -> CpuPanel<'a> {
         CpuPanel {
-            percent: self.state.snapshot.cpu_percent,
-            processes: &self.state.snapshot.top_cpu,
+            percent: self.state.snapshot.cpu_percent.value().copied(),
+            processes: self
+                .state
+                .snapshot
+                .top_cpu
+                .value()
+                .map(Vec::as_slice)
+                .unwrap_or_default(),
             history: &self.state.history.cpu,
         }
     }
 
     pub fn temperature_count(self) -> usize {
-        self.state.snapshot.temperatures.len()
+        self.state.snapshot.temperatures.value().map_or(0, Vec::len)
     }
 
     pub fn temperature(self, index: usize) -> Option<TemperaturePanel<'a>> {
-        let value = self.state.snapshot.temperatures.get(index)?;
+        let value = self.state.snapshot.temperatures.value()?.get(index)?;
         Some(TemperaturePanel {
             value,
             history: self.state.history.temperatures.get(&value.id),
@@ -52,28 +65,28 @@ impl<'a> Dashboard<'a> {
     }
 
     pub fn disk_count(self) -> usize {
-        self.state.snapshot.disks.len()
+        self.state.snapshot.disks.value().map_or(0, Vec::len)
     }
 
     pub fn disk(self, index: usize) -> Option<DiskPanel<'a>> {
-        let value = self.state.snapshot.disks.get(index)?;
+        let value = self.state.snapshot.disks.value()?.get(index)?;
         Some(DiskPanel {
             value,
             history: self.state.history.disks.get(&value.id),
-            processes: self.state.snapshot.process_disk_io.as_deref(),
+            processes: &self.state.snapshot.process_disk_io,
         })
     }
 
     pub fn network_count(self) -> usize {
-        self.state.snapshot.networks.len()
+        self.state.snapshot.networks.value().map_or(0, Vec::len)
     }
 
     pub fn network(self, index: usize) -> Option<NetworkPanel<'a>> {
-        let value = self.state.snapshot.networks.get(index)?;
+        let value = self.state.snapshot.networks.value()?.get(index)?;
         Some(NetworkPanel {
             value,
             history: self.state.history.networks.get(&value.id),
-            processes: self.state.snapshot.process_network_io.as_deref(),
+            processes: &self.state.snapshot.process_network_io,
         })
     }
 }
@@ -212,7 +225,7 @@ fn short_temperature_name(name: &str) -> &str {
 pub struct DiskPanel<'a> {
     value: &'a DiskSnapshot,
     history: Option<&'a VecDeque<f64>>,
-    processes: Option<&'a [ProcessDiskIo]>,
+    processes: &'a Collection<Vec<ProcessDiskIo>>,
 }
 
 impl<'a> DiskPanel<'a> {
@@ -228,9 +241,14 @@ impl<'a> DiskPanel<'a> {
         self.history
     }
 
+    pub fn process_unavailable_value(self) -> Option<&'static str> {
+        (!self.processes.is_observable()).then_some(UNAVAILABLE_VALUE)
+    }
+
     pub fn processes(self) -> impl Iterator<Item = IoProcessRow<'a>> + 'a {
         let disk_id = &self.value.id;
         self.processes
+            .value()
             .into_iter()
             .flatten()
             .filter(move |process| &process.disk_id == disk_id)
@@ -248,7 +266,7 @@ impl<'a> DiskPanel<'a> {
 pub struct NetworkPanel<'a> {
     value: &'a NetworkSnapshot,
     history: Option<&'a NetworkDirectionHistory>,
-    processes: Option<&'a [ProcessNetworkIo]>,
+    processes: &'a Collection<Vec<ProcessNetworkIo>>,
 }
 
 impl<'a> NetworkPanel<'a> {
@@ -268,9 +286,14 @@ impl<'a> NetworkPanel<'a> {
         self.history
     }
 
+    pub fn process_unavailable_value(self) -> Option<&'static str> {
+        (!self.processes.is_observable()).then_some(UNAVAILABLE_VALUE)
+    }
+
     pub fn processes(self) -> impl Iterator<Item = IoProcessRow<'a>> + 'a {
         let network_id = &self.value.id;
         self.processes
+            .value()
             .into_iter()
             .flatten()
             .filter(move |process| &process.network_id == network_id)
@@ -291,8 +314,10 @@ pub struct IoProcessRow<'a> {
     pub second_value: String,
 }
 
+const UNAVAILABLE_VALUE: &str = "—";
+
 pub fn unavailable() -> String {
-    "—".to_owned()
+    UNAVAILABLE_VALUE.to_owned()
 }
 
 pub fn format_rate(value: f64) -> String {
@@ -353,6 +378,29 @@ mod tests {
     }
 
     #[test]
+    fn unavailable_attribution_does_not_hide_available_parent_metric() {
+        let disk_id = crate::core::model::DiskId::from_opaque_key("disk-a");
+        let mut state = MonitorState::default();
+        state.snapshot.disks = Collection::available(vec![DiskSnapshot {
+            id: disk_id,
+            name: "nvme0n1".into(),
+            bytes_per_sec: 10.0,
+        }]);
+        state.snapshot.process_disk_io =
+            Collection::unavailable(crate::core::model::CollectionUnavailable::PermissionDenied);
+
+        let panel = Dashboard::new(&state).disk(0).unwrap();
+        assert_eq!(panel.name(), "nvme0n1");
+        assert_eq!(panel.process_unavailable_value(), Some(UNAVAILABLE_VALUE));
+        assert_eq!(panel.processes().count(), 0);
+
+        state.snapshot.process_disk_io = Collection::available(Vec::new());
+        let panel = Dashboard::new(&state).disk(0).unwrap();
+        assert_eq!(panel.process_unavailable_value(), None);
+        assert_eq!(panel.processes().count(), 0);
+    }
+
+    #[test]
     fn io_process_rows_match_stable_device_identity_and_hide_zero_rate() {
         let disk_id = crate::core::model::DiskId::from_opaque_key("disk-a");
         let other_disk_id = crate::core::model::DiskId::from_opaque_key("disk-b");
@@ -363,18 +411,18 @@ mod tests {
             birth_marker: 7,
         };
         let mut state = MonitorState::default();
-        state.snapshot.disks.push(DiskSnapshot {
+        state.snapshot.disks = Collection::available(vec![DiskSnapshot {
             id: disk_id.clone(),
             name: "nvme0n1".into(),
             bytes_per_sec: 0.0,
-        });
-        state.snapshot.networks.push(NetworkSnapshot {
+        }]);
+        state.snapshot.networks = Collection::available(vec![NetworkSnapshot {
             id: network_id.clone(),
             name: "eth0".into(),
             down_bytes_per_sec: 0.0,
             up_bytes_per_sec: 0.0,
-        });
-        state.snapshot.process_disk_io = Some(vec![
+        }]);
+        state.snapshot.process_disk_io = Collection::available(vec![
             ProcessDiskIo {
                 process,
                 name: Some("worker".into()),
@@ -400,7 +448,7 @@ mod tests {
                 write_bytes_per_sec: 4096.0,
             },
         ]);
-        state.snapshot.process_network_io = Some(vec![
+        state.snapshot.process_network_io = Collection::available(vec![
             ProcessNetworkIo {
                 process,
                 name: Some("worker".into()),

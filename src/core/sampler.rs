@@ -98,55 +98,105 @@ fn derive(previous: Option<&RawSnapshot>, current: &RawSnapshot) -> SystemSnapsh
         .collect();
     let (cpu_percent, top_cpu) = derive_cpu(previous, current, current_processes);
     let dt = sample_interval_seconds(previous, current);
-    let mut out = SystemSnapshot {
+
+    SystemSnapshot {
         cpu_percent,
-        memory: current.memory.value().cloned(),
+        memory: current.memory.clone(),
         top_cpu,
-        top_memory: top_memory(current_processes),
+        top_memory: map_status(&current.processes, top_memory(current_processes)),
         networks: derive_networks(previous, current, dt),
         disks: derive_disks(previous, current, dt),
-        temperatures: current.temperatures.value().cloned().unwrap_or_default(),
-        ..SystemSnapshot::default()
-    };
+        process_disk_io: map_status(
+            &current.process_disk_io,
+            derive_process_disk_io(
+                previous.and_then(|snapshot| snapshot.process_disk_io.value().map(Vec::as_slice)),
+                current
+                    .process_disk_io
+                    .value()
+                    .map(Vec::as_slice)
+                    .unwrap_or_default(),
+                &process_names,
+                dt,
+            ),
+        ),
+        process_network_io: map_status(
+            &current.process_network_io,
+            derive_process_network_io(
+                previous
+                    .and_then(|snapshot| snapshot.process_network_io.value().map(Vec::as_slice)),
+                current
+                    .process_network_io
+                    .value()
+                    .map(Vec::as_slice)
+                    .unwrap_or_default(),
+                &process_names,
+                dt,
+            ),
+        ),
+        temperatures: current.temperatures.clone(),
+    }
+}
 
-    out.process_disk_io = derive_process_disk_io(
-        previous.and_then(|snapshot| snapshot.process_disk_io.value().map(Vec::as_slice)),
-        current.process_disk_io.value().map(Vec::as_slice),
-        &process_names,
-        dt,
-    );
-    out.process_network_io = derive_process_network_io(
-        previous.and_then(|snapshot| snapshot.process_network_io.value().map(Vec::as_slice)),
-        current.process_network_io.value().map(Vec::as_slice),
-        &process_names,
-        dt,
-    );
+fn map_status<S, T>(source: &Collection<S>, value: T) -> Collection<T> {
+    match source {
+        Collection::Available(_) => Collection::Available(value),
+        Collection::Degraded(_) => Collection::Degraded(value),
+        Collection::Unavailable(reason) => Collection::Unavailable(*reason),
+    }
+}
 
-    out
+fn combine_status<A, B, T>(
+    first: &Collection<A>,
+    second: &Collection<B>,
+    value: T,
+) -> Collection<T> {
+    match (first, second) {
+        (Collection::Unavailable(reason), _) | (_, Collection::Unavailable(reason)) => {
+            Collection::Unavailable(*reason)
+        }
+        (Collection::Degraded(_), _) | (_, Collection::Degraded(_)) => Collection::Degraded(value),
+        (Collection::Available(_), Collection::Available(_)) => Collection::Available(value),
+    }
 }
 
 fn derive_cpu(
     previous: Option<&RawSnapshot>,
     current: &RawSnapshot,
     current_processes: &[ProcessCounter],
-) -> (Option<f64>, Vec<ProcessCpuUsage>) {
+) -> (Collection<f64>, Collection<Vec<ProcessCpuUsage>>) {
     let Some(new) = current.cpu.value() else {
-        return (None, Vec::new());
+        let reason = match current.cpu {
+            Collection::Unavailable(reason) => reason,
+            _ => unreachable!("observable collection must expose a value"),
+        };
+        return (
+            Collection::Unavailable(reason),
+            Collection::Unavailable(reason),
+        );
     };
+
     let Some((previous, old)) =
         previous.and_then(|snapshot| snapshot.cpu.value().map(|counter| (snapshot, counter)))
     else {
-        return (Some(0.0), baseline_top_cpu(current_processes));
+        let top = baseline_top_cpu(current_processes);
+        return (
+            map_status(&current.cpu, 0.0),
+            combine_status(&current.cpu, &current.processes, top),
+        );
     };
 
     let total = new.total_time_units.saturating_sub(old.total_time_units);
     if total == 0 {
-        return (Some(0.0), baseline_top_cpu(current_processes));
+        let top = baseline_top_cpu(current_processes);
+        return (
+            map_status(&current.cpu, 0.0),
+            combine_status(&current.cpu, &current.processes, top),
+        );
     }
 
     let idle = new.idle_time_units.saturating_sub(old.idle_time_units);
     let percent = (100.0 * (total.saturating_sub(idle)) as f64 / total as f64).clamp(0.0, 100.0);
-    let top_cpu = previous.processes.value().map_or_else(
+    let top = previous.processes.value().map_or_else(
         || baseline_top_cpu(current_processes),
         |previous_processes| {
             top_cpu(
@@ -157,7 +207,10 @@ fn derive_cpu(
             )
         },
     );
-    (Some(percent), top_cpu)
+    (
+        map_status(&current.cpu, percent),
+        combine_status(&current.cpu, &current.processes, top),
+    )
 }
 
 fn sample_interval_seconds(previous: Option<&RawSnapshot>, current: &RawSnapshot) -> f64 {
@@ -176,14 +229,14 @@ fn derive_networks(
     previous: Option<&RawSnapshot>,
     current: &RawSnapshot,
     dt: f64,
-) -> Vec<NetworkSnapshot> {
+) -> Collection<Vec<NetworkSnapshot>> {
     let old: HashMap<&NetworkId, &NetworkCounter> = previous
         .and_then(|snapshot| snapshot.networks.value())
         .into_iter()
         .flatten()
         .map(|item| (&item.id, item))
         .collect();
-    current
+    let values = current
         .networks
         .value()
         .into_iter()
@@ -202,21 +255,22 @@ fn derive_networks(
                 up_bytes_per_sec: up,
             }
         })
-        .collect()
+        .collect();
+    map_status(&current.networks, values)
 }
 
 fn derive_disks(
     previous: Option<&RawSnapshot>,
     current: &RawSnapshot,
     dt: f64,
-) -> Vec<DiskSnapshot> {
+) -> Collection<Vec<DiskSnapshot>> {
     let old: HashMap<&DiskId, &DiskCounter> = previous
         .and_then(|snapshot| snapshot.disks.value())
         .into_iter()
         .flatten()
         .map(|item| (&item.id, item))
         .collect();
-    current
+    let values = current
         .disks
         .value()
         .into_iter()
@@ -233,16 +287,16 @@ fn derive_disks(
                 bytes_per_sec: rate,
             }
         })
-        .collect()
+        .collect();
+    map_status(&current.disks, values)
 }
 
 fn derive_process_disk_io(
     previous: Option<&[ProcessDiskIoCounter]>,
-    current: Option<&[ProcessDiskIoCounter]>,
+    current: &[ProcessDiskIoCounter],
     process_names: &HashMap<ProcessInstanceId, &str>,
     dt: f64,
-) -> Option<Vec<ProcessDiskIo>> {
-    let current = current?;
+) -> Vec<ProcessDiskIo> {
     let old: HashMap<(ProcessInstanceId, &DiskId), &ProcessDiskIoCounter> = previous
         .into_iter()
         .flatten()
@@ -281,16 +335,15 @@ fn derive_process_disk_io(
                 .then_with(|| a.process.cmp(&b.process))
         });
     }
-    Some(by_disk.into_values().flatten().collect())
+    by_disk.into_values().flatten().collect()
 }
 
 fn derive_process_network_io(
     previous: Option<&[ProcessNetworkIoCounter]>,
-    current: Option<&[ProcessNetworkIoCounter]>,
+    current: &[ProcessNetworkIoCounter],
     process_names: &HashMap<ProcessInstanceId, &str>,
     dt: f64,
-) -> Option<Vec<ProcessNetworkIo>> {
-    let current = current?;
+) -> Vec<ProcessNetworkIo> {
     let old: HashMap<(ProcessInstanceId, &NetworkId), &ProcessNetworkIoCounter> = previous
         .into_iter()
         .flatten()
@@ -329,7 +382,7 @@ fn derive_process_network_io(
                 .then_with(|| a.process.cmp(&b.process))
         });
     }
-    Some(by_network.into_values().flatten().collect())
+    by_network.into_values().flatten().collect()
 }
 
 fn baseline_top_cpu(current: &[ProcessCounter]) -> Vec<ProcessCpuUsage> {
@@ -485,31 +538,31 @@ mod tests {
 
         let out = derive(None, &current);
 
-        assert_eq!(out.cpu_percent, Some(0.0));
-        assert_eq!(out.top_cpu.len(), 1);
-        assert_eq!(out.top_cpu[0].name, "worker");
-        assert_eq!(out.top_cpu[0].percent, 0.0);
-        assert_eq!(out.top_memory[0].name, "worker");
-        assert_eq!(out.memory.as_ref().unwrap().used_bytes, 10);
-        assert_eq!(out.temperatures[0].name, "CPU");
-        assert_eq!(out.networks[0].name, "eth0");
+        assert_eq!(out.cpu_percent.value().copied(), Some(0.0));
+        assert_eq!(out.top_cpu.value().unwrap().len(), 1);
+        assert_eq!(out.top_cpu.value().unwrap()[0].name, "worker");
+        assert_eq!(out.top_cpu.value().unwrap()[0].percent, 0.0);
+        assert_eq!(out.top_memory.value().unwrap()[0].name, "worker");
+        assert_eq!(out.memory.value().unwrap().used_bytes, 10);
+        assert_eq!(out.temperatures.value().unwrap()[0].name, "CPU");
+        assert_eq!(out.networks.value().unwrap()[0].name, "eth0");
         assert_eq!(
             (
-                out.networks[0].down_bytes_per_sec,
-                out.networks[0].up_bytes_per_sec,
+                out.networks.value().unwrap()[0].down_bytes_per_sec,
+                out.networks.value().unwrap()[0].up_bytes_per_sec,
             ),
             (0.0, 0.0)
         );
-        assert_eq!(out.disks[0].name, "nvme0n1");
-        assert_eq!(out.disks[0].bytes_per_sec, 0.0);
+        assert_eq!(out.disks.value().unwrap()[0].name, "nvme0n1");
+        assert_eq!(out.disks.value().unwrap()[0].bytes_per_sec, 0.0);
 
-        let disk = out.process_disk_io.as_ref().unwrap();
+        let disk = out.process_disk_io.value().unwrap();
         assert_eq!(disk[0].device, "nvme0n1");
         assert_eq!(
             (disk[0].read_bytes_per_sec, disk[0].write_bytes_per_sec),
             (0.0, 0.0)
         );
-        let network = out.process_network_io.as_ref().unwrap();
+        let network = out.process_network_io.value().unwrap();
         assert_eq!(network[0].interface, "eth0");
         assert_eq!(
             (network[0].rx_bytes_per_sec, network[0].tx_bytes_per_sec),
@@ -575,11 +628,11 @@ mod tests {
             ..RawSnapshot::default()
         };
         let out = derive(Some(&old), &new);
-        assert_eq!(out.cpu_percent, Some(50.0));
-        assert_eq!(out.networks[0].down_bytes_per_sec, 200.0);
-        assert_eq!(out.networks[0].up_bytes_per_sec, 300.0);
-        assert_eq!(out.disks[0].bytes_per_sec, 600.0);
-        assert!((out.top_cpu[0].percent - 40.0).abs() < 0.001);
+        assert_eq!(out.cpu_percent.value().copied(), Some(50.0));
+        assert_eq!(out.networks.value().unwrap()[0].down_bytes_per_sec, 200.0);
+        assert_eq!(out.networks.value().unwrap()[0].up_bytes_per_sec, 300.0);
+        assert_eq!(out.disks.value().unwrap()[0].bytes_per_sec, 600.0);
+        assert!((out.top_cpu.value().unwrap()[0].percent - 40.0).abs() < 0.001);
     }
 
     #[test]
@@ -620,11 +673,11 @@ mod tests {
 
         let out = derive(Some(&old), &renamed);
 
-        assert_eq!(out.networks[0].name, "lan0");
-        assert_eq!(out.networks[0].down_bytes_per_sec, 200.0);
-        assert_eq!(out.networks[0].up_bytes_per_sec, 300.0);
-        assert_eq!(out.disks[0].name, "system-disk");
-        assert_eq!(out.disks[0].bytes_per_sec, 600.0);
+        assert_eq!(out.networks.value().unwrap()[0].name, "lan0");
+        assert_eq!(out.networks.value().unwrap()[0].down_bytes_per_sec, 200.0);
+        assert_eq!(out.networks.value().unwrap()[0].up_bytes_per_sec, 300.0);
+        assert_eq!(out.disks.value().unwrap()[0].name, "system-disk");
+        assert_eq!(out.disks.value().unwrap()[0].bytes_per_sec, 600.0);
     }
 
     #[test]
@@ -665,9 +718,9 @@ mod tests {
 
         let out = derive(Some(&old), &replacement);
 
-        assert_eq!(out.networks[0].down_bytes_per_sec, 0.0);
-        assert_eq!(out.networks[0].up_bytes_per_sec, 0.0);
-        assert_eq!(out.disks[0].bytes_per_sec, 0.0);
+        assert_eq!(out.networks.value().unwrap()[0].down_bytes_per_sec, 0.0);
+        assert_eq!(out.networks.value().unwrap()[0].up_bytes_per_sec, 0.0);
+        assert_eq!(out.disks.value().unwrap()[0].bytes_per_sec, 0.0);
     }
 
     #[test]
@@ -698,9 +751,9 @@ mod tests {
 
         let out = derive(Some(&unavailable), &recovered);
 
-        assert_eq!(out.networks[0].down_bytes_per_sec, 0.0);
-        assert_eq!(out.networks[0].up_bytes_per_sec, 0.0);
-        assert_eq!(out.disks[0].bytes_per_sec, 0.0);
+        assert_eq!(out.networks.value().unwrap()[0].down_bytes_per_sec, 0.0);
+        assert_eq!(out.networks.value().unwrap()[0].up_bytes_per_sec, 0.0);
+        assert_eq!(out.disks.value().unwrap()[0].bytes_per_sec, 0.0);
     }
 
     #[test]
@@ -799,13 +852,13 @@ mod tests {
         };
 
         let out = derive(Some(&old), &new);
-        let disk = &out.process_disk_io.unwrap()[0];
+        let disk = &out.process_disk_io.value().unwrap()[0];
         assert_eq!(disk.process.pid, 10);
         assert_eq!(disk.name.as_deref(), Some("disk-worker"));
         assert_eq!(disk.device, "nvme0n1");
         assert_eq!(disk.read_bytes_per_sec, 200.0);
         assert_eq!(disk.write_bytes_per_sec, 400.0);
-        let network = &out.process_network_io.unwrap()[0];
+        let network = &out.process_network_io.value().unwrap()[0];
         assert_eq!(network.process.pid, 20);
         assert_eq!(network.name.as_deref(), Some("network-worker"));
         assert_eq!(network.interface, "eth0");
@@ -844,11 +897,9 @@ mod tests {
             tx_bytes: 1400,
         }];
 
-        let disk =
-            derive_process_disk_io(Some(&old_disk), Some(&new_disk), &HashMap::new(), 1.0).unwrap();
+        let disk = derive_process_disk_io(Some(&old_disk), &new_disk, &HashMap::new(), 1.0);
         let network =
-            derive_process_network_io(Some(&old_network), Some(&new_network), &HashMap::new(), 1.0)
-                .unwrap();
+            derive_process_network_io(Some(&old_network), &new_network, &HashMap::new(), 1.0);
 
         assert_eq!(disk[0].read_bytes_per_sec, 0.0);
         assert_eq!(disk[0].write_bytes_per_sec, 0.0);
@@ -939,11 +990,9 @@ mod tests {
             })
             .collect();
 
-        let disk =
-            derive_process_disk_io(Some(&old_disk), Some(&new_disk), &process_names, 1.0).unwrap();
+        let disk = derive_process_disk_io(Some(&old_disk), &new_disk, &process_names, 1.0);
         let network =
-            derive_process_network_io(Some(&old_network), Some(&new_network), &process_names, 1.0)
-                .unwrap();
+            derive_process_network_io(Some(&old_network), &new_network, &process_names, 1.0);
 
         assert_eq!(disk.len(), PROCESS_IO_TOP_N + 1);
         assert_eq!(network.len(), PROCESS_IO_TOP_N + 1);
@@ -1009,12 +1058,12 @@ mod tests {
         };
 
         let out = derive(Some(&old), &new);
-        let disk = &out.process_disk_io.unwrap()[0];
+        let disk = &out.process_disk_io.value().unwrap()[0];
         assert_eq!(
             (disk.read_bytes_per_sec, disk.write_bytes_per_sec),
             (0.0, 0.0)
         );
-        let network = &out.process_network_io.unwrap()[0];
+        let network = &out.process_network_io.value().unwrap()[0];
         assert_eq!(
             (network.rx_bytes_per_sec, network.tx_bytes_per_sec),
             (0.0, 0.0)
@@ -1073,11 +1122,9 @@ mod tests {
             tx_bytes: 400,
         }];
 
-        let disk =
-            derive_process_disk_io(Some(&old_disk), Some(&new_disk), &HashMap::new(), 1.0).unwrap();
+        let disk = derive_process_disk_io(Some(&old_disk), &new_disk, &HashMap::new(), 1.0);
         let network =
-            derive_process_network_io(Some(&old_network), Some(&new_network), &HashMap::new(), 1.0)
-                .unwrap();
+            derive_process_network_io(Some(&old_network), &new_network, &HashMap::new(), 1.0);
 
         assert_eq!(disk[0].process, process_id(42, 200));
         assert_eq!(
@@ -1102,13 +1149,40 @@ mod tests {
         };
         let new = RawSnapshot {
             collected_at: t + Duration::from_secs(1),
-            process_disk_io: Collection::unavailable(CollectionUnavailable::Unavailable),
-            process_network_io: Collection::unavailable(CollectionUnavailable::Unavailable),
+            process_disk_io: Collection::unavailable(CollectionUnavailable::PermissionDenied),
+            process_network_io: Collection::unavailable(CollectionUnavailable::PermissionDenied),
             ..RawSnapshot::default()
         };
 
         let out = derive(Some(&old), &new);
-        assert!(out.process_disk_io.is_none());
-        assert!(out.process_network_io.is_none());
+        assert_eq!(
+            out.process_disk_io.status(),
+            CollectionStatus::Unavailable(CollectionUnavailable::PermissionDenied)
+        );
+        assert_eq!(
+            out.process_network_io.status(),
+            CollectionStatus::Unavailable(CollectionUnavailable::PermissionDenied)
+        );
+    }
+
+    #[test]
+    fn derivation_preserves_degraded_observation_status() {
+        let current = RawSnapshot {
+            networks: Collection::degraded(vec![NetworkCounter {
+                id: network_id("network-a"),
+                name: "eth0".into(),
+                rx_bytes: 100,
+                tx_bytes: 200,
+            }]),
+            process_disk_io: Collection::degraded(Vec::new()),
+            ..RawSnapshot::default()
+        };
+
+        let out = derive(None, &current);
+
+        assert_eq!(out.networks.status(), CollectionStatus::Degraded);
+        assert_eq!(out.process_disk_io.status(), CollectionStatus::Degraded);
+        assert_eq!(out.networks.value().unwrap().len(), 1);
+        assert!(out.process_disk_io.value().unwrap().is_empty());
     }
 }

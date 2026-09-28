@@ -205,6 +205,7 @@ where
                     capacity,
                 },
                 processes: disk.processes().collect(),
+                process_unavailable_value: disk.process_unavailable_value(),
             })
         }
         PanelBlock::Network(index) => {
@@ -215,15 +216,16 @@ where
                 .history()
                 .map(|history| (&history.down, &history.up))
                 .unwrap_or((&EMPTY_GRAPH_VALUES, &EMPTY_GRAPH_VALUES));
-            network_card(
-                network.name(),
-                network.down_value(),
-                network.up_value(),
-                down_history,
-                up_history,
+            network_card(NetworkCardParams {
+                name: network.name(),
+                down_value: network.down_value(),
+                up_value: network.up_value(),
+                down_values: down_history,
+                up_values: up_history,
                 capacity,
-                network.processes().collect(),
-            )
+                processes: network.processes().collect(),
+                process_unavailable_value: network.process_unavailable_value(),
+            })
         }
     }
 }
@@ -328,6 +330,18 @@ struct IoGraphCardParams<'a> {
     value: String,
     graph: GraphParams<'a>,
     processes: Vec<IoProcessRow<'a>>,
+    process_unavailable_value: Option<&'static str>,
+}
+
+struct NetworkCardParams<'a> {
+    name: &'a str,
+    down_value: String,
+    up_value: String,
+    down_values: &'a VecDeque<f64>,
+    up_values: &'a VecDeque<f64>,
+    capacity: usize,
+    processes: Vec<IoProcessRow<'a>>,
+    process_unavailable_value: Option<&'static str>,
 }
 
 fn small_graph_card<'a, Message>(params: SmallGraphCardParams<'a>) -> Element<'a, Message>
@@ -367,6 +381,7 @@ where
         value,
         graph,
         processes,
+        process_unavailable_value,
     } = params;
     let header = row![
         bold_label(name, 13, FG)
@@ -386,25 +401,34 @@ where
             canvas(graph)
                 .width(Fill)
                 .height(DISK_CARD_GEOMETRY.graph_height),
-            io_process_body(processes, "R", "W", GREEN, ORANGE),
+            io_process_body(
+                processes,
+                process_unavailable_value,
+                "R",
+                "W",
+                GREEN,
+                ORANGE,
+            ),
         ]
         .spacing(DISK_CARD_GEOMETRY.spacing),
         DISK_CARD_GEOMETRY.height(),
     )
 }
 
-fn network_card<'a, Message>(
-    name: &'a str,
-    down_value: String,
-    up_value: String,
-    down_values: &'a VecDeque<f64>,
-    up_values: &'a VecDeque<f64>,
-    capacity: usize,
-    processes: Vec<IoProcessRow<'a>>,
-) -> Element<'a, Message>
+fn network_card<'a, Message>(params: NetworkCardParams<'a>) -> Element<'a, Message>
 where
     Message: 'a,
 {
+    let NetworkCardParams {
+        name,
+        down_value,
+        up_value,
+        down_values,
+        up_values,
+        capacity,
+        processes,
+        process_unavailable_value,
+    } = params;
     let down_graph = Graph::new(
         down_values,
         capacity,
@@ -438,7 +462,14 @@ where
             canvas(up_graph)
                 .width(Fill)
                 .height(NETWORK_CARD_GEOMETRY.graph_height),
-            io_process_body(processes, "↓", "↑", GREEN, ORANGE),
+            io_process_body(
+                processes,
+                process_unavailable_value,
+                "↓",
+                "↑",
+                GREEN,
+                ORANGE,
+            ),
         ]
         .spacing(NETWORK_CARD_GEOMETRY.spacing),
         NETWORK_CARD_GEOMETRY.height(),
@@ -447,6 +478,7 @@ where
 
 fn io_process_body<'a, Message>(
     processes: Vec<IoProcessRow<'a>>,
+    unavailable_value: Option<&'static str>,
     first_label: &'static str,
     second_label: &'static str,
     first_color: Color,
@@ -459,6 +491,9 @@ where
         .spacing(IO_PROCESS_GEOMETRY.spacing)
         .height(IO_PROCESS_GEOMETRY.height())
         .width(Fill);
+    if let Some(value) = unavailable_value {
+        body = body.push(label(value, 10, MUTED));
+    }
     for process in processes {
         body = body.push(io_process_row(
             process,

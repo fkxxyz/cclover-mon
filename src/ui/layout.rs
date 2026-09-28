@@ -251,7 +251,7 @@ fn column_height(blocks: impl Iterator<Item = PanelBlock>) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::model::{MonitorState, TemperatureSnapshot};
+    use crate::core::model::{Collection, MonitorState, TemperatureSnapshot};
 
     use super::*;
 
@@ -263,11 +263,11 @@ mod tests {
         assert_eq!(empty_layout.right_blocks().count(), 3);
 
         let mut populated = MonitorState::default();
-        populated.snapshot.temperatures.push(TemperatureSnapshot {
+        populated.snapshot.temperatures = Collection::available(vec![TemperatureSnapshot {
             id: "cpu-temperature".to_owned(),
             name: "CPU".to_owned(),
             celsius: 50.0,
-        });
+        }]);
         let populated_layout = PanelLayout::new(Dashboard::new(&populated));
 
         assert_eq!(populated_layout.left_blocks().count(), 3);

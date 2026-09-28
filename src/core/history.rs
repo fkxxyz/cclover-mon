@@ -1,12 +1,12 @@
 use std::collections::{BTreeMap, VecDeque};
 
-use super::model::{MonitorHistory, SystemSnapshot};
+use super::model::{Collection, MonitorHistory, SystemSnapshot};
 
 pub fn push(history: &mut MonitorHistory, snapshot: &SystemSnapshot, capacity: usize) {
-    if let Some(cpu) = snapshot.cpu_percent {
-        append(&mut history.cpu, cpu, capacity);
+    if let Some(cpu) = snapshot.cpu_percent.value() {
+        append(&mut history.cpu, *cpu, capacity);
     }
-    if let Some(memory) = &snapshot.memory {
+    if let Some(memory) = snapshot.memory.value() {
         append(&mut history.memory_used, memory.used_bytes as f64, capacity);
         append(
             &mut history.swap_used,
@@ -15,33 +15,69 @@ pub fn push(history: &mut MonitorHistory, snapshot: &SystemSnapshot, capacity: u
         );
     }
 
-    retain_present(
-        &mut history.networks,
-        snapshot.networks.iter().map(|x| x.id.clone()),
-    );
-    for item in &snapshot.networks {
+    match &snapshot.networks {
+        Collection::Available(items) => {
+            retain_present(&mut history.networks, items.iter().map(|x| x.id.clone()));
+            append_networks(history, items, capacity);
+        }
+        Collection::Degraded(items) => append_networks(history, items, capacity),
+        Collection::Unavailable(_) => {}
+    }
+
+    match &snapshot.disks {
+        Collection::Available(items) => {
+            retain_present(&mut history.disks, items.iter().map(|x| x.id.clone()));
+            append_disks(history, items, capacity);
+        }
+        Collection::Degraded(items) => append_disks(history, items, capacity),
+        Collection::Unavailable(_) => {}
+    }
+
+    match &snapshot.temperatures {
+        Collection::Available(items) => {
+            retain_present(
+                &mut history.temperatures,
+                items.iter().map(|x| x.id.clone()),
+            );
+            append_temperatures(history, items, capacity);
+        }
+        Collection::Degraded(items) => append_temperatures(history, items, capacity),
+        Collection::Unavailable(_) => {}
+    }
+}
+
+fn append_networks(
+    history: &mut MonitorHistory,
+    items: &[super::model::NetworkSnapshot],
+    capacity: usize,
+) {
+    for item in items {
         let entry = history.networks.entry(item.id.clone()).or_default();
         append(&mut entry.down, item.down_bytes_per_sec, capacity);
         append(&mut entry.up, item.up_bytes_per_sec, capacity);
     }
+}
 
-    retain_present(
-        &mut history.disks,
-        snapshot.disks.iter().map(|x| x.id.clone()),
-    );
-    for item in &snapshot.disks {
+fn append_disks(
+    history: &mut MonitorHistory,
+    items: &[super::model::DiskSnapshot],
+    capacity: usize,
+) {
+    for item in items {
         append(
             history.disks.entry(item.id.clone()).or_default(),
             item.bytes_per_sec,
             capacity,
         );
     }
+}
 
-    retain_present(
-        &mut history.temperatures,
-        snapshot.temperatures.iter().map(|x| x.id.clone()),
-    );
-    for item in &snapshot.temperatures {
+fn append_temperatures(
+    history: &mut MonitorHistory,
+    items: &[super::model::TemperatureSnapshot],
+    capacity: usize,
+) {
+    for item in items {
         append(
             history.temperatures.entry(item.id.clone()).or_default(),
             item.celsius,
@@ -69,7 +105,8 @@ fn retain_present<K: Clone + Ord, T>(map: &mut BTreeMap<K, T>, ids: impl Iterato
 mod tests {
     use super::*;
     use crate::core::model::{
-        DiskId, DiskSnapshot, NetworkId, NetworkSnapshot, SystemSnapshot, TemperatureSnapshot,
+        CollectionUnavailable, DiskId, DiskSnapshot, NetworkId, NetworkSnapshot, SystemSnapshot,
+        TemperatureSnapshot,
     };
 
     #[test]
@@ -77,7 +114,7 @@ mod tests {
         let mut history = MonitorHistory::default();
         for i in 0..5 {
             let snapshot = SystemSnapshot {
-                cpu_percent: Some(i as f64),
+                cpu_percent: Collection::available(i as f64),
                 ..SystemSnapshot::default()
             };
             push(&mut history, &snapshot, 3);
@@ -92,21 +129,21 @@ mod tests {
     fn temperature_history_uses_stable_identity_not_display_name() {
         let mut history = MonitorHistory::default();
         let snapshot = SystemSnapshot {
-            temperatures: vec![TemperatureSnapshot {
+            temperatures: Collection::available(vec![TemperatureSnapshot {
                 id: "sensor-a".to_owned(),
                 name: "GPU".to_owned(),
                 celsius: 51.0,
-            }],
+            }]),
             ..SystemSnapshot::default()
         };
         push(&mut history, &snapshot, 3);
 
         let renamed = SystemSnapshot {
-            temperatures: vec![TemperatureSnapshot {
+            temperatures: Collection::available(vec![TemperatureSnapshot {
                 id: "sensor-a".to_owned(),
                 name: "GPU 1".to_owned(),
                 celsius: 52.0,
-            }],
+            }]),
             ..SystemSnapshot::default()
         };
         push(&mut history, &renamed, 3);
@@ -130,33 +167,33 @@ mod tests {
         let disk_id = DiskId::from_opaque_key("disk-a");
         let mut history = MonitorHistory::default();
         let first = SystemSnapshot {
-            networks: vec![NetworkSnapshot {
+            networks: Collection::available(vec![NetworkSnapshot {
                 id: network_id.clone(),
                 name: "eth0".to_owned(),
                 down_bytes_per_sec: 10.0,
                 up_bytes_per_sec: 20.0,
-            }],
-            disks: vec![DiskSnapshot {
+            }]),
+            disks: Collection::available(vec![DiskSnapshot {
                 id: disk_id.clone(),
                 name: "sda".to_owned(),
                 bytes_per_sec: 30.0,
-            }],
+            }]),
             ..SystemSnapshot::default()
         };
         push(&mut history, &first, 3);
 
         let renamed = SystemSnapshot {
-            networks: vec![NetworkSnapshot {
+            networks: Collection::available(vec![NetworkSnapshot {
                 id: network_id.clone(),
                 name: "lan0".to_owned(),
                 down_bytes_per_sec: 11.0,
                 up_bytes_per_sec: 21.0,
-            }],
-            disks: vec![DiskSnapshot {
+            }]),
+            disks: Collection::available(vec![DiskSnapshot {
                 id: disk_id.clone(),
                 name: "system-disk".to_owned(),
                 bytes_per_sec: 31.0,
-            }],
+            }]),
             ..SystemSnapshot::default()
         };
         push(&mut history, &renamed, 3);
@@ -173,5 +210,57 @@ mod tests {
             history.disks[&disk_id].iter().copied().collect::<Vec<_>>(),
             vec![30.0, 31.0]
         );
+    }
+
+    #[test]
+    fn incomplete_observations_do_not_evict_history() {
+        let first_id = NetworkId::from_opaque_key("network-a");
+        let second_id = NetworkId::from_opaque_key("network-b");
+        let mut history = MonitorHistory::default();
+        let complete = SystemSnapshot {
+            networks: Collection::available(vec![
+                NetworkSnapshot {
+                    id: first_id.clone(),
+                    name: "eth0".to_owned(),
+                    down_bytes_per_sec: 1.0,
+                    up_bytes_per_sec: 2.0,
+                },
+                NetworkSnapshot {
+                    id: second_id.clone(),
+                    name: "wlan0".to_owned(),
+                    down_bytes_per_sec: 3.0,
+                    up_bytes_per_sec: 4.0,
+                },
+            ]),
+            ..SystemSnapshot::default()
+        };
+        push(&mut history, &complete, 3);
+
+        let degraded = SystemSnapshot {
+            networks: Collection::degraded(vec![NetworkSnapshot {
+                id: first_id.clone(),
+                name: "eth0".to_owned(),
+                down_bytes_per_sec: 5.0,
+                up_bytes_per_sec: 6.0,
+            }]),
+            ..SystemSnapshot::default()
+        };
+        push(&mut history, &degraded, 3);
+        assert!(history.networks.contains_key(&second_id));
+
+        let unavailable = SystemSnapshot {
+            networks: Collection::unavailable(CollectionUnavailable::PermissionDenied),
+            ..SystemSnapshot::default()
+        };
+        push(&mut history, &unavailable, 3);
+        assert!(history.networks.contains_key(&first_id));
+        assert!(history.networks.contains_key(&second_id));
+
+        let empty = SystemSnapshot {
+            networks: Collection::available(Vec::new()),
+            ..SystemSnapshot::default()
+        };
+        push(&mut history, &empty, 3);
+        assert!(history.networks.is_empty());
     }
 }

@@ -115,15 +115,15 @@ pub struct ProcessNetworkIo {
 
 #[derive(Clone, Debug, Default)]
 pub struct SystemSnapshot {
-    pub cpu_percent: Option<f64>,
-    pub memory: Option<MemorySnapshot>,
-    pub top_cpu: Vec<ProcessCpuUsage>,
-    pub top_memory: Vec<ProcessMemoryUsage>,
-    pub networks: Vec<NetworkSnapshot>,
-    pub disks: Vec<DiskSnapshot>,
-    pub process_disk_io: Option<Vec<ProcessDiskIo>>,
-    pub process_network_io: Option<Vec<ProcessNetworkIo>>,
-    pub temperatures: Vec<TemperatureSnapshot>,
+    pub cpu_percent: Collection<f64>,
+    pub memory: Collection<MemorySnapshot>,
+    pub top_cpu: Collection<Vec<ProcessCpuUsage>>,
+    pub top_memory: Collection<Vec<ProcessMemoryUsage>>,
+    pub networks: Collection<Vec<NetworkSnapshot>>,
+    pub disks: Collection<Vec<DiskSnapshot>>,
+    pub process_disk_io: Collection<Vec<ProcessDiskIo>>,
+    pub process_network_io: Collection<Vec<ProcessNetworkIo>>,
+    pub temperatures: Collection<Vec<TemperatureSnapshot>>,
 }
 
 #[derive(Clone, Debug, Default)]

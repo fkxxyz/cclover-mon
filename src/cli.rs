@@ -282,10 +282,12 @@ fn dump(samples: u64) {
         "CPU: {}",
         snapshot
             .cpu_percent
+            .value()
+            .copied()
             .map(format_percent)
             .unwrap_or_else(unavailable)
     );
-    match snapshot.memory {
+    match snapshot.memory.value() {
         Some(memory) => {
             println!(
                 "Memory: {} / {}",
@@ -308,19 +310,23 @@ fn dump(samples: u64) {
         "Top CPU",
         snapshot
             .top_cpu
-            .iter()
+            .value()
+            .into_iter()
+            .flatten()
             .map(|item| format!("{}  {}", item.name, format_percent(item.percent))),
     );
     print_section(
         "Top memory",
         snapshot
             .top_memory
-            .iter()
+            .value()
+            .into_iter()
+            .flatten()
             .map(|item| format!("{}  {}", item.name, format_bytes(item.bytes))),
     );
     print_section(
         "Network",
-        snapshot.networks.iter().map(|item| {
+        snapshot.networks.value().into_iter().flatten().map(|item| {
             format!(
                 "{}  down {}  up {}",
                 item.name,
@@ -333,10 +339,12 @@ fn dump(samples: u64) {
         "Disk",
         snapshot
             .disks
-            .iter()
+            .value()
+            .into_iter()
+            .flatten()
             .map(|item| format!("{}  {}", item.name, format_rate(item.bytes_per_sec))),
     );
-    match snapshot.process_disk_io {
+    match snapshot.process_disk_io.value() {
         Some(rows) if rows.is_empty() => println!("Process disk I/O:\n  none"),
         Some(rows) => print_section(
             "Process disk I/O",
@@ -352,7 +360,7 @@ fn dump(samples: u64) {
         ),
         None => println!("Process disk I/O:\n  {}", unavailable()),
     }
-    match snapshot.process_network_io {
+    match snapshot.process_network_io.value() {
         Some(rows) if rows.is_empty() => println!("Process network I/O:\n  none"),
         Some(rows) => print_section(
             "Process network I/O",
@@ -372,7 +380,9 @@ fn dump(samples: u64) {
         "Temperature",
         snapshot
             .temperatures
-            .iter()
+            .value()
+            .into_iter()
+            .flatten()
             .map(|item| format!("{}  {:.1}°C", item.name, item.celsius)),
     );
 }

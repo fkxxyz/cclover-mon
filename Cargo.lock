@@ -489,6 +489,7 @@ dependencies = [
  "iced_layershell",
  "ksni",
  "smol",
+ "windows-sys 0.61.2",
  "winit-common",
  "winit-core",
  "x11rb",
@@ -519,6 +520,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-cli-support",
  "web-sys",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

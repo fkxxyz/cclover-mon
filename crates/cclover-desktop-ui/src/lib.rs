@@ -62,9 +62,9 @@ const ACCENT: Color = Color::from_rgb8(0x7c, 0x9c, 0xff);
 const GREEN: Color = Color::from_rgb8(0x52, 0xe0, 0xc4);
 const ORANGE: Color = Color::from_rgb8(0xff, 0xb8, 0x6b);
 const RED: Color = Color::from_rgb8(0xff, 0x7e, 0x9b);
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))]
 const MONO: Font = Font::with_name("Inconsolata");
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_os = "windows", target_arch = "wasm32"))]
 const MONO: Font = Font::with_name("Fira Sans");
 
 const MONO_BOLD: Font = Font {

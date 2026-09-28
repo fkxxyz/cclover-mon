@@ -61,9 +61,31 @@ Privileged Linux sources use least authority. Permission, verifier, BTF, or atta
 
 ## Windows
 
-Prefer native Win32, NT APIs, PDH, ETW, IP Helper, COM, and device APIs according to the metric source.
+Prefer direct native APIs that expose the required cumulative counters without subprocesses or WMI polling. The Windows collector source mapping is explicit:
 
-Windows monitor-surface creation and resize realization use the same platform-owned desktop-host contract as Linux; `main` and shared application update code do not construct native windows directly. Future Windows notification-area integration belongs behind the same desktop-integration boundary. Native shell handles and menu identifiers remain platform-private, while user intent is translated into the same platform-neutral desktop commands consumed by the application lifecycle.
+| Metric responsibility | Native source |
+| --- | --- |
+| aggregate CPU | `GetSystemTimes`; `GetActiveProcessorCount(ALL_PROCESSOR_GROUPS)` supplies the logical-CPU scale used by process CPU derivation |
+| physical memory | `GlobalMemoryStatusEx` |
+| processes | `NtQuerySystemInformation(SystemProcessInformation)` as one batch snapshot; creation time is the Windows `ProcessInstanceId` birth marker, user+kernel time is the cumulative CPU counter, and working-set size is the memory counter |
+| network interfaces | IP Helper `GetIfTable2`; `InterfaceGuid` becomes `NetworkId`, `Alias` remains display text, and `InOctets` / `OutOctets` remain cumulative counters for core rate derivation |
+| physical disks | `CreateFile(\\.\\PhysicalDriveN)` plus `DeviceIoControl(IOCTL_DISK_PERFORMANCE)`; Storage property queries provide serial/product identity where available before translation to `DiskId` |
+| temperatures | PawnIO is the preferred future low-level CPU/Super-I/O access layer; GPU vendor APIs and storage SMART/NVMe health remain peer temperature sources |
+| per-process disk/network attribution | separate future event-attribution work, expected to use ETW/WFP-class facilities rather than PawnIO |
+
+Do not route these basic collectors through PDH when a direct structured API above already owns the semantic. Process/NT-object batch telemetry preferentially uses the NT query API rather than opening every process individually. PawnIO is a hardware-register access dependency, not a process-I/O attribution mechanism.
+
+Windows process identity is PID plus the process creation timestamp returned in the same `SystemProcessInformation` snapshot. PID alone is never a cross-sample identity. Network interface index and `PhysicalDriveN` enumeration number are locators, not identities; prefer `InterfaceGuid` and storage serial/device descriptors respectively.
+
+Windows physical-network selection uses the `MIB_IF_ROW2` hardware-interface capability rather than adapter-name patterns.
+
+Windows capabilities that are not implemented yet remain explicit typed unavailability. Temperature collection and per-process disk/network attribution return `Unavailable(Unsupported)` until their native sources exist; they must not be represented as empty observations or fabricated zero counters.
+
+Windows disk identity prefers storage serial/device descriptors. If no stable serial is available, the collector may fall back to `PhysicalDriveN` only as a session-local locator and must mark the disk collection `Degraded`; that fallback must not be treated as reboot-stable identity by core, presentation, or frontend code.
+
+Windows monitor-surface creation and resize realization use the same platform-owned desktop-host contract as Linux; `main` and shared application update code do not construct native windows directly. The Windows host owns monitor placement and shell policy: the monitor surface is undecorated, non-resizable, excluded from the taskbar and Alt+Tab, non-activating, placed at the top-right monitor margin, kept below normal windows, and configured for mouse passthrough. Iced/winit window settings express portable policy, while the Windows native adapter applies `WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE` and `SetWindowPos(HWND_BOTTOM, ..., SWP_NOACTIVATE)` to enforce shell/Z-order semantics that generic window settings do not guarantee. Dynamic panel resize must reapply the top-right placement and bottom Z-order. Future Windows notification-area integration belongs behind the same desktop-integration boundary. Native shell handles and menu identifiers remain platform-private, while user intent is translated into the same platform-neutral desktop commands consumed by the application lifecycle.
+
+Windows desktop and Web text must not depend on a font being installed by the host environment. Those targets use Iced's bundled Fira Sans font; Linux keeps its existing Inconsolata choice.
 
 ## C++ interoperability
 

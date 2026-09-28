@@ -34,6 +34,20 @@ web-sys = { version = "=0.3.106", features = ["EventSource", "MessageEvent"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
 
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Wdk_System_SystemInformation",
+    "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_System_WindowsProgramming",
+] }
+
 # Iced 0.14 WebGL can corrupt multi-Canvas geometry and clipping across layers.
 # Pin only iced_widget until upstream fixes iced-rs/iced#2400.
 [patch.crates-io]

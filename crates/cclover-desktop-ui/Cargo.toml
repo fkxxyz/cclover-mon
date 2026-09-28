@@ -6,4 +6,4 @@ edition = "2024"
 [dependencies]
 cclover-core = { path = "../cclover-core" }
 cclover-presentation = { path = "../cclover-presentation" }
-iced = { version = "0.14.0", default-features = false, features = ["canvas", "crisp", "smol", "wgpu", "wayland", "x11"] }
+iced = { version = "0.14.0", default-features = false, features = ["canvas", "crisp", "fira-sans", "smol", "wgpu", "wayland", "x11"] }

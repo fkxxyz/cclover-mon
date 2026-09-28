@@ -814,6 +814,49 @@ mod tests {
     }
 
     #[test]
+    fn process_io_does_not_reuse_delta_when_display_name_is_reused_by_new_identity() {
+        let old_disk = [ProcessDiskIoCounter {
+            process: process_id(10, 1),
+            disk_id: disk_id("disk-old"),
+            device: "sda".into(),
+            read_bytes: 100,
+            write_bytes: 200,
+        }];
+        let new_disk = [ProcessDiskIoCounter {
+            process: process_id(10, 1),
+            disk_id: disk_id("disk-new"),
+            device: "sda".into(),
+            read_bytes: 500,
+            write_bytes: 1000,
+        }];
+        let old_network = [ProcessNetworkIoCounter {
+            process: process_id(20, 1),
+            network_id: network_id("network-old"),
+            interface: "eth0".into(),
+            rx_bytes: 300,
+            tx_bytes: 400,
+        }];
+        let new_network = [ProcessNetworkIoCounter {
+            process: process_id(20, 1),
+            network_id: network_id("network-new"),
+            interface: "eth0".into(),
+            rx_bytes: 900,
+            tx_bytes: 1400,
+        }];
+
+        let disk =
+            derive_process_disk_io(Some(&old_disk), Some(&new_disk), &HashMap::new(), 1.0).unwrap();
+        let network =
+            derive_process_network_io(Some(&old_network), Some(&new_network), &HashMap::new(), 1.0)
+                .unwrap();
+
+        assert_eq!(disk[0].read_bytes_per_sec, 0.0);
+        assert_eq!(disk[0].write_bytes_per_sec, 0.0);
+        assert_eq!(network[0].rx_bytes_per_sec, 0.0);
+        assert_eq!(network[0].tx_bytes_per_sec, 0.0);
+    }
+
+    #[test]
     fn process_io_keeps_top_three_per_device() {
         let mut old_disk: Vec<_> = (1..=4)
             .map(|pid| ProcessDiskIoCounter {

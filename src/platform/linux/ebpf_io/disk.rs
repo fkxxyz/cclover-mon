@@ -160,7 +160,7 @@ mod tests {
     }
 
     #[test]
-    fn merges_directions_without_crossing_pid_or_device() {
+    fn merge_uses_stable_disk_identity_not_display_name() {
         let mut rows = vec![
             ProcessDiskIoCounter {
                 process: ProcessInstanceId {
@@ -168,7 +168,7 @@ mod tests {
                     birth_marker: 1,
                 },
                 disk_id: disk_id("disk-a"),
-                device: "sda".into(),
+                device: "old-name".into(),
                 read_bytes: 10,
                 write_bytes: 0,
             },
@@ -178,17 +178,17 @@ mod tests {
                     birth_marker: 1,
                 },
                 disk_id: disk_id("disk-a"),
-                device: "sda".into(),
+                device: "new-name".into(),
                 read_bytes: 0,
                 write_bytes: 20,
             },
             ProcessDiskIoCounter {
                 process: ProcessInstanceId {
-                    pid: 8,
+                    pid: 7,
                     birth_marker: 1,
                 },
-                disk_id: disk_id("disk-a"),
-                device: "sda".into(),
+                disk_id: disk_id("disk-b"),
+                device: "new-name".into(),
                 read_bytes: 30,
                 write_bytes: 0,
             },
@@ -196,7 +196,8 @@ mod tests {
         merge_rows(&mut rows);
         assert_eq!(rows.len(), 2);
         assert_eq!((rows[0].read_bytes, rows[0].write_bytes), (10, 20));
-        assert_eq!(rows[1].process.pid, 8);
+        assert_eq!(rows[0].disk_id, disk_id("disk-a"));
+        assert_eq!(rows[1].disk_id, disk_id("disk-b"));
     }
 
     #[test]

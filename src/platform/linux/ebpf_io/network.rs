@@ -176,7 +176,7 @@ mod tests {
     }
 
     #[test]
-    fn merges_directions_without_crossing_pid_or_interface() {
+    fn merge_uses_stable_network_identity_not_display_name() {
         let mut rows = vec![
             ProcessNetworkIoCounter {
                 process: ProcessInstanceId {
@@ -184,7 +184,7 @@ mod tests {
                     birth_marker: 1,
                 },
                 network_id: network_id("network-a"),
-                interface: "lo".into(),
+                interface: "old-name".into(),
                 rx_bytes: 11,
                 tx_bytes: 0,
             },
@@ -194,7 +194,7 @@ mod tests {
                     birth_marker: 1,
                 },
                 network_id: network_id("network-a"),
-                interface: "lo".into(),
+                interface: "new-name".into(),
                 rx_bytes: 0,
                 tx_bytes: 22,
             },
@@ -204,17 +204,16 @@ mod tests {
                     birth_marker: 1,
                 },
                 network_id: network_id("network-b"),
-                interface: "eth0".into(),
+                interface: "new-name".into(),
                 rx_bytes: 33,
                 tx_bytes: 0,
             },
         ];
         merge_rows(&mut rows);
         assert_eq!(rows.len(), 2);
-        assert!(
-            rows.iter()
-                .any(|row| row.interface == "lo" && row.rx_bytes == 11 && row.tx_bytes == 22)
-        );
+        assert_eq!((rows[0].rx_bytes, rows[0].tx_bytes), (11, 22));
+        assert_eq!(rows[0].network_id, network_id("network-a"));
+        assert_eq!(rows[1].network_id, network_id("network-b"));
     }
 
     #[test]

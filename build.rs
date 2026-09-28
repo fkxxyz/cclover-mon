@@ -55,7 +55,8 @@ fn build_web_bundle(out: &Path) {
     let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest dir"));
     let web_target_dir = out.join("web-target");
     let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let status = Command::new(cargo)
+    let mut command = Command::new(cargo);
+    command
         .current_dir(&manifest_dir)
         .args([
             "build",
@@ -66,7 +67,9 @@ fn build_web_bundle(out: &Path) {
             "--bin",
             "cclover-mon-web",
         ])
-        .env("CARGO_TARGET_DIR", &web_target_dir)
+        .env("CARGO_TARGET_DIR", &web_target_dir);
+    isolate_nested_cargo(&mut command);
+    let status = command
         .status()
         .unwrap_or_else(|error| panic!("failed to build embedded web frontend: {error}"));
     assert!(
@@ -90,6 +93,20 @@ fn build_web_bundle(out: &Path) {
     bindgen
         .generate(&web_out)
         .unwrap_or_else(|error| panic!("failed to generate embedded web bindings: {error}"));
+}
+
+fn isolate_nested_cargo(command: &mut Command) {
+    command
+        .env_remove("RUSTFLAGS")
+        .env_remove("CARGO_ENCODED_RUSTFLAGS")
+        .env_remove("RUSTC_LINKER");
+
+    for (key, _) in env::vars_os() {
+        let key_text = key.to_string_lossy();
+        if key_text.starts_with("CARGO_CFG_") || key_text.starts_with("CARGO_FEATURE_") {
+            command.env_remove(key);
+        }
+    }
 }
 
 fn compile_bpf(source: &Path, output: &Path, bpf_arch: &str, clang: &std::ffi::OsStr) {

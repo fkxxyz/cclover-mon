@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::CStr;
 use std::fs;
 use std::mem::offset_of;
@@ -7,8 +7,8 @@ use std::path::Path;
 use crate::core::model::{DiskId, ProcessDiskIoCounter, ProcessInstanceId};
 
 use super::abi;
-use super::runtime::{LoadedObject, read_map};
-use super::{AttributionFailure, AttributionRows, FailureKind};
+use super::runtime::{LoadedObject, delete_map_key, read_map};
+use super::{AttributionFailure, AttributionRows, FailureKind, is_stale_process};
 use crate::platform::linux::disk as disk_metric;
 use crate::platform::linux::process::birth_marker_from_start_boottime_ns;
 
@@ -63,12 +63,23 @@ impl Collector {
 
     pub(super) fn collect(
         &mut self,
+        active_processes: Option<&HashSet<ProcessInstanceId>>,
     ) -> Result<AttributionRows<ProcessDiskIoCounter>, AttributionFailure> {
         let object = self.object()?;
+        let map_fd = object.map_fd(MAP)?;
         let mut rows = Vec::new();
+        let mut stale_keys = Vec::new();
         let mut unresolved_native_ids = 0;
         let mut resolved_devices = HashMap::new();
-        for (key, value) in read_map::<Key, CounterValue>(object.map_fd(MAP)?)? {
+        for (key, value) in read_map::<Key, CounterValue>(map_fd)? {
+            let process = ProcessInstanceId {
+                pid: key.tgid,
+                birth_marker: birth_marker_from_start_boottime_ns(value.process_start_time),
+            };
+            if is_stale_process(active_processes, &process) {
+                stale_keys.push(key);
+                continue;
+            }
             let Some((disk_id, device)) = resolved_devices
                 .entry(key.dev)
                 .or_insert_with(|| resolve_device(key.dev))
@@ -78,15 +89,15 @@ impl Collector {
                 continue;
             };
             rows.push(ProcessDiskIoCounter {
-                process: ProcessInstanceId {
-                    pid: key.tgid,
-                    birth_marker: birth_marker_from_start_boottime_ns(value.process_start_time),
-                },
+                process,
                 disk_id: disk_id.clone(),
                 device: device.clone(),
                 read_bytes: if key.direction == 0 { value.bytes } else { 0 },
                 write_bytes: if key.direction == 1 { value.bytes } else { 0 },
             });
+        }
+        for key in &stale_keys {
+            delete_map_key(map_fd, key)?;
         }
         merge_rows(&mut rows);
         Ok(AttributionRows {

@@ -8,11 +8,12 @@ mod network;
 mod process;
 mod temperature;
 
+use std::collections::HashSet;
 use std::time::Instant;
 
 use crate::core::Collector as CoreCollector;
 use crate::core::devlog;
-use crate::core::model::RawSnapshot;
+use crate::core::model::{Collection, RawSnapshot};
 use crate::platform::{ProbeKind, ProbeReport};
 
 pub struct Backend {
@@ -139,10 +140,10 @@ impl Backend {
                 }
             }
             ProbeKind::NetworkAttribution => {
-                let first = self.ebpf_io.collect_network(Some(&mut notes));
+                let first = self.ebpf_io.collect_network(None, Some(&mut notes));
                 let outcome = if first.is_observable() {
                     std::thread::sleep(crate::core::SAMPLE_INTERVAL);
-                    self.ebpf_io.collect_network(Some(&mut notes))
+                    self.ebpf_io.collect_network(None, Some(&mut notes))
                 } else {
                     first
                 };
@@ -196,10 +197,10 @@ impl Backend {
                 }
             }
             ProbeKind::DiskAttribution => {
-                let first = self.ebpf_io.collect_disk(Some(&mut notes));
+                let first = self.ebpf_io.collect_disk(None, Some(&mut notes));
                 let outcome = if first.is_observable() {
                     std::thread::sleep(crate::core::SAMPLE_INTERVAL);
-                    self.ebpf_io.collect_disk(Some(&mut notes))
+                    self.ebpf_io.collect_disk(None, Some(&mut notes))
                 } else {
                     first
                 };
@@ -276,13 +277,13 @@ impl Backend {
                 std::hint::black_box(network::collect(None));
             }
             ProbeKind::NetworkAttribution => {
-                let _ = std::hint::black_box(self.ebpf_io.collect_network(None));
+                let _ = std::hint::black_box(self.ebpf_io.collect_network(None, None));
             }
             ProbeKind::Disk => {
                 std::hint::black_box(disk::collect(None));
             }
             ProbeKind::DiskAttribution => {
-                let _ = std::hint::black_box(self.ebpf_io.collect_disk(None));
+                let _ = std::hint::black_box(self.ebpf_io.collect_disk(None, None));
             }
             ProbeKind::Temperatures => {
                 std::hint::black_box(self.temperatures.collect(Instant::now(), None));
@@ -303,13 +304,26 @@ impl CoreCollector for Backend {
         let cpu = devlog::timed("collector.cpu", || cpu::collect(None));
         let memory = devlog::timed("collector.memory", || memory::collect(None));
         let processes = devlog::timed("collector.processes", || self.processes.collect(None));
+        let active_processes = match &processes {
+            Collection::Available(processes) => Some(
+                processes
+                    .iter()
+                    .map(|process| process.process)
+                    .collect::<HashSet<_>>(),
+            ),
+            Collection::Degraded(_) | Collection::Unavailable(_) => None,
+        };
         let networks = devlog::timed("collector.network", || network::collect(None));
         let disks = devlog::timed("collector.disk", || disk::collect(None));
         let process_disk_io = devlog::timed("collector.disk-attribution", || {
-            self.ebpf_io.collect_disk(None).map(|result| result.rows)
+            self.ebpf_io
+                .collect_disk(active_processes.as_ref(), None)
+                .map(|result| result.rows)
         });
         let process_network_io = devlog::timed("collector.network-attribution", || {
-            self.ebpf_io.collect_network(None).map(|result| result.rows)
+            self.ebpf_io
+                .collect_network(active_processes.as_ref(), None)
+                .map(|result| result.rows)
         });
         let temperatures = devlog::timed("collector.temperatures", || {
             self.temperatures.collect(Instant::now(), None)

@@ -31,6 +31,7 @@ unsafe extern "C" {
     fn bpf_map__fd(map: *const BpfMap) -> c_int;
     fn bpf_map_get_next_key(fd: c_int, key: *const c_void, next_key: *mut c_void) -> c_int;
     fn bpf_map_lookup_elem(fd: c_int, key: *const c_void, value: *mut c_void) -> c_int;
+    fn bpf_map_delete_elem(fd: c_int, key: *const c_void) -> c_int;
     fn libbpf_get_error(ptr: *const c_void) -> c_long;
 }
 
@@ -194,6 +195,23 @@ where
         current = Some(next);
     }
     Ok(rows)
+}
+
+pub(super) fn delete_map_key<K>(fd: c_int, key: &K) -> Result<(), AttributionFailure> {
+    // SAFETY: key points to a live K whose layout matches the map key ABI selected by the caller.
+    let rc = unsafe { bpf_map_delete_elem(fd, (key as *const K).cast()) };
+    if rc == 0 {
+        return Ok(());
+    }
+
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ENOENT) {
+        return Ok(());
+    }
+    Err(AttributionFailure::new(
+        FailureKind::MapAccess,
+        format!("delete BPF map key: {error}"),
+    ))
 }
 
 fn check_ptr(

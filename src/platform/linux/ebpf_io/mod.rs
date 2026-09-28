@@ -11,10 +11,13 @@ mod abi {
 }
 
 #[cfg(feature = "ebpf-io")]
+use std::collections::HashSet;
+#[cfg(feature = "ebpf-io")]
 use std::fmt;
 
 use crate::core::model::{
-    Collection, CollectionUnavailable, ProcessDiskIoCounter, ProcessNetworkIoCounter,
+    Collection, CollectionUnavailable, ProcessDiskIoCounter, ProcessInstanceId,
+    ProcessNetworkIoCounter,
 };
 use crate::platform::linux::diagnostics::probe_note;
 #[cfg(feature = "ebpf-io")]
@@ -85,6 +88,14 @@ pub(super) struct AttributionRows<T> {
 }
 
 #[cfg(feature = "ebpf-io")]
+fn is_stale_process(
+    active_processes: Option<&HashSet<ProcessInstanceId>>,
+    process: &ProcessInstanceId,
+) -> bool {
+    active_processes.is_some_and(|active| !active.contains(process))
+}
+
+#[cfg(feature = "ebpf-io")]
 pub(super) struct Collector {
     disk: disk::Collector,
     network: network::Collector,
@@ -102,9 +113,10 @@ impl Collector {
 
     pub(super) fn collect_disk(
         &mut self,
+        active_processes: Option<&HashSet<ProcessInstanceId>>,
         mut notes: Option<&mut Vec<String>>,
     ) -> Collection<AttributionRows<ProcessDiskIoCounter>> {
-        match self.disk.collect() {
+        match self.disk.collect(active_processes) {
             Ok(result) if result.unresolved_native_ids > 0 => {
                 probe_note(&mut notes, || {
                     format!(
@@ -125,9 +137,10 @@ impl Collector {
 
     pub(super) fn collect_network(
         &mut self,
+        active_processes: Option<&HashSet<ProcessInstanceId>>,
         mut notes: Option<&mut Vec<String>>,
     ) -> Collection<AttributionRows<ProcessNetworkIoCounter>> {
-        match self.network.collect() {
+        match self.network.collect(active_processes) {
             Ok(result) if result.unresolved_native_ids > 0 => {
                 probe_note(&mut notes, || {
                     format!(
@@ -158,6 +171,7 @@ impl Collector {
 
     pub(super) fn collect_disk(
         &mut self,
+        _active_processes: Option<&std::collections::HashSet<ProcessInstanceId>>,
         mut notes: Option<&mut Vec<String>>,
     ) -> Collection<AttributionRows<ProcessDiskIoCounter>> {
         probe_note(&mut notes, || {
@@ -168,12 +182,35 @@ impl Collector {
 
     pub(super) fn collect_network(
         &mut self,
+        _active_processes: Option<&std::collections::HashSet<ProcessInstanceId>>,
         mut notes: Option<&mut Vec<String>>,
     ) -> Collection<AttributionRows<ProcessNetworkIoCounter>> {
         probe_note(&mut notes, || {
             "eBPF network attribution is disabled in this build".to_owned()
         });
         Collection::unavailable(CollectionUnavailable::Disabled)
+    }
+}
+
+#[cfg(all(test, feature = "ebpf-io"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stale_attribution_uses_full_process_instance_identity() {
+        let current = ProcessInstanceId {
+            pid: 42,
+            birth_marker: 100,
+        };
+        let reused_pid = ProcessInstanceId {
+            pid: 42,
+            birth_marker: 200,
+        };
+        let active = HashSet::from([current]);
+
+        assert!(!is_stale_process(None, &reused_pid));
+        assert!(!is_stale_process(Some(&active), &current));
+        assert!(is_stale_process(Some(&active), &reused_pid));
     }
 }
 

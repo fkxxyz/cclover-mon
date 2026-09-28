@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ffi::CStr;
 use std::mem::offset_of;
 
@@ -65,12 +66,15 @@ impl Collector {
         let object = self.object()?;
         let mut rows = Vec::new();
         let mut unresolved_native_ids = 0;
+        let mut identities = HashMap::new();
         for (key, value) in read_map::<Key, CounterValue>(object.map_fd(MAP)?)? {
-            let Some(interface) = native::interface_name(key.ifindex) else {
-                unresolved_native_ids += 1;
-                continue;
-            };
-            let Some(network_id) = network_metric::id_for_interface(&interface, key.ifindex) else {
+            let Some((interface, network_id)) =
+                resolve_identity(&mut identities, key.ifindex, |ifindex| {
+                    let interface = native::interface_name(ifindex)?;
+                    let network_id = network_metric::id_for_interface(&interface, ifindex)?;
+                    Some((interface, network_id))
+                })
+            else {
                 unresolved_native_ids += 1;
                 continue;
             };
@@ -79,8 +83,8 @@ impl Collector {
                     pid: key.tgid,
                     birth_marker: birth_marker_from_start_boottime_ns(value.process_start_time),
                 },
-                network_id,
-                interface,
+                network_id: network_id.clone(),
+                interface: interface.clone(),
                 rx_bytes: if key.direction == 0 { value.bytes } else { 0 },
                 tx_bytes: if key.direction == 1 { value.bytes } else { 0 },
             });
@@ -109,6 +113,17 @@ impl Collector {
             .as_ref()
             .map_err(Clone::clone)
     }
+}
+
+fn resolve_identity(
+    identities: &mut HashMap<u32, Option<(String, crate::core::model::NetworkId)>>,
+    ifindex: u32,
+    resolve: impl FnOnce(u32) -> Option<(String, crate::core::model::NetworkId)>,
+) -> Option<&(String, crate::core::model::NetworkId)> {
+    identities
+        .entry(ifindex)
+        .or_insert_with(|| resolve(ifindex))
+        .as_ref()
 }
 
 fn merge_rows(rows: &mut Vec<ProcessNetworkIoCounter>) {
@@ -173,6 +188,43 @@ mod tests {
             !finish.contains("if (!sk || bytes <= 0)"),
             "failed sends must still clear send-scoped correlation state"
         );
+    }
+
+    #[test]
+    fn resolves_each_interface_identity_once_per_sample() {
+        let mut identities = HashMap::new();
+        let mut resolutions = 0;
+
+        for ifindex in [7, 7, 9, 7, 9] {
+            let resolved = resolve_identity(&mut identities, ifindex, |ifindex| {
+                resolutions += 1;
+                Some((
+                    format!("if{ifindex}"),
+                    network_id(&format!("network-{ifindex}")),
+                ))
+            });
+            assert!(resolved.is_some());
+        }
+
+        assert_eq!(resolutions, 2);
+    }
+
+    #[test]
+    fn caches_unresolved_identity_for_the_sample() {
+        let mut identities = HashMap::new();
+        let mut resolutions = 0;
+
+        for _ in 0..3 {
+            assert!(
+                resolve_identity(&mut identities, 7, |_| {
+                    resolutions += 1;
+                    None
+                })
+                .is_none()
+            );
+        }
+
+        assert_eq!(resolutions, 1);
     }
 
     #[test]

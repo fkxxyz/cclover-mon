@@ -65,7 +65,7 @@ Further isolation points such as core-only derivation, presentation construction
 - Prefer the smallest change that removes the measured source of cost without changing product semantics unnecessarily.
 - Collector timing is local evidence; whole-process profiling is required when cost may also come from core, UI, allocator, renderer, driver, or native-library work.
 - Preserve the production one-second sampling cadence in performance diagnostics unless the performance question explicitly concerns cadence itself.
-- Repeated native polling should reuse discovery and long-lived handles when the native interface permits it. In particular, temperature sampling should not rescan stable hwmon/NVML topology or recreate an NVML session on every one-second sample; topology refresh is a separate lifecycle concern.
+- Repeated native polling should reuse discovery and long-lived handles when the native interface permits it. In particular, temperature sampling should not rescan stable hwmon/NVML topology or recreate an NVML session on every one-second sample; topology refresh is a separate lifecycle concern. Within one sampling cycle, repeated attribution rows for the same native locator must share one topology/identity resolution rather than repeating sysfs or equivalent native discovery per row.
 - Do not include diagnostic formatting, terminal output, or synthetic replacement work in a benchmark path unless that work is the subject being measured.
 - Select metrics that match the problem. CPU time, wakeups, allocation, RSS, and data movement are independent dimensions and do not all need measurement for every investigation.
 

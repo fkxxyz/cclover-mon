@@ -1,9 +1,10 @@
 [package]
-name = "cclover-desktop-ui"
+name = "cclover-web-ui"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 cclover-core = { path = "../cclover-core" }
 cclover-presentation = { path = "../cclover-presentation" }
+cclover-ui = { path = "../cclover-ui" }
 iced = { version = "0.14.0", default-features = false, features = ["canvas", "crisp", "fira-sans", "smol", "wgpu", "wayland", "x11"] }

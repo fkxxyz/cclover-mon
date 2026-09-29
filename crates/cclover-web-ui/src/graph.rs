@@ -4,6 +4,8 @@ use iced::mouse;
 use iced::widget::canvas;
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme};
 
+use cclover_ui::Tone;
+
 #[derive(Debug)]
 pub struct Graph<'a> {
     values: &'a VecDeque<f64>,
@@ -28,8 +30,8 @@ impl<'a> Graph<'a> {
             auto_scale_floor: 1024.0,
             line,
             area,
-            frame: Color::from_rgb8(0x33, 0x41, 0x5f),
-            guide: Color::from_rgb8(0x26, 0x34, 0x4e),
+            frame: color(Tone::Border),
+            guide: color(Tone::Guide),
             capacity,
         }
     }
@@ -150,4 +152,9 @@ impl<Message> canvas::Program<Message> for Graph<'_> {
 
         vec![frame.into_geometry()]
     }
+}
+
+fn color(tone: Tone) -> Color {
+    let value = tone.rgba();
+    Color::from_rgba8(value.r, value.g, value.b, value.a)
 }

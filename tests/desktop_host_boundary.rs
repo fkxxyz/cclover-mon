@@ -28,3 +28,79 @@ fn native_desktop_hosting_stays_in_desktop_crate() {
         }
     }
 }
+
+#[test]
+fn native_desktop_path_does_not_depend_on_iced() {
+    let manifest = include_str!("../crates/cclover-desktop/Cargo.toml");
+    for forbidden in ["iced", "winit", "wgpu", "cclover-web-ui"] {
+        assert!(
+            !manifest.contains(forbidden),
+            "native desktop manifest must not pull renderer framework dependency {forbidden} back in"
+        );
+    }
+
+    for (name, source) in [
+        (
+            "native",
+            include_str!("../crates/cclover-desktop/src/native.rs"),
+        ),
+        (
+            "linux",
+            include_str!("../crates/cclover-desktop/src/linux.rs"),
+        ),
+        (
+            "windows",
+            include_str!("../crates/cclover-desktop/src/windows.rs"),
+        ),
+    ] {
+        for forbidden in ["iced::", "winit::", "wgpu::", "cclover_web_ui"] {
+            assert!(
+                !source.contains(forbidden),
+                "{name} desktop source must consume NativeScene/native host only ({forbidden})"
+            );
+        }
+    }
+}
+
+#[test]
+fn native_scene_abi_has_one_declarative_authority() {
+    let rust_bridge = include_str!("../crates/cclover-desktop/src/native.rs");
+    let build_script = include_str!("../crates/cclover-desktop/build.rs");
+    let spec = include_str!("../crates/cclover-desktop/src/native_abi_spec.rs");
+    let handwritten_header = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("crates/cclover-desktop/native/native_scene.h");
+
+    assert!(rust_bridge.contains("include!(\"native_abi_spec.rs\")"));
+    assert!(build_script.contains("include!(\"src/native_abi_spec.rs\")"));
+    assert!(spec.contains("NativeCommand => CcloverCommand"));
+    assert!(
+        !handwritten_header.exists(),
+        "native scene ABI must not regain a separately maintained C header"
+    );
+}
+
+#[test]
+fn windows_desktop_surface_preserves_panel_window_policy() {
+    let source = include_str!("../crates/cclover-desktop/native/windows_host.c");
+
+    for required in [
+        "GetShellWindow()",
+        "GW_OWNER",
+        "WS_EX_TOOLWINDOW",
+        "WS_EX_NOACTIVATE",
+        "WS_EX_LAYERED",
+        "WS_EX_TRANSPARENT",
+        "SetLayeredWindowAttributes",
+        "LWA_ALPHA",
+        "WM_NCHITTEST",
+        "HTTRANSPARENT",
+        "HWND_BOTTOM",
+        "RegisterWindowMessageW(L\"TaskbarCreated\")",
+        "message == host->taskbar_created",
+    ] {
+        assert!(
+            source.contains(required),
+            "Windows desktop host must preserve native panel policy primitive: {required}"
+        );
+    }
+}

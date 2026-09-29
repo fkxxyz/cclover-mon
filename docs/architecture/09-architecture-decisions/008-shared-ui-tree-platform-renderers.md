@@ -1,0 +1,111 @@
+---
+summary: "Chooses one renderer-neutral dashboard tree as UI authority, with separate native desktop and Web renderers."
+viewpoint: decision
+concerns:
+  - architecture-coherence
+  - maintainability
+  - portability
+  - performance
+activities:
+  - orient
+  - change
+  - assess
+facets:
+  area:
+    - whole-system
+---
+
+# ADR 008: Shared UI Tree with Platform Renderers
+
+## Decision
+
+Keep one shared renderer-neutral dashboard definition and stop making a cross-platform GUI framework the owner of desktop rendering.
+
+The shared `cclover-ui` layer owns dashboard structure, element ordering, visibility, visual tokens, graph semantics, and geometry that must stay identical across renderers. It consumes `cclover-presentation` and emits a deliberately small dashboard tree composed of rows, stacks, text cells, progress bars, graphs, sections, and cards. Renderer-specific code consumes that tree; it does not independently reconstruct CPU, memory, GPU, disk, network, process, or availability presentation.
+
+```text
+MonitorState
+    ↓
+cclover-presentation
+    ↓
+cclover-ui: shared dashboard tree + visual/layout authority
+    ├── native desktop renderer
+    │     ├── Windows native host/drawing
+    │     └── Linux native host/drawing
+    ├── Web renderer
+    └── terminal frontend (presentation semantics only)
+```
+
+Native desktop rendering is platform-owned. Windows uses the Win32 window/message/tray stack and GDI drawing appropriate to the supported Windows range. Linux owns Wayland/X11 hosting and may share one software/native drawing implementation across those hosts. Native renderers execute shared UI elements and drawing primitives; they do not own dashboard semantics.
+
+For native desktop rendering, `cclover-ui::NativeScene` is the final shared lowering step. It contains renderer-ready primitives and absolute geometry derived from the dashboard tree. Platform-native hosts execute that scene; they do not repeat dashboard layout calculations. Web is not required to consume `NativeScene` and may lower the higher-level dashboard tree through browser-native layout/drawing instead. `NativeScene` is therefore a native rendering contract, not a generic cross-platform GUI toolkit.
+
+Web remains a separate renderer. It should reuse the shared dashboard structure and visual tokens but may map them to browser-native layout and drawing rather than consuming desktop pixel primitives. Browser transport remains the existing explicit HTTP/SSE boundary.
+
+Do not rebuild a general-purpose widget framework. The shared tree exists only to describe this fixed monitor dashboard. Add abstractions only when multiple renderers need the same dashboard rule.
+
+## Rationale
+
+The monitor UI is small and read-only: text, cards, separators, progress bars, and bounded history graphs. The prior Iced/winit/wgpu stack made this small surface depend on graphics-adapter selection, surface presentation, redraw behavior, and compatibility layers far below application semantics.
+
+Windows XP + One-Core-API experiments demonstrated the mismatch. Monitoring state, runtime, subscriptions, and application updates could remain functional while wgpu adapter creation or later surface presentation failed. GL and software paths moved the failure into different framework layers without making application behavior easier to control. Continuing to patch those layers would spend complexity on framework compatibility rather than monitoring functionality.
+
+Maintaining fully independent platform UIs would create a different problem: every dashboard change would require synchronized edits in several renderers. The shared dashboard tree solves that at the governing boundary. A renderer receives an already-decided UI and only realizes it using its platform's mechanisms.
+
+## Ownership Rules
+
+`cclover-presentation` owns metric meaning and formatted display semantics.
+
+`cclover-ui` owns cross-renderer dashboard decisions:
+
+- card/section structure and ordering;
+- which semantic values appear in each card;
+- text roles and visual tokens;
+- shared spacing and geometry where parity requires exact dimensions;
+- graph ranges, auto-scaling policy, series assignment, and visual role;
+- renderer-neutral element composition.
+
+Renderer adapters own only realization details:
+
+- font API and text measurement;
+- native/browser drawing calls;
+- surface/buffer lifecycle;
+- clipping implementation;
+- DPI/device scaling;
+- window/event-loop integration.
+
+Platform desktop hosts additionally own tray integration, placement, pointer passthrough, taskbar/Alt+Tab behavior, and native lifecycle policy.
+
+No renderer may infer metric availability, ranking, formatting, graph range, or card visibility from platform identity or raw monitor state when the shared layers already own that decision.
+
+## Web Boundary
+
+Web is not required to consume a desktop `Text(x, y)`/`Rect(x, y)` scene. Browser layout mechanisms differ materially from native desktop surfaces. Shared UI authority therefore stops at the renderer-neutral dashboard tree and style/layout tokens. A native renderer may lower that tree into absolute drawing primitives; a Web renderer may lower it into DOM/CSS/Canvas/SVG.
+
+Changing a dashboard card should change the shared tree once. Renderer changes should be required only when introducing a genuinely new renderer-neutral element kind.
+
+## Migration
+
+Migration is incremental:
+
+1. Extract the renderer-neutral dashboard tree from the former shared Iced widget implementation.
+2. Make the existing Iced frontend a thin adapter over that tree during migration; after native desktop migration it remains only as the Web/WASM adapter.
+3. Implement the Windows native desktop host/renderer against the same tree. This migration step is now implemented at source/build level: the Windows desktop path consumes `cclover-ui`/`NativeScene` through a narrow C ABI and uses Win32/GDI rather than Iced/winit/wgpu. Runtime validation on real supported Windows environments remains separate.
+4. Replace Linux desktop Iced hosting/rendering with native Wayland layer-shell/X11 hosting plus shared Cairo drawing. Implemented; both paths consume `NativeScene` and were smoke-tested against the local Wayland and XWayland sessions.
+5. Replace or retain the browser adapter independently; Web must continue to consume shared UI authority rather than recreate dashboard semantics.
+6. Remove Iced/winit/wgpu from native desktop dependencies. Implemented for both Windows and Linux; Iced remains only in the Web/WASM adapter.
+
+The remaining Iced adapter is Web/WASM-only and does not make Iced the dashboard authority.
+
+## Consequences
+
+- UI consistency is enforced above renderer implementations instead of by sharing one graphics framework.
+- Native desktop compatibility failures are isolated to small platform renderers/hosts.
+- Web can use browser-native rendering without duplicating dashboard semantics.
+- New platform renderers implement a small stable element vocabulary instead of every monitor card independently.
+- Exact glyph metrics may differ by native font stack; structure, values, geometry policy, colors, graph semantics, and ordering remain shared.
+- The shared UI tree must stay application-specific and small; turning it into a generic toolkit would recreate the abstraction cost this decision removes.
+
+## Supersedes
+
+This decision supersedes ADR 007's requirement that native desktop and Web share one Iced panel implementation.

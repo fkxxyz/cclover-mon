@@ -27,8 +27,8 @@ Most native code remains in one primary crate, and unrelated frontend stacks par
 
 ## Evidence
 
-- Core now lives in `cclover-core`, renderer-neutral presentation in `cclover-presentation`, terminal rendering/lifecycle in `cclover-tui`, shared Iced renderer/layout in `cclover-desktop-ui`, and native desktop application/hosting in `cclover-desktop`; platform collectors, `src/web.rs`, and runtime composition remain in the primary application crate.
-- `cclover-tui` owns `ratatui` and `crossterm`, so TUI-only validation no longer compiles Iced/WGPU. `cclover-desktop-ui` owns desktop renderer/layout code. `cclover-desktop` owns native Iced application composition plus Linux layershell/tray/X11 hosting; the primary application crate no longer directly declares native Iced, WGPU, layershell, tray, or X11 desktop-host dependencies.
+- Core now lives in `cclover-core`, renderer-neutral presentation in `cclover-presentation`, shared graphical dashboard authority in `cclover-ui`, terminal rendering/lifecycle in `cclover-tui`, Web/WASM rendering in `cclover-web-ui`, and native desktop hosting/rendering in `cclover-desktop`; platform collectors, `src/web.rs`, and runtime composition remain in the primary application crate.
+- `cclover-tui` owns `ratatui` and `crossterm`, so TUI-only validation no longer compiles Iced/WGPU. `cclover-web-ui` owns the remaining Web-only Iced adapter. `cclover-desktop` owns Win32/GDI and Wayland/X11+Cairo native rendering and has no Iced/winit/wgpu dependency.
 - Recent development frequently changes shared core types and architecture boundaries, so recompilation cost repeatedly appears during normal refactoring rather than only during rare clean builds.
 - Full validation spends materially more time compiling than executing the unit tests themselves.
 - Core-only changes can now be validated with `cargo test -p cclover-core`; that package currently has no external dependencies. Presentation-only changes can be validated with `cargo test -p cclover-presentation`, whose dependency tree contains only `cclover-core`. TUI-only changes can be validated with `cargo test -p cclover-tui`, whose dependency tree contains presentation/core plus Ratatui/Crossterm but no Iced/WGPU. These workflows avoid unrelated frontend and platform stacks.
@@ -48,7 +48,7 @@ Trace Cargo dependency and validation relationships for:
 - core model, derivation, history, and sampling;
 - renderer-neutral presentation;
 - platform collectors and desktop integration;
-- desktop Iced frontend;
+- native desktop renderer/hosting;
 - terminal frontend;
 - HTTP/Web transport and frontend;
 - application/runtime composition;
@@ -75,13 +75,14 @@ The workspace now uses package boundaries aligned with the stable change axes th
 - `cclover-core` owns the platform-neutral metric model, sampling, derivation, and history;
 - `cclover-presentation` owns renderer-neutral dashboard semantics;
 - `cclover-tui` owns Ratatui/Crossterm terminal rendering;
-- `cclover-desktop-ui` owns shared Iced renderer/layout code;
-- `cclover-desktop` owns native desktop application composition and Linux/Windows desktop hosting;
+- `cclover-ui` owns shared graphical dashboard structure and native scene lowering;
+- `cclover-web-ui` owns the Web/WASM Iced renderer adapter;
+- `cclover-desktop` owns native Linux/Windows desktop hosting and primitive execution;
 - the root `cclover-mon` package remains the application/runtime/platform/Web composition boundary.
 
 Optional heavy build capabilities are also explicit: default/full builds enable `http` and `ebpf-io`, while `--no-default-features` provides a supported minimal native validation path without the WASM/bindgen or eBPF/libbpf toolchains.
 
-Measured warm feedback paths after the split are approximately 0.15 s for `cclover-core`, 0.15 s for `cclover-presentation`, 0.20 s for `cclover-tui`, 0.40 s for `cclover-desktop-ui`, 0.31 s for `cclover-desktop`, and 0.25 s for a root minimal check in the measured development environment. These workflows no longer compile unrelated heavyweight frontend stacks.
+Measured warm feedback paths after the split are approximately 0.15 s for `cclover-core`, 0.15 s for `cclover-presentation`, 0.20 s for `cclover-tui`, 0.40 s for `cclover-web-ui`, 0.31 s for `cclover-desktop`, and 0.25 s for a root minimal check in the measured development environment. These workflows no longer compile unrelated heavyweight frontend stacks.
 
 Further package splitting of runtime, platform collectors, or Web transport was evaluated and rejected for now because the remaining compilation radius is already small and those responsibilities still form the application composition boundary. Additional packages would add API/package management cost without a demonstrated feedback-loop benefit.
 

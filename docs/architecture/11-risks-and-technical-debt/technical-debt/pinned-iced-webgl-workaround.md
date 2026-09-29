@@ -21,11 +21,11 @@ Active — P3.
 
 ## Problem
 
-Iced 0.14 and current upstream development revisions can corrupt multi-Canvas rendering on the WebGL path: geometry may be lost when Canvas widgets share a renderer layer, while naïvely forcing separate layers can still produce cross-Canvas clipping/coordinate corruption. The shared HTTP panel therefore cannot rely on the unmodified upstream `iced_widget` package.
+Iced 0.14 and current upstream development revisions can corrupt multi-Canvas rendering on the WebGL path: geometry may be lost when Canvas widgets share a renderer layer, while naïvely forcing separate layers can still produce cross-Canvas clipping/coordinate corruption. The Web/WASM renderer adapter for the HTTP panel therefore cannot rely on the unmodified upstream `iced_widget` package.
 
 ## Current containment
 
-`Cargo.toml` patches only `iced_widget` to a fixed commit in `fkxxyz/iced`. The fork keeps each Canvas inside its own renderer layer and creates that layer after entering the Canvas-local translation, so clipping and geometry share one coordinate transform. The existing Canvas API and shared native/Web panel implementation remain unchanged; other Iced crates stay on their normal crates.io versions.
+`Cargo.toml` patches only `iced_widget` to a fixed commit in `fkxxyz/iced`. The fork keeps each Canvas inside its own renderer layer and creates that layer after entering the Canvas-local translation, so clipping and geometry share one coordinate transform. Iced is now confined to `cclover-web-ui`; native desktop rendering uses the shared dashboard definition through `NativeScene` and platform-native renderers, so this fork no longer affects Linux or Windows desktop rendering. Other Iced crates stay on their normal crates.io versions.
 
 ## Maintenance impact
 
@@ -33,7 +33,7 @@ Dependency upgrades must verify whether the upstream defect still exists and whe
 
 ## Governing constraint
 
-Keep the workaround below the shared UI boundary. Do not introduce Web-only graph widgets, duplicate panel layout, or merge all application graphs into one Canvas merely to accommodate this renderer defect.
+Keep the workaround inside the Web/WASM renderer adapter and below the shared dashboard-definition boundary. Do not duplicate dashboard semantics/layout or merge all application graphs into one Canvas merely to accommodate this renderer defect.
 
 ## Exit criteria
 

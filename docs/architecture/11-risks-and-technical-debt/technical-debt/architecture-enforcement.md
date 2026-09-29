@@ -24,7 +24,7 @@ Several important architecture and validation rules still exist primarily as pro
 
 ## Evidence
 
-`bun archgate.ts` now scans Rust source dependencies and fails on forbidden top-level edges among `core`, `platform`, `presentation`, and `ui`; its focused Bun tests cover allowed/forbidden edges, braced imports, relative `super` paths, comment/string filtering, the live repository, and a violating fixture. Repository validation commands are still documented workflow rather than CI-enforced automation, and cross-layer contracts have limited automated coverage compared with local parser/derivation tests.
+`bun archgate.ts` now scans Rust source dependencies and fails on forbidden top-level edges among `core`, `platform`, `presentation`, and `ui`; its focused Bun tests cover allowed/forbidden edges, braced imports, relative `super` paths, comment/string filtering, the live repository, and a violating fixture. Targeted source/contract tests also protect selected native-desktop invariants such as keeping Iced out of native dependencies and retaining required Win32 panel policy primitives. Repository validation commands are still documented workflow rather than CI-enforced automation, and important native runtime behavior remains expensive to establish mechanically: Wayland output scaling, Windows pointer passthrough, desktop/shell Z-order and repaint behavior, Explorer/tray restart recovery, and cross-renderer text/layout parity can compile and satisfy structural tests while still failing on a real compositor or shell.
 
 ## Maintenance impact
 
@@ -36,7 +36,7 @@ Important architecture invariants and repeatable validation steps should fail me
 
 ## Resolution direction
 
-Keep `archgate.ts` narrowly focused and millisecond-scale; do not add compilation, formatting, Clippy, or runtime work to it. Add further targeted mechanical checks only when an architecture invariant has a similarly cheap, deterministic representation. Full repository validation automation may be added later when the project adopts CI. Prefer targeted checks over splitting crates solely for enforcement, and add contract-level tests where a documented boundary has meaningful behavior not covered by local unit tests.
+Keep `archgate.ts` narrowly focused and millisecond-scale; do not add compilation, formatting, Clippy, or runtime work to it. Add further targeted mechanical checks only when an architecture invariant has a similarly cheap, deterministic representation. Full repository validation automation may be added later when the project adopts CI. Prefer targeted checks over splitting crates solely for enforcement, and add contract-level tests where a documented boundary has meaningful behavior not covered by local unit tests. For behavior whose correctness depends on a real desktop environment, keep a small representative runtime smoke matrix rather than pretending source inspection proves protocol semantics; prioritize checks for output scaling, input passthrough, shell stacking/repaint, tray restart recovery, and graphical layout parity because those have already produced real regressions during the native-renderer migration.
 
 ## Exit criteria
 

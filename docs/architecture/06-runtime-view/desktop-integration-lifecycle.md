@@ -33,26 +33,26 @@ platform desktop host
 
 On Linux, X11 versus Wayland selection applies to the monitor surface only. The application does not branch on that choice. Both session types use the same StatusNotifierItem tray implementation over the desktop session D-Bus.
 
-Native tray callbacks translate user intent into platform-neutral `DesktopCommand` values. They do not terminate the process or mutate Iced state directly:
+Native tray callbacks translate user intent into a platform-neutral quit signal owned by the desktop boundary. They do not expose native menu identifiers or mutate renderer state directly:
 
 ```text
 user chooses Quit
         ↓
 native tray menu callback
         ↓
-DesktopCommand::Quit
+desktop quit signal
         ↓
-application update loop
+native host loop observes signal
         ↓
 normal application/runtime shutdown
 ```
 
-When application state changes the desired monitor-surface size, the application only updates that platform-neutral geometry. On Linux, the desktop host distinguishes desired geometry from compositor-realized geometry and treats a resize request as incomplete until window events report that the realized size has converged to the desired size. If an initial or later configure reports a different size, the host re-applies the current desired geometry. Linux uses a layer-shell size action on Wayland or an Iced/X11 window resize on X11, while Windows uses its native Iced window host. Protocol-specific resize messages never enter the application message enum.
+When application state changes the desired monitor-surface size, the shared dashboard tree and `NativeScene` remain the geometry authority. The active desktop host realizes that size through its native protocol: Wayland layer-shell on Linux Wayland, X11 window geometry on Linux X11, and Win32 on Windows. Protocol-specific resize messages never enter shared dashboard semantics.
 
-Future Windows notification-area integration must emit the same command rather than exposing Win32 menu identifiers or handles to the application lifecycle.
+Windows notification-area integration emits the same platform-neutral lifecycle intent rather than exposing Win32 menu identifiers or handles to shared application state.
 
 Tray availability is optional desktop integration. Failure to connect to the session bus, register a StatusNotifierItem, or find a compatible tray host emits a diagnostic and leaves the monitor surface and metric sampling operational. Tray failure must not be represented as metric unavailability and must not terminate the application.
 
-The tray host and application have independent startup and restart ordering. On Linux, absence of `org.kde.StatusNotifierWatcher` during application startup is transient rather than a permanent tray failure: the tray service remains alive, observes the watcher appearing later, and registers then. If the watcher disappears and returns while the application remains running, tray registration must recover without restarting the application.
+The tray host and application have independent startup and restart ordering. On Linux, absence of `org.kde.StatusNotifierWatcher` during application startup is transient rather than a permanent tray failure: the tray service remains alive, observes the watcher appearing later, and registers then. If the watcher disappears and returns while the application remains running, tray registration must recover without restarting the application. On Windows, Explorer restart is treated the same way: the host registers the shell's `TaskbarCreated` message and, when it is broadcast, rebinds the monitor surface to the current shell owner, reapplies placement/Z-order, re-registers the notification-area icon, and invalidates the surface for repaint without restarting the sampler or process.
 
 The tray service lives in the same process as the application. Its lifetime is bounded by the application runtime; no helper daemon or second executable owns tray state.

@@ -19,7 +19,7 @@ facets:
 
 These items are risks or intentional capability limits that can remain even when the code structure is sound. Structural maintenance debt is tracked separately in [Technical Debt](technical-debt.md).
 
-- Linux layer-shell integration currently depends on `iced_layershell` 0.19.1 and exact `winit-core` / `winit-common` 0.31.0-beta.2 compatibility pins; upgrades require runtime and build validation.
+- Linux native desktop rendering depends on system Cairo, X11/Xext, and Wayland client libraries plus checked-in generated layer-shell protocol code; packaging and protocol-library upgrades require native build and runtime validation.
 - Native metric parity will vary by operating system; the shared model must preserve common semantics without flattening meaningful platform-specific data.
 - Third-party C++ SDKs may impose runtime or packaging costs that must be measured before adoption.
 - X11 window-manager behavior varies across EWMH implementations; top-right placement, skip-taskbar/pager, focus avoidance, transparency, and desktop-like stacking require runtime validation on representative window managers.
@@ -29,5 +29,5 @@ These items are risks or intentional capability limits that can remain even when
 - Network attribution measures successful socket payload bytes and correlates process-context send/receive completion with event-observed interface identity. TCP and UDP loopback are runtime-validated, but bridges, tunnels, VPNs, network namespaces, less common protocols, and route changes can expose hook or correlation gaps and still require representative validation.
 - BPF maps introduce bounded kernel memory and lifecycle state. Values carry process-group leader start time so PID reuse resets counters, but map eviction under high cardinality remains an intentional bounded-state tradeoff and must be included in stress validation.
 - Browser/WASM rendering depends on browser WebAssembly/WebGL support and Iced's Web runtime behavior; representative Chromium/Firefox runtime validation is required because native build success does not prove browser rendering.
-- The shared UI currently requests host font `Inconsolata`. Native targets can discover system fonts, while WASM cannot rely on remote browser system-font discovery. The WASM build carries a fallback font, but exact font metrics/appearance can differ until the intended font is deliberately embedded under suitable redistribution terms.
+- Font-role semantics are shared, but font realization is renderer-owned. Linux native rendering resolves Cairo's `monospace` family, Windows uses its native monospace fallback, and Web/WASM carries a fallback font because browser system-font discovery is not reliable. Exact glyph metrics and appearance can therefore differ across renderers even though dashboard geometry and semantic roles are shared.
 - Read-only HTTP monitoring has no authentication by design in v1. Non-loopback binding therefore assumes a trusted LAN and must remain an explicit user configuration rather than a default.

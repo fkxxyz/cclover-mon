@@ -1,5 +1,5 @@
 ---
-summary: "Records the decision to share dashboard presentation semantics across frontends while keeping renderer-specific layout local."
+summary: "Records the renderer-neutral presentation boundary; ADR 008 adds shared graphical dashboard layout above it."
 viewpoint: decision
 concerns:
   - portability
@@ -15,15 +15,19 @@ facets:
 
 # ADR 004: Renderer-Neutral Presentation Model
 
+## Status
+
+Presentation ownership remains current. ADR 008 supersedes only the former rule that each graphical frontend independently owns layout and that native/Web must share Iced pixel rendering.
+
 ## Decision
 
 Introduce a renderer-neutral presentation layer between `core::MonitorState` and concrete frontends.
 
-The presentation layer owns dashboard semantics that should remain consistent across native/Web Iced delivery and the terminal frontend: metric grouping, display labels, value formatting, unavailable-value semantics, process rows, and access to the history associated with a displayed metric.
+The presentation layer owns dashboard semantics that should remain consistent across graphical renderers and the terminal frontend: metric grouping, display labels, value formatting, unavailable-value semantics, process rows, and access to the history associated with a displayed metric.
 
-Each frontend owns its own layout and interaction model. The shared Iced frontend owns pixel dimensions, columns, cards, graphs, and panel sizing across native and browser/WASM runtimes. The terminal frontend owns terminal rows, columns, focus, scrolling, and terminal rendering. Do not introduce a common renderer/widget trait merely to make these layout systems look alike.
+ADR 008 now assigns graphical dashboard structure and shared geometry to `cclover-ui`; concrete renderers own only realization mechanics. The terminal frontend owns terminal rows, columns, focus, scrolling, and terminal rendering. Do not introduce a generic renderer/widget trait merely to make these layout systems look alike.
 
-Within a frontend, structural layout must have one authority. The Iced `PanelLayout` is the source for both block rendering and requested panel height; the application must not maintain a second hand-written copy of the panel structure.
+Graphical structural layout has one authority in `cclover-ui`, including requested native panel height. Renderer adapters must not maintain a second hand-written copy of panel structure.
 
 ## Rationale
 
@@ -35,6 +39,6 @@ Keeping the presentation model renderer-neutral also preserves the existing nati
 
 - `core` remains the authority for metric semantics, derivation, history, and aggregation.
 - `presentation` may depend on core model types and shared formatting rules, but not on Iced, terminal libraries, platform APIs, or app message types.
-- Linux/Windows native targets and browser/WASM delivery reuse the same Iced frontend; runtime-specific hosting and transport do not fork panel drawing.
+- Historical rendering consequence superseded by ADR 008: graphical targets now share `cclover-ui` dashboard authority while renderer mechanics may differ.
 - The terminal frontend reuses `presentation` while defining its own layout and interaction; sampling and platform composition remain in the execution adapter.
 - Frontend layout metadata is renderer-specific and must not leak into the presentation model.

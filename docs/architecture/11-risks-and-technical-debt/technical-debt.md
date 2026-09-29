@@ -32,6 +32,7 @@ Technical debt here means current structure that makes future reasonable change 
 | [Web API model coupling](technical-debt/web-api-model-coupling.md) | Active | Internal monitor-model evolution can silently change versioned HTTP payloads and make route aliases look more compatible than their schemas are. |
 | [GPU capability contract](technical-debt/gpu-capability-contract.md) | Active | GPU ownership and missing-field semantics still rely on cross-collector convention and compressed optional state, raising vendor/backend extension risk. |
 | [Native collector test seams](technical-debt/native-collector-test-seams.md) | Active | Discovery and filesystem/native IO remain expensive to validate without the live host. |
+| [Native text metrics contract](technical-debt/native-text-metrics-contract.md) | Active | Native absolute text geometry still assumes preferred-font metrics before Cairo/GDI realize or substitute the actual face. |
 
 ## P3
 

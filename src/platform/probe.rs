@@ -1,6 +1,7 @@
+#[cfg(target_os = "linux")]
+use crate::core::model::GpuSnapshot;
 use crate::core::model::{
-    Collection, CpuCounter, DiskCounter, GpuSnapshot, MemorySnapshot, NetworkCounter,
-    ProcessCounter,
+    Collection, CpuCounter, DiskCounter, MemorySnapshot, NetworkCounter, ProcessCounter,
 };
 #[cfg(target_os = "windows")]
 use crate::core::model::{CollectionStatus, CollectionUnavailable};

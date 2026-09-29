@@ -2,6 +2,7 @@
 
 pub mod core;
 pub mod presentation;
+#[cfg(target_arch = "wasm32")]
 pub mod ui;
 pub mod web_transport;
 

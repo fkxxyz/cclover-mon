@@ -1,1 +1,1 @@
-pub use cclover_desktop_ui::*;
+pub use cclover_web_ui::*;

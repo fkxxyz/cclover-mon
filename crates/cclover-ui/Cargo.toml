@@ -1,0 +1,10 @@
+[package]
+name = "cclover-ui"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cclover-presentation = { path = "../cclover-presentation" }
+
+[dev-dependencies]
+cclover-core = { path = "../cclover-core" }

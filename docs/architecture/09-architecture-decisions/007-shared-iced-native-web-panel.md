@@ -17,6 +17,10 @@ facets:
 
 # ADR 007: Shared Iced Native and Web Panel
 
+## Status
+
+Superseded by ADR 008. This document remains as historical rationale for the HTTP/SSE transport and the former shared-Iced rendering decision. Where rendering ownership conflicts, ADR 008 governs.
+
 ## Decision
 
 Use one Iced panel implementation for both native desktop rendering and the browser monitor page.

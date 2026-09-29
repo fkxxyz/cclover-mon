@@ -1,11 +1,15 @@
 #![deny(unsafe_code)]
 
-mod app;
-mod host;
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+mod native;
 #[cfg(target_os = "windows")]
 mod windows;
 
-pub use app::DesktopApp;
-pub use host::run;
+#[cfg(target_os = "linux")]
+pub use linux::run;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+pub use native::DesktopApp;
+#[cfg(target_os = "windows")]
+pub use windows::run;

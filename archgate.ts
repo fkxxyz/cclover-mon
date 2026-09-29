@@ -44,7 +44,8 @@ function sourceDomain(file: string): Domain | null {
     ["cclover-core", "core"],
     ["cclover-presentation", "presentation"],
     ["cclover-tui", "tui"],
-    ["cclover-desktop-ui", "ui"],
+    ["cclover-ui", "ui"],
+    ["cclover-web-ui", "ui"],
     ["cclover-desktop", "ui"],
   ] as const) {
     if (normalized.includes(`/crates/${crateName}/src/`) || normalized.startsWith(`crates/${crateName}/src/`)) {
@@ -205,7 +206,7 @@ export function findViolationsInSource(source: string, file: string): Violation[
     candidates.push({ to: match[1] as Domain, offset: match.index });
   }
 
-  const workspaceCratePath = /\bcclover_(core|presentation|tui|desktop_ui|desktop)\s*::/g;
+  const workspaceCratePath = /\bcclover_(core|presentation|ui|tui|desktop_ui|desktop)\s*::/g;
   while ((match = workspaceCratePath.exec(code))) {
     const workspaceDomain = match[1] === "desktop_ui" ? "ui" : match[1];
     candidates.push({ to: workspaceDomain as Domain, offset: match.index });
@@ -252,7 +253,8 @@ export function scanArchitecture(root = resolve(import.meta.dir)): Violation[] {
         join(root, "crates", "cclover-core", "src"),
         join(root, "crates", "cclover-presentation", "src"),
         join(root, "crates", "cclover-tui", "src"),
-        join(root, "crates", "cclover-desktop-ui", "src"),
+        join(root, "crates", "cclover-ui", "src"),
+        join(root, "crates", "cclover-web-ui", "src"),
         join(root, "crates", "cclover-desktop", "src"),
       ].filter(existsSync);
   return roots.flatMap((sourceRoot) =>

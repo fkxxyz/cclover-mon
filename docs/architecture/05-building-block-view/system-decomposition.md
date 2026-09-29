@@ -50,7 +50,9 @@ app composition root ───────→ frontend
                        ↓
               OS APIs / native libraries
                        ↑
-                optional C++ bridge
+                 native C adapter
+                       ↑
+          optional C++ compatibility shim
 ```
 
 - **core** owns platform-neutral metric types, history, aggregation, and sampling contracts, including `Collector` and the generic `Collection<T>` observation outcome used by every raw metric.
@@ -59,9 +61,11 @@ app composition root ───────→ frontend
 - **cclover-ui** is the cross-renderer dashboard authority. It consumes presentation semantics and defines card/section structure, ordering, shared visual tokens, graph policy, and geometry that must remain consistent across graphical renderers. Its element vocabulary is application-specific and deliberately small; it must not grow into a general widget toolkit.
 - **renderers** realize that shared dashboard definition. Native desktop renderers consume `cclover-ui::NativeScene`, the shared lowering of dashboard structure into absolute drawing primitives; platform code owns primitive execution, font realization/measurement, and surface integration. Native scene lowering may query the renderer for actual text extents, but `cclover-ui` remains the sole authority that converts those measurements into row geometry. Web owns browser realization and transport lifecycle and consumes the higher-level dashboard tree through the Web/WASM adapter instead of `NativeScene`. The terminal frontend continues to consume presentation semantics directly because terminal layout is materially different.
 - **desktop host** inside `cclover-desktop` bridges the native latest-state receiver to `NativeScene`, exposes only the shared scene/poll ABI to platform-native code, and owns desktop lifecycle signals. The root application composes the selected platform collector/runtime with this host; shared UI/presentation code does not select or manipulate native display protocols.
-- **native bridge** adapts C++-only dependencies through a small C ABI.
+- **native boundary** uses C for thin OS/API/protocol adaptation when that removes disproportionate Rust framework or dependency cost without moving application semantics out of Rust. Rust remains responsible for typed state, parsing where memory safety is materially useful, cross-sample semantics, synchronization, and non-trivial resource lifetime. C++ is used only as a narrow compatibility shim for C++-only dependencies and remains behind a C ABI.
 
 The application composition root selects a platform backend and supplies it to the core sampler. `core` must not depend on `platform`; `platform` may depend on core-owned contracts and model types. Platform-specific types do not cross into core, presentation, or shared frontends. Shared contracts must name and model platform-neutral semantics: native units, counters, handles, protocol terms, or source-specific vocabulary are translated at the platform boundary rather than exposed through core-owned field or type names.
+
+Language choice follows responsibility rather than directory or layer. Keep stateful safety-sensitive logic in Rust when it owns lifetime, synchronization, parsing, identity, derivation, availability, or other application semantics. Prefer C for thin native hosts and protocol/API glue whose value is direct access to an existing C ABI, especially when a Rust implementation would introduce a large framework or runtime for little product logic. Do not migrate safe Rust collectors to C merely because they call native facilities; a migration must remove meaningful dependency, binary-size, build, or interoperability cost. C++ remains reserved for C++-only dependencies. ADR 001 is the authority for this decision process.
 
 An independently failing metric capability keeps its observation status as program data for as long as downstream behavior depends on that distinction. `Available(empty)` means the capability was observed successfully and produced no entries; `Unavailable(reason)` means it could not be observed. Core derivation, Web transport, and presentation must not collapse unavailable observations into zero, an empty collection, or an unqualified `None`. Presentation maps the preserved status to renderer-neutral dashboard semantics; frontends render those semantics and do not infer collector health from missing values, platform identity, or source-specific errors. Failure of an optional child capability, such as per-process attribution, does not make an otherwise available parent metric unavailable.
 

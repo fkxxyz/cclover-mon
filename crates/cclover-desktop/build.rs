@@ -103,6 +103,7 @@ fn build_windows(out_dir: &Path) {
 
 fn build_linux(out_dir: &Path) {
     println!("cargo:rerun-if-changed=native/linux_host.c");
+    println!("cargo:rerun-if-changed=native/linux_tray.c");
     println!("cargo:rerun-if-changed=native/wayland/wlr-layer-shell-unstable-v1-protocol.c");
     println!("cargo:rerun-if-changed=native/wayland/wlr-layer-shell-unstable-v1-client-protocol.h");
     println!("cargo:rerun-if-changed=native/wayland/xdg-shell-protocol.c");
@@ -110,6 +111,7 @@ fn build_linux(out_dir: &Path) {
     let mut build = cc::Build::new();
     build
         .file("native/linux_host.c")
+        .file("native/linux_tray.c")
         .file("native/wayland/wlr-layer-shell-unstable-v1-protocol.c")
         .file("native/wayland/xdg-shell-protocol.c")
         .include(out_dir)
@@ -117,7 +119,14 @@ fn build_linux(out_dir: &Path) {
         .include("native/wayland")
         .warnings(true);
 
-    for package in ["cairo", "x11", "xext", "xrender", "wayland-client"] {
+    for package in [
+        "cairo",
+        "x11",
+        "xext",
+        "xrender",
+        "wayland-client",
+        "gio-2.0",
+    ] {
         let library = pkg_config::Config::new()
             .cargo_metadata(true)
             .probe(package)

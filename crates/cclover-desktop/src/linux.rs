@@ -2,47 +2,11 @@
 
 use std::error::Error;
 use std::ffi::c_void;
+use std::ptr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use ksni::blocking::TrayMethods as _;
-
 use crate::native::{DesktopApp, HostCallbacks, NativeContext};
-
-#[derive(Clone)]
-struct TrayIcon {
-    quit: Arc<AtomicBool>,
-}
-
-impl ksni::Tray for TrayIcon {
-    fn id(&self) -> String {
-        "cclover-mon".to_owned()
-    }
-
-    fn title(&self) -> String {
-        "cclover-mon".to_owned()
-    }
-
-    fn icon_name(&self) -> String {
-        "utilities-system-monitor".to_owned()
-    }
-
-    fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
-        use ksni::menu::StandardItem;
-
-        vec![
-            StandardItem {
-                label: "Quit".to_owned(),
-                icon_name: "application-exit".to_owned(),
-                activate: Box::new(|tray: &mut TrayIcon| {
-                    tray.quit.store(true, Ordering::Relaxed);
-                }),
-                ..Default::default()
-            }
-            .into(),
-        ]
-    }
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DisplayServer {
@@ -53,21 +17,63 @@ enum DisplayServer {
 unsafe extern "C" {
     fn cclover_linux_wayland_run(context: *mut c_void, callbacks: *const HostCallbacks) -> i32;
     fn cclover_linux_x11_run(context: *mut c_void, callbacks: *const HostCallbacks) -> i32;
+    fn cclover_linux_tray_start(
+        quit_context: *mut c_void,
+        quit_fn: unsafe extern "C" fn(*mut c_void),
+        out: *mut *mut c_void,
+    ) -> i32;
+    fn cclover_linux_tray_stop(tray: *mut c_void);
+}
+
+struct NativeTray {
+    handle: *mut c_void,
+    quit_context: *mut Arc<AtomicBool>,
+}
+
+impl NativeTray {
+    fn start(quit: Arc<AtomicBool>) -> Option<Self> {
+        let quit_context = Box::into_raw(Box::new(quit));
+        let mut handle = ptr::null_mut();
+        // SAFETY: `quit_context` remains owned by this wrapper until the native tray thread is stopped.
+        let result = unsafe {
+            cclover_linux_tray_start(
+                quit_context.cast::<c_void>(),
+                tray_quit_callback,
+                &mut handle,
+            )
+        };
+        if result == 0 && !handle.is_null() {
+            Some(Self {
+                handle,
+                quit_context,
+            })
+        } else {
+            // SAFETY: native start did not retain the callback context when it reported failure.
+            unsafe { drop(Box::from_raw(quit_context)) };
+            None
+        }
+    }
+}
+
+impl Drop for NativeTray {
+    fn drop(&mut self) {
+        // SAFETY: the handle was returned by `cclover_linux_tray_start` and is stopped exactly once.
+        unsafe { cclover_linux_tray_stop(self.handle) };
+        // SAFETY: tray stop joins its callback thread, so no native callback can access this Arc now.
+        unsafe { drop(Box::from_raw(self.quit_context)) };
+    }
+}
+
+unsafe extern "C" fn tray_quit_callback(context: *mut c_void) {
+    // SAFETY: native tray stores the pointer supplied by NativeTray::start until tray stop completes.
+    let quit = unsafe { &*context.cast::<Arc<AtomicBool>>() };
+    quit.store(true, Ordering::Relaxed);
 }
 
 pub fn run(app: DesktopApp) -> Result<(), Box<dyn Error>> {
     let display = display_server()?;
     let quit = Arc::new(AtomicBool::new(false));
-    let tray = TrayIcon {
-        quit: Arc::clone(&quit),
-    };
-    let _tray_handle = match tray.assume_sni_available(true).spawn() {
-        Ok(handle) => Some(handle),
-        Err(error) => {
-            eprintln!("cclover-mon: system tray unavailable: {error}");
-            None
-        }
-    };
+    let _tray = NativeTray::start(Arc::clone(&quit));
 
     let mut context = Box::new(NativeContext::new(app.receiver, Some(quit)));
     let callbacks = HostCallbacks::new();

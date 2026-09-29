@@ -16,6 +16,6 @@ facets:
 |---|---|
 | Snapshot | One typed, platform-neutral observation of current monitored state. |
 | Platform backend | Linux- or Windows-specific implementation that converts native system data into shared model types. |
-| Native bridge | Thin interoperability layer used when a dependency exposes a C++-only API. |
+| Native boundary | Cross-language/platform seam: C for thin native OS/API/protocol adapters when justified by dependency or interoperability cost; C++ only as a compatibility shim for C++-only dependencies. |
 | Sampling cycle | One coordinated collection pass followed by aggregation and history update. |
 | Shared UI | Presentation code maintained once across supported platforms. |

@@ -1,5 +1,5 @@
 ---
-summary: "Defines the cross-cutting rules for platform isolation, native API use, and Rust/C++ interoperability."
+summary: "Defines platform isolation, native API use, and Rust/C/C++ responsibility boundaries."
 viewpoint: static
 concerns:
   - architecture-coherence
@@ -22,6 +22,16 @@ facets:
 Platform backends implement the collection contracts owned by `core` and translate native state into core-owned, platform-neutral snapshot types. `core` never imports a platform backend; the application composition root wires the selected backend into the core sampler. Native desktop startup enters the shared `cclover-desktop` host contract on every supported desktop OS; application code supplies lifecycle behavior and desired surface geometry, while each platform host owns native window/runtime realization.
 
 Rust source is safe by default: the crate denies `unsafe_code`. Raw FFI, pointer manipulation, dynamic symbol loading, and native lifetime mechanics may opt out only inside narrowly scoped native adapter modules. Every unsafe block or unsafe trait implementation in those adapters documents its local `SAFETY` invariant. Metric policy, shaping, availability semantics, and cross-sample logic stay on the safe side of that boundary.
+
+## Language selection at the platform boundary
+
+Rust is the default owner of application semantics and of native resources whose lifetime benefits from a safe wrapper. C is the default implementation language for thin native hosting and API/protocol glue when the responsibility is principally platform calls plus translation and using Rust would add disproportionate abstraction or dependency cost. C++ is not a general native-platform language; it is permitted only for C++-only dependencies and must remain behind a C ABI.
+
+Keep a responsibility in Rust when it owns non-trivial lifetime, synchronization, cross-sample state, identity, derivation, availability semantics, or parsing of variable native text/binary formats. This explicitly permits small `unsafe` Rust adapters around libbpf, dynamic loading, Win32, or libc when they expose a safe project-local API and do not require a heavy Rust dependency stack. Moving such code to C solely to reduce Rust source volume is not an architectural improvement.
+
+Prefer C when the implementation is a thin host or adapter over an existing native C ABI and a C implementation removes meaningful Rust framework/runtime/dependency cost. Desktop window/rendering hosts are the established example. Terminal hosting/rendering and Linux StatusNotifierItem integration belong in the same class when implemented as narrow native adapters. Application policy, presentation semantics, metric shaping, and core-owned types stay on the Rust side of those boundaries.
+
+Every Rust/C boundary uses explicit C ABI contracts. Exchange POD records, fixed-layout buffers, opaque handles, status codes, and callbacks; do not expose Rust-owned collections, strings, trait objects, or allocator ownership directly to C. Layout-sensitive contracts must have one authority and mechanical verification or generation where practical.
 
 Stable identity is translated at this boundary as well. Native locators or timestamps may be used to construct a core-owned identity, but their platform-specific representation and units must not leak into shared code. A platform must canonicalize all native sources that describe the same entity into the same core identity before crossing the boundary; otherwise cross-source joins would create conflicting identities for one entity.
 
@@ -99,4 +109,4 @@ Font selection and measurement are renderer realization concerns, but font-role 
 Rust → C ABI → thin C++ bridge → C++ library / SDK
 ```
 
-Exchange POD data, buffers, opaque handles, status codes, and callbacks across the ABI boundary. C++ library types remain behind the bridge.
+Use this path only when the external dependency is C++-only. Exchange POD data, buffers, opaque handles, status codes, and callbacks across the ABI boundary. C++ library types remain behind the bridge; exceptions, RTTI-dependent interfaces, templates, and STL containers do not cross it.

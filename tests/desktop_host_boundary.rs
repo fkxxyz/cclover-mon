@@ -1,9 +1,12 @@
 #[test]
 fn linux_tray_tolerates_late_status_notifier_watcher() {
-    let source = include_str!("../crates/cclover-desktop/src/linux.rs");
+    let source = include_str!("../crates/cclover-desktop/native/linux_tray.c");
 
+    assert!(source.contains("g_bus_watch_name_on_connection"));
+    assert!(source.contains("watcher_appeared"));
+    assert!(source.contains("RegisterStatusNotifierItem"));
     assert!(
-        source.contains("assume_sni_available(true)"),
+        source.contains("watcher_appeared, watcher_vanished"),
         "Linux tray startup must tolerate StatusNotifierWatcher appearing after the application starts"
     );
 }

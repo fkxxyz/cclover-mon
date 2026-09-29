@@ -97,6 +97,7 @@ bun archdoc.ts check
 - Treat unavailable metrics as unavailable data, not fabricated zeroes, unless zero is the correct semantic value.
 - Keep platform-specific names, handles, structs, and APIs out of shared UI and core-facing contracts.
 - Preserve the single-process, single-executable deployment model for each target platform.
+- When updating Windows hardware-telemetry compatibility knowledge from LibreHardwareMonitor, read `docs/architecture/09-architecture-decisions/010-windows-hardware-telemetry-upstream.md` and follow `docs/maintenance/librehardwaremonitor-sync.md`. Run `bun lhm-sync.ts status <checkout>` before changing derived hardware support, and never auto-replace production register/I/O algorithms from upstream.
 
 ## Validation
 

@@ -55,13 +55,13 @@ const LINUX_STEPS: readonly ValidationStep[] = [
 ];
 
 const WINDOWS_STEPS: readonly ValidationStep[] = [
-  "x86_64-pc-windows-msvc",
-  "i686-pc-windows-msvc",
-].map((target) => ({
-  name: `Windows release build (${target})`,
-  command: ["cargo", "xwin", "build", "--locked", "--release", "--target", target],
-  env: { XWIN_ARCH },
-}));
+  { name: "Windows dependency preparation", command: ["bun", "prepare-windows-deps.ts"] },
+  ...["x86_64-pc-windows-msvc", "i686-pc-windows-msvc"].map((target) => ({
+    name: `Windows release build (${target})`,
+    command: ["cargo", "xwin", "build", "--locked", "--release", "--target", target],
+    env: { XWIN_ARCH },
+  })),
+];
 
 export const VALIDATION_PROFILES = {
   fast: FAST_STEPS,

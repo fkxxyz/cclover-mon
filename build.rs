@@ -1,17 +1,86 @@
-#[cfg(any(feature = "http", feature = "ebpf-io"))]
 use std::env;
-#[cfg(feature = "ebpf-io")]
 use std::fs;
 #[cfg(feature = "ebpf-io")]
 use std::path::Path;
-#[cfg(any(feature = "http", feature = "ebpf-io"))]
 use std::path::PathBuf;
 #[cfg(any(feature = "http", feature = "ebpf-io"))]
 use std::process::Command;
 
 fn main() {
+    if env::var_os("CARGO_CFG_TARGET_OS").as_deref() == Some(std::ffi::OsStr::new("windows")) {
+        configure_windows_resources();
+    }
     #[cfg(any(feature = "http", feature = "ebpf-io"))]
     build_optional_capabilities();
+}
+
+fn configure_windows_resources() {
+    let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest dir"));
+    let declaration = manifest_dir.join("deps/pawnio.ts");
+    println!("cargo:rerun-if-changed={}", declaration.display());
+
+    let cache_root = env::var_os("CCLOVER_MON_DEPS_CACHE")
+        .map(PathBuf::from)
+        .or_else(|| {
+            env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache/cclover-mon/deps"))
+        })
+        .expect("HOME or CCLOVER_MON_DEPS_CACHE must be set for Windows dependency resources");
+    let pawnio = cache_root.join("pawnio");
+    let cached_declaration = pawnio.join("declaration.ts");
+    let expected = fs::read(&declaration).expect("failed to read deps/pawnio.ts");
+    let prepared = fs::read(&cached_declaration).unwrap_or_default();
+    assert_eq!(
+        expected, prepared,
+        "PawnIO resources are missing or stale; run `bun prepare-windows-deps.ts` before building Windows targets"
+    );
+
+    let runtime_meta = fs::read_to_string(pawnio.join("runtime.meta"))
+        .expect("prepared PawnIO runtime metadata is missing; run `bun prepare-windows-deps.ts`");
+    for line in runtime_meta.lines() {
+        if let Some((key, value)) = line.split_once('=') {
+            match key {
+                "driver_version" => {
+                    println!("cargo:rustc-env=CCLOVER_PAWNIO_DRIVER_VERSION={value}")
+                }
+                "min_windows_build" => {
+                    println!("cargo:rustc-env=CCLOVER_PAWNIO_MIN_WINDOWS_BUILD={value}")
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").expect("target arch");
+    let resource_arch = match target_arch.as_str() {
+        "x86_64" => "x86_64",
+        "x86" => "x86",
+        other => panic!("unsupported Windows target architecture for PawnIO resources: {other}"),
+    };
+    let target = pawnio.join(resource_arch);
+    let module = target.join("modules/IntelMSR.bin");
+    assert!(
+        module.is_file(),
+        "prepared PawnIO IntelMSR module is missing; run `bun prepare-windows-deps.ts`"
+    );
+    println!(
+        "cargo:rustc-env=CCLOVER_PAWNIO_INTEL_MSR_BIN={}",
+        module.display()
+    );
+
+    if resource_arch == "x86_64" {
+        for file in ["PawnIO.inf", "PawnIO.sys", "PawnIO.cat"] {
+            let path = target.join("driver").join(file);
+            assert!(
+                path.is_file(),
+                "prepared PawnIO driver resource {} is missing; run `bun prepare-windows-deps.ts`",
+                path.display()
+            );
+        }
+        println!(
+            "cargo:rustc-env=CCLOVER_PAWNIO_DRIVER_DIR={}",
+            target.join("driver").display()
+        );
+    }
 }
 
 #[cfg(any(feature = "http", feature = "ebpf-io"))]

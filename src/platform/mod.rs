@@ -88,6 +88,10 @@ pub use linux::Backend;
 mod windows;
 #[cfg(target_os = "windows")]
 pub use windows::Backend;
+#[cfg(target_os = "windows")]
+pub use windows::early_command_exit_code;
+#[cfg(target_os = "windows")]
+pub use windows::prepare_machine_capability;
 
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
 compile_error!("cclover-mon currently supports Linux and Windows targets only");

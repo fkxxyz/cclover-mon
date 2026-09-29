@@ -18,7 +18,9 @@ describe("validation profiles", () => {
   });
 
   test("every Windows build pins the shared xwin architecture set per invocation", () => {
-    for (const step of validationSteps("windows")) {
+    const [prepare, ...builds] = validationSteps("windows");
+    expect(prepare?.command).toEqual(["bun", "prepare-windows-deps.ts"]);
+    for (const step of builds) {
       expect(step.command.slice(0, 3)).toEqual(["cargo", "xwin", "build"]);
       expect(step.env).toEqual({ XWIN_ARCH: "x86,x86_64" });
       expect(formatValidationStep(step)).toStartWith(`XWIN_ARCH=${XWIN_ARCH} cargo xwin build`);

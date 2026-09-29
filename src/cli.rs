@@ -39,6 +39,7 @@ pub fn parse() -> Option<LaunchOptions> {
     match first.as_str() {
         "dump" => {
             let samples = parse_dump_samples(args);
+            prepare_pawnio_if_needed(true);
             dump(samples);
         }
         "probe" => {
@@ -56,6 +57,7 @@ pub fn parse() -> Option<LaunchOptions> {
             if let Some(extra) = args.next() {
                 fail(&format!("unexpected probe argument: {extra}"));
             }
+            prepare_pawnio_if_needed(kind == ProbeKind::Temperatures);
             probe(kind, raw);
         }
         "perf" => perf(args),
@@ -164,6 +166,7 @@ fn perf(mut args: impl Iterator<Item = String>) {
     match workload.as_str() {
         "headless" => {
             let limit = parse_perf_limit(args);
+            prepare_pawnio_if_needed(true);
             let mut sampler = Sampler::new(Backend::new());
             run_perf(limit, || {
                 std::hint::black_box(sampler.sample());
@@ -177,6 +180,7 @@ fn perf(mut args: impl Iterator<Item = String>) {
                 .parse::<ProbeKind>()
                 .unwrap_or_else(|error| fail(&error));
             let limit = parse_perf_limit(args);
+            prepare_pawnio_if_needed(kind == ProbeKind::Temperatures);
             let mut backend = Backend::new();
             run_perf(limit, || backend.collect_for_perf(kind));
         }
@@ -184,6 +188,15 @@ fn perf(mut args: impl Iterator<Item = String>) {
             "unknown perf workload {other:?}; expected headless or collector"
         )),
     }
+}
+
+fn prepare_pawnio_if_needed(needed: bool) {
+    #[cfg(target_os = "windows")]
+    if needed {
+        crate::platform::prepare_machine_capability();
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = needed;
 }
 
 fn parse_perf_limit(mut args: impl Iterator<Item = String>) -> PerfLimit {

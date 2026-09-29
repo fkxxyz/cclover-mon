@@ -11,9 +11,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "windows")]
     windows_console::prepare();
 
+    #[cfg(target_os = "windows")]
+    if let Some(code) = cclover_mon::platform::early_command_exit_code() {
+        std::process::exit(code);
+    }
+
     let Some(options) = cli::parse() else {
         return Ok(());
     };
+
+    #[cfg(target_os = "windows")]
+    cclover_mon::platform::prepare_machine_capability();
 
     let http = options.http.map(web::HttpServer::start).transpose()?;
     let web_state = http.as_ref().map(web::HttpServer::state_hub);

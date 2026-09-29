@@ -1,12 +1,14 @@
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 use crate::core::model::GpuSnapshot;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+use crate::core::model::TemperatureSnapshot;
 use crate::core::model::{
     Collection, CpuCounter, DiskCounter, MemorySnapshot, NetworkCounter, ProcessCounter,
 };
 #[cfg(target_os = "windows")]
 use crate::core::model::{CollectionStatus, CollectionUnavailable};
 #[cfg(target_os = "linux")]
-use crate::core::model::{ProcessDiskIoCounter, ProcessNetworkIoCounter, TemperatureSnapshot};
+use crate::core::model::{ProcessDiskIoCounter, ProcessNetworkIoCounter};
 #[cfg(target_os = "windows")]
 use crate::platform::ProbeKind;
 use crate::platform::ProbeReport;
@@ -22,9 +24,9 @@ pub(crate) enum ProbeSample {
     Disk(Collection<Vec<DiskCounter>>),
     #[cfg(target_os = "linux")]
     DiskAttribution(Collection<Vec<ProcessDiskIoCounter>>),
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     Temperatures(Collection<Vec<TemperatureSnapshot>>),
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     Gpu(Collection<Vec<GpuSnapshot>>),
     #[cfg(target_os = "windows")]
     Unsupported(ProbeKind),
@@ -42,9 +44,9 @@ impl ProbeSample {
             Self::Disk(value) => value.is_observable(),
             #[cfg(target_os = "linux")]
             Self::DiskAttribution(value) => value.is_observable(),
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
             Self::Temperatures(value) => value.is_observable(),
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
             Self::Gpu(value) => value.is_observable(),
             #[cfg(target_os = "windows")]
             Self::Unsupported(_) => false,
@@ -62,9 +64,9 @@ impl ProbeSample {
             Self::Disk(value) => report_disks(value, notes),
             #[cfg(target_os = "linux")]
             Self::DiskAttribution(value) => report_disk_attribution(value, notes),
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
             Self::Temperatures(value) => report_temperatures(value, notes),
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
             Self::Gpu(value) => report_gpus(value, notes),
             #[cfg(target_os = "windows")]
             Self::Unsupported(kind) => ProbeReport {
@@ -266,7 +268,7 @@ fn report_disk_attribution(
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 fn report_temperatures(
     value: Collection<Vec<TemperatureSnapshot>>,
     notes: Vec<String>,
@@ -298,7 +300,7 @@ fn report_temperatures(
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 fn report_gpus(value: Collection<Vec<GpuSnapshot>>, notes: Vec<String>) -> ProbeReport {
     let status = value.status();
     let values = value.value().map(Vec::as_slice).unwrap_or_default();

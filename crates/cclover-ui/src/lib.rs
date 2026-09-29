@@ -7,7 +7,7 @@ use cclover_presentation::{
 };
 
 mod scene;
-pub use scene::{NativeScene, NativeTextMeasurer, Point, Primitive, Rect, TextAlign};
+pub use scene::{CacheClass, NativeScene, NativeTextMeasurer, Point, Primitive, Rect, TextAlign};
 
 pub const PANEL_WIDTH: u32 = 390;
 pub const INITIAL_PANEL_HEIGHT: u32 = 480;

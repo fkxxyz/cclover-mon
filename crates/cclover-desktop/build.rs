@@ -74,11 +74,13 @@ fn native_header() -> String {
 fn c_field(name: &str, field_type: &str) -> String {
     match field_type {
         "u32" => format!("uint32_t {name};"),
+        "u64" => format!("uint64_t {name};"),
         "f32" => format!("float {name};"),
         "usize" => format!("size_t {name};"),
         "const_u8_ptr" => format!("const uint8_t *{name};"),
         "const_command_ptr" => format!("const CcloverCommand *{name};"),
         "const_point_ptr" => format!("const CcloverPoint *{name};"),
+        "const_damage_rect_ptr" => format!("const CcloverDamageRect *{name};"),
         "poll_fn" => format!("uint32_t (*{name})(void *context);"),
         "scene_fn" => format!(
             "void (*{name})(void *context, void *measure_context, float (*measure_text)(void *measure_context, const uint8_t *text, size_t text_len, uint32_t text_size, uint32_t flags), CcloverScene *scene);"

@@ -175,7 +175,8 @@ fn linux_incremental_rendering_preserves_steady_state_fast_path() {
         .expect("static-layer helper must stay separate from buffer creation")
         .0;
     assert!(
-        static_layer.contains("layer->hash == hash") && static_layer.contains("return 0;"),
+        static_layer.contains("layer->revision == scene->static_revision")
+            && static_layer.contains("return 0;"),
         "unchanged static content must reuse the existing static layer"
     );
 
@@ -183,8 +184,8 @@ fn linux_incremental_rendering_preserves_steady_state_fast_path() {
         .split_once("static int wayland_buffer_acquire")
         .expect("Wayland host must own reusable buffers")
         .1
-        .split_once("static uint64_t wayland_dynamic_command_hash")
-        .expect("buffer acquisition must stay separate from damage tracking")
+        .split_once("static void wayland_restore_rect")
+        .expect("buffer acquisition must stay separate from damage application")
         .0;
     let reuse = acquire
         .find("host->previous_buffer && !host->previous_buffer->busy")
@@ -205,13 +206,20 @@ fn linux_incremental_rendering_preserves_steady_state_fast_path() {
         .expect("draw helper must stay separate from the host lifecycle")
         .0;
     for required in [
-        "current[i].hash != host->previous_dynamic[i].hash",
-        "wayland_add_dirty(dirty, &dirty_count, rect)",
-        "cclover_draw_scene(&host->host, owned->cr, scene, 0, CCLOVER_DRAW_DYNAMIC, dirty, dirty_count)",
+        "const CcloverDamageRect *dirty = scene->damage_rects",
+        "int full_redraw = scene->full_redraw != 0",
+        "wayland_restore_rect(host, owned, dirty[i], scale)",
+        "cclover_draw_scene(&host->host, owned->cr, scene, 0, CCLOVER_DRAW_DYNAMIC)",
     ] {
         assert!(
             draw.contains(required),
-            "dynamic-only updates must remain damage-tracked rather than forcing a full redraw: {required}"
+            "dynamic-only updates must consume Rust-derived damage rather than forcing a full redraw: {required}"
+        );
+    }
+    for forbidden in ["wayland_dynamic_command_hash", "cclover_command_bounds"] {
+        assert!(
+            !source.contains(forbidden),
+            "native renderer must not reconstruct primitive invalidation semantics: {forbidden}"
         );
     }
 }

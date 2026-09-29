@@ -25,6 +25,7 @@ facets:
 | Extensibility | A new native metric source is added behind the platform or bridge boundary without changing unrelated collectors or UI contracts. |
 | Architecture boundary enforcement | A forbidden top-level source dependency among the declared `core`, `platform`, `presentation`, `ui`, and `tui` domains is rejected by a millisecond-scale repository gate without invoking Cargo or compiling the application. |
 | Repository validation enforcement | Deterministic architecture, formatting, build, test, lint, and supported Windows cross-build checks are declared once in `validate.ts`; local workflows and CI invoke the same profiles rather than maintaining parallel command lists. |
+| Supported-target compile coverage | Deterministic validation compiles both production code and `#[cfg(test)]` code for every supported Rust target, so target-specific test code cannot remain outside the validation matrix. |
 | Native safety boundary | Rust code denies unsafe operations by default; required native unsafety is confined to explicit adapter modules with documented local safety invariants, while metric collectors consume safe APIs. |
 | GPU source fan-in | Platform-native vendor sources fan into one `GpuSnapshot` model; adding or removing one source does not create a vendor-specific core or UI contract. |
 | Stable semantic identity | Any delta, history, cross-sample join, cache, or deduplication that survives one observation is keyed by an explicit stable core identity rather than PID, display text, enumeration order, or another incidental locator. |

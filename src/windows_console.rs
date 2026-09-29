@@ -37,7 +37,7 @@ fn needs_console(args: impl IntoIterator<Item = OsString>) -> bool {
 mod tests {
     use super::*;
 
-    fn args(values: &[&str]) -> impl Iterator<Item = OsString> + '_ {
+    fn args<'a>(values: &'a [&str]) -> impl Iterator<Item = OsString> + 'a {
         values.iter().map(OsString::from)
     }
 

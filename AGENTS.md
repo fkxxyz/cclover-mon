@@ -100,29 +100,33 @@ bun archdoc.ts check
 
 ## Validation
 
-Run the fast architecture gate during implementation:
+`validate.ts` is the repository validation-plan authority. Keep validation command composition there; documentation and CI should invoke profiles rather than copy the underlying Cargo/Bun command list.
+
+Run the fast deterministic profile during implementation:
 
 ```bash
-bun archgate.ts
+bun validate.ts fast
 ```
 
-It checks source dependency direction only and is intentionally millisecond-scale; do not add compilation, formatting, Clippy, or runtime checks to this gate.
+`archgate.ts` remains the millisecond-scale source-dependency gate inside that profile. It may be run directly while editing, but do not add compilation, formatting, Clippy, or runtime checks to `archgate` itself.
 
-Run the complete project validation set after implementation changes:
+Run Linux build/test/lint validation with:
 
 ```bash
-bun archgate.ts
-bun test archgate.test.ts
-cargo fmt --all --check
-cargo test --workspace
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo build --release
-cargo test -p cclover-mon --no-default-features
-cargo clippy -p cclover-mon --no-default-features --all-targets -- -D warnings
-bun archdoc.ts check
+bun validate.ts linux
 ```
 
-For Linux UI or window-placement changes, also perform a real Wayland runtime check. If the shell does not inherit the desktop environment, locate the compositor socket under `/run/user/$(id -u)/wayland-*` and set the matching `XDG_RUNTIME_DIR` and `WAYLAND_DISPLAY` before launching `target/release/cclover-mon`.
+Run both supported Windows cross-builds with:
+
+```bash
+bun validate.ts windows
+```
+
+`bun validate.ts all` runs all deterministic profiles when the required Linux and cargo-xwin toolchains are available. GitHub Actions invokes the same focused profiles; do not maintain a separate CI-only validation command set.
+
+The Windows profile sets `XWIN_ARCH=x86,x86_64` on every individual `cargo xwin` subprocess. Do not invoke cargo-xwin from new automation outside this validation authority unless the same per-invocation rule is preserved.
+
+For Linux UI or window-placement changes, also perform a real Wayland runtime check. If the shell does not inherit the desktop environment, locate the compositor socket under `/run/user/$(id -u)/wayland-*` and set the matching `XDG_RUNTIME_DIR` and `WAYLAND_DISPLAY` before launching `target/release/cclover-mon`. Runtime compositor/shell checks are evidence, not substitutes for deterministic validation.
 
 ## Common Pitfalls
 
@@ -158,11 +162,10 @@ Built executable:
 target/release/cclover-mon
 ```
 
-Windows cross-builds:
+Windows cross-build validation:
 
 ```bash
-XWIN_ARCH=x86,x86_64 cargo xwin build --release --target x86_64-pc-windows-msvc
-XWIN_ARCH=x86,x86_64 cargo xwin build --release --target i686-pc-windows-msvc
+bun validate.ts windows
 ```
 
-Each target produces one application executable containing the selected platform backend and any required native bridge objects.
+The profile builds both `x86_64-pc-windows-msvc` and `i686-pc-windows-msvc`, with `XWIN_ARCH=x86,x86_64` applied independently to each cargo-xwin invocation. Each target produces one application executable containing the selected platform backend and any required native bridge objects.

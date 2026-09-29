@@ -3,12 +3,20 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { findViolationsInSource, scanArchitecture, stripRustNonCode } from "./archgate";
+import {
+  DOMAIN_NAMES,
+  DOMAIN_RULES,
+  domainForWorkspaceCrate,
+  findViolationsInSource,
+  scanArchitecture,
+  stripRustNonCode,
+} from "./archgate";
 
 const cases: Array<[string, string, string, number]> = [
   ["core -> platform", "src/core/model.rs", "use crate::platform::Backend;", 1],
   ["core -> presentation", "src/core/model.rs", "crate::presentation::Dashboard::default();", 1],
   ["core -> ui", "src/core/model.rs", "pub use crate::ui::PanelLayout;", 1],
+  ["core -> tui", "src/core/model.rs", "use crate::tui::Terminal;", 1],
   ["workspace core -> platform", "crates/cclover-core/src/model.rs", "use crate::platform::Backend;", 1],
   ["workspace core -> presentation crate", "crates/cclover-core/src/model.rs", "use cclover_presentation::Dashboard;", 1],
   ["workspace presentation -> core crate allowed", "crates/cclover-presentation/src/lib.rs", "use cclover_core::model::MonitorState;", 0],
@@ -27,6 +35,9 @@ const cases: Array<[string, string, string, number]> = [
   ["workspace tui -> core crate", "crates/cclover-tui/src/lib.rs", "use cclover_core::Sampler;", 1],
   ["workspace web ui -> presentation allowed", "crates/cclover-web-ui/src/lib.rs", "use cclover_presentation::Dashboard;", 0],
   ["workspace web ui -> platform", "crates/cclover-web-ui/src/lib.rs", "use crate::platform::Backend;", 1],
+  ["workspace core -> web ui crate", "crates/cclover-core/src/model.rs", "use cclover_web_ui::Panel;", 1],
+  ["workspace core -> desktop crate", "crates/cclover-core/src/model.rs", "use cclover_desktop::DesktopApp;", 1],
+  ["workspace crate alias", "crates/cclover-core/src/model.rs", "use cclover_desktop as desktop;", 1],
   ["workspace desktop -> presentation allowed", "crates/cclover-desktop/src/native.rs", "use cclover_presentation::Dashboard;", 0],
   ["workspace desktop -> platform", "crates/cclover-desktop/src/native.rs", "use crate::platform::Backend;", 1],
   ["tui -> core", "src/tui.rs", "use crate::core::Sampler;", 1],
@@ -40,6 +51,32 @@ const cases: Array<[string, string, string, number]> = [
 describe("architecture dependency rules", () => {
   test.each(cases)("%s", (_name, file, source, expected) => {
     expect(findViolationsInSource(source, file)).toHaveLength(expected);
+  });
+
+  test("every domain pair follows the declarative policy", () => {
+    const sourceFiles = {
+      core: "src/core/model.rs",
+      platform: "src/platform/linux/mod.rs",
+      presentation: "src/presentation.rs",
+      ui: "src/ui/layout.rs",
+      tui: "src/tui.rs",
+    } as const;
+
+    for (const from of DOMAIN_NAMES) {
+      for (const to of DOMAIN_NAMES) {
+        const violations = findViolationsInSource(`use crate::${to}::Marker;`, sourceFiles[from]);
+        const expected = DOMAIN_RULES[from].forbidden.includes(to) ? 1 : 0;
+        expect(violations, `${from} -> ${to}`).toHaveLength(expected);
+      }
+    }
+  });
+
+  test("every workspace crate alias resolves through the same domain registry", () => {
+    for (const domain of DOMAIN_NAMES) {
+      for (const crateName of DOMAIN_RULES[domain].workspaceCrates) {
+        expect(domainForWorkspaceCrate(crateName.replaceAll("-", "_"))).toBe(domain);
+      }
+    }
   });
 });
 
@@ -80,6 +117,20 @@ describe("repository gate", () => {
       writeFileSync(join(core, "bad.rs"), "\nuse crate::platform::Backend;\n");
       expect(scanArchitecture(join(root, "src"))).toEqual([
         expect.objectContaining({ line: 2, from: "core", to: "platform" }),
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("registered workspace crate roots are discovered from the domain registry", () => {
+    const root = mkdtempSync(join(tmpdir(), "cclover-archgate-workspace-"));
+    try {
+      const core = join(root, "crates", "cclover-core", "src");
+      mkdirSync(core, { recursive: true });
+      writeFileSync(join(core, "lib.rs"), "use cclover_desktop as desktop;\n");
+      expect(scanArchitecture(root)).toEqual([
+        expect.objectContaining({ line: 1, from: "core", to: "ui" }),
       ]);
     } finally {
       rmSync(root, { recursive: true, force: true });

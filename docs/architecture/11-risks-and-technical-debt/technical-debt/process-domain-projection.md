@@ -14,10 +14,6 @@ facets:
 
 # Process-Domain Projection
 
-## Status
-
-Active — P3.
-
 ## Problem
 
 Process data is currently projected primarily by metric (`ProcessCpuUsage`, `ProcessMemoryUsage`, process disk I/O, process network I/O) rather than through a coherent process-oriented view. Top CPU/memory projections also discard stable process identity because the current desktop only needs display rows.

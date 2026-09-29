@@ -120,6 +120,27 @@ fn native_text_layout_uses_realized_renderer_metrics() {
 }
 
 #[test]
+fn linux_desktop_surface_preserves_panel_window_policy() {
+    let source = include_str!("../crates/cclover-desktop/native/linux_host.c");
+
+    for required in [
+        "_NET_WM_STATE_SKIP_TASKBAR",
+        "_NET_WM_STATE_SKIP_PAGER",
+        "_NET_WM_STATE_BELOW",
+        "XShapeCombineRectangles(display, window, ShapeInput",
+        "ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM",
+        "ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT",
+        "zwlr_layer_surface_v1_set_exclusive_zone(host.layer_surface, 0)",
+        "wl_surface_set_input_region(host.surface, empty_input)",
+    ] {
+        assert!(
+            source.contains(required),
+            "Linux desktop host must preserve native panel policy primitive: {required}"
+        );
+    }
+}
+
+#[test]
 fn windows_desktop_surface_preserves_panel_window_policy() {
     let source = include_str!("../crates/cclover-desktop/native/windows_host.c");
 

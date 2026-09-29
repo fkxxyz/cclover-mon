@@ -23,7 +23,8 @@ facets:
 | Efficiency | Sampling reuses bounded storage and avoids work proportional to UI object count. |
 | Portability | Linux and Windows produce the same shared semantic model without leaking native API types into shared code. |
 | Extensibility | A new native metric source is added behind the platform or bridge boundary without changing unrelated collectors or UI contracts. |
-| Architecture boundary enforcement | A forbidden top-level source dependency between `core`, `platform`, `presentation`, and `ui` is rejected by a millisecond-scale repository gate without invoking Cargo or compiling the application. |
+| Architecture boundary enforcement | A forbidden top-level source dependency among the declared `core`, `platform`, `presentation`, `ui`, and `tui` domains is rejected by a millisecond-scale repository gate without invoking Cargo or compiling the application. |
+| Repository validation enforcement | Deterministic architecture, formatting, build, test, lint, and supported Windows cross-build checks are declared once in `validate.ts`; local workflows and CI invoke the same profiles rather than maintaining parallel command lists. |
 | Native safety boundary | Rust code denies unsafe operations by default; required native unsafety is confined to explicit adapter modules with documented local safety invariants, while metric collectors consume safe APIs. |
 | GPU source fan-in | Linux AMD amdgpu native telemetry and optional NVIDIA NVML produce one platform-neutral GPU sequence; adding/removing one vendor source does not create a source-specific core or UI contract. |
 | Stable semantic identity | Any delta, history, cross-sample join, cache, or deduplication that survives one observation is keyed by an explicit stable core identity rather than PID, display text, enumeration order, or another incidental locator. |

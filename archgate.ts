@@ -1,7 +1,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative, resolve, sep } from "node:path";
 
-export type Domain = "core" | "platform" | "presentation" | "ui" | "tui";
+export const DOMAIN_NAMES = ["core", "platform", "presentation", "ui", "tui"] as const;
+export type Domain = (typeof DOMAIN_NAMES)[number];
 
 export interface Violation {
   file: string;
@@ -10,18 +11,47 @@ export interface Violation {
   to: Domain;
 }
 
-const FORBIDDEN: Record<Domain, ReadonlySet<Domain>> = {
-  core: new Set(["platform", "presentation", "ui", "tui"]),
-  platform: new Set(["presentation", "ui", "tui"]),
-  presentation: new Set(["platform", "ui", "tui"]),
-  ui: new Set(["platform", "tui"]),
-  tui: new Set(["core", "platform", "ui"]),
+interface DomainRule {
+  workspaceCrates: readonly string[];
+  forbidden: readonly Domain[];
+}
+
+export const DOMAIN_RULES: Readonly<Record<Domain, DomainRule>> = {
+  core: {
+    workspaceCrates: ["cclover-core"],
+    forbidden: ["platform", "presentation", "ui", "tui"],
+  },
+  platform: {
+    workspaceCrates: [],
+    forbidden: ["presentation", "ui", "tui"],
+  },
+  presentation: {
+    workspaceCrates: ["cclover-presentation"],
+    forbidden: ["platform", "ui", "tui"],
+  },
+  ui: {
+    workspaceCrates: ["cclover-ui", "cclover-web-ui", "cclover-desktop"],
+    forbidden: ["platform", "tui"],
+  },
+  tui: {
+    workspaceCrates: ["cclover-tui"],
+    forbidden: ["core", "platform", "ui"],
+  },
 };
 
-const DOMAINS = new Set<Domain>(["core", "platform", "presentation", "ui", "tui"]);
+const DOMAINS = new Set<string>(DOMAIN_NAMES);
+const WORKSPACE_CRATE_DOMAINS = new Map<string, Domain>(
+  DOMAIN_NAMES.flatMap((domain) =>
+    DOMAIN_RULES[domain].workspaceCrates.map((crate) => [crate.replaceAll("-", "_"), domain] as const),
+  ),
+);
 
 function isDomain(value: string): value is Domain {
-  return DOMAINS.has(value as Domain);
+  return DOMAINS.has(value);
+}
+
+export function domainForWorkspaceCrate(identifier: string): Domain | null {
+  return WORKSPACE_CRATE_DOMAINS.get(identifier) ?? null;
 }
 
 function modulePath(file: string): string[] | null {
@@ -40,16 +70,14 @@ function modulePath(file: string): string[] | null {
 
 function sourceDomain(file: string): Domain | null {
   const normalized = file.split(sep).join("/");
-  for (const [crateName, domain] of [
-    ["cclover-core", "core"],
-    ["cclover-presentation", "presentation"],
-    ["cclover-tui", "tui"],
-    ["cclover-ui", "ui"],
-    ["cclover-web-ui", "ui"],
-    ["cclover-desktop", "ui"],
-  ] as const) {
-    if (normalized.includes(`/crates/${crateName}/src/`) || normalized.startsWith(`crates/${crateName}/src/`)) {
-      return domain;
+  for (const domain of DOMAIN_NAMES) {
+    for (const crateName of DOMAIN_RULES[domain].workspaceCrates) {
+      if (
+        normalized.includes(`/crates/${crateName}/src/`) ||
+        normalized.startsWith(`crates/${crateName}/src/`)
+      ) {
+        return domain;
+      }
     }
   }
   const path = modulePath(file);
@@ -200,31 +228,32 @@ export function findViolationsInSource(source: string, file: string): Violation[
   const code = stripRustNonCode(source);
   const candidates: Array<{ to: Domain; offset: number }> = [];
 
-  const cratePath = /\bcrate\s*::\s*(core|platform|presentation|ui)\b/g;
+  const cratePath = /\bcrate\s*::\s*([A-Za-z_][A-Za-z0-9_]*)\b/g;
   let match: RegExpExecArray | null;
   while ((match = cratePath.exec(code))) {
-    candidates.push({ to: match[1] as Domain, offset: match.index });
+    if (isDomain(match[1])) candidates.push({ to: match[1], offset: match.index });
   }
 
-  const workspaceCratePath = /\bcclover_(core|presentation|ui|tui|desktop_ui|desktop)\s*::/g;
-  while ((match = workspaceCratePath.exec(code))) {
-    const workspaceDomain = match[1] === "desktop_ui" ? "ui" : match[1];
-    candidates.push({ to: workspaceDomain as Domain, offset: match.index });
+  const workspaceCrateIdentifier = /\b([A-Za-z_][A-Za-z0-9_]*)\b/g;
+  while ((match = workspaceCrateIdentifier.exec(code))) {
+    const to = domainForWorkspaceCrate(match[1]);
+    if (to) candidates.push({ to, offset: match.index });
   }
 
-  const superPath = /\b((?:super\s*::\s*)+)(core|platform|presentation|ui)\b/g;
+  const superPath = /\b((?:super\s*::\s*)+)([A-Za-z_][A-Za-z0-9_]*)\b/g;
   while ((match = superPath.exec(code))) {
+    if (!isDomain(match[2])) continue;
     const supers = (match[1].match(/super/g) ?? []).length;
     if (supers > module.length) continue;
     const base = module.slice(0, module.length - supers);
-    if (base.length === 0) candidates.push({ to: match[2] as Domain, offset: match.index });
+    if (base.length === 0) candidates.push({ to: match[2], offset: match.index });
   }
 
   candidates.push(...bracedUseDependencies(code, module));
 
   const seen = new Set<string>();
   return candidates
-    .filter(({ to }) => FORBIDDEN[from].has(to))
+    .filter(({ to }) => DOMAIN_RULES[from].forbidden.includes(to))
     .filter(({ to, offset }) => {
       const key = `${to}:${offset}`;
       if (seen.has(key)) return false;
@@ -250,12 +279,11 @@ export function scanArchitecture(root = resolve(import.meta.dir)): Violation[] {
     ? [root]
     : [
         join(root, "src"),
-        join(root, "crates", "cclover-core", "src"),
-        join(root, "crates", "cclover-presentation", "src"),
-        join(root, "crates", "cclover-tui", "src"),
-        join(root, "crates", "cclover-ui", "src"),
-        join(root, "crates", "cclover-web-ui", "src"),
-        join(root, "crates", "cclover-desktop", "src"),
+        ...DOMAIN_NAMES.flatMap((domain) =>
+          DOMAIN_RULES[domain].workspaceCrates.map((crateName) =>
+            join(root, "crates", crateName, "src"),
+          ),
+        ),
       ].filter(existsSync);
   return roots.flatMap((sourceRoot) =>
     rustFiles(sourceRoot).flatMap((file) => findViolationsInSource(readFileSync(file, "utf8"), file)),

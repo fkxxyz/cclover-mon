@@ -15,10 +15,6 @@ facets:
 
 # Pinned Iced WebGL Workaround
 
-## Status
-
-Active — P3.
-
 ## Problem
 
 Iced 0.14 and current upstream development revisions can corrupt multi-Canvas rendering on the WebGL path: geometry may be lost when Canvas widgets share a renderer layer, while naïvely forcing separate layers can still produce cross-Canvas clipping/coordinate corruption. The Web/WASM renderer adapter for the HTTP panel therefore cannot rely on the unmodified upstream `iced_widget` package.

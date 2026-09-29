@@ -31,3 +31,16 @@ These items are risks or intentional capability limits that can remain even when
 - Browser/WASM rendering depends on browser WebAssembly/WebGL support and Iced's Web runtime behavior; representative Chromium/Firefox runtime validation is required because native build success does not prove browser rendering.
 - Font-role semantics are shared, but font realization is renderer-owned. Linux native rendering resolves Cairo's `monospace` family, Windows uses its native monospace fallback, and Web/WASM carries a fallback font because browser system-font discovery is not reliable. Exact glyph metrics and appearance can therefore differ across renderers even though dashboard geometry and semantic roles are shared.
 - Read-only HTTP monitoring has no authentication by design in v1. Non-loopback binding therefore assumes a trusted LAN and must remain an explicit user configuration rather than a default.
+
+## Representative Desktop Runtime Smoke Matrix
+
+Deterministic source/build checks protect contracts they can actually prove. Desktop integration still requires representative runtime evidence because compositor and shell semantics cannot be established by source inspection alone.
+
+| Environment | Runtime evidence |
+| --- | --- |
+| Linux Wayland | Top-right placement, bottom layer, zero exclusive zone, pointer passthrough, output-scale changes, dynamic resize/repaint, and tray registration/re-registration when the watcher appears or restarts. |
+| Linux X11/XWayland | Top-right placement, below/taskbar/pager policy, Shape input passthrough, dynamic resize/repaint, and tray registration/re-registration. |
+| Windows | Top-right placement, taskbar/Alt+Tab exclusion, non-activation, pointer passthrough, bottom Z-order, repaint after occlusion/desktop refresh, and Explorer restart restoring shell ownership, surface policy, and tray icon. |
+| Web | Representative Chromium and Firefox sessions render the same shared dashboard structure and graph/layout semantics without browser-specific corruption. |
+
+These checks remain risk evidence rather than CI substitutes. A source-level contract test may assert that required native policy primitives still exist, but passing that test does not prove a real compositor or shell honors them correctly.

@@ -93,27 +93,31 @@ bun archdoc.ts check
 
 ## 验证
 
-实现过程中运行快速架构门禁：
+`validate.ts` 是仓库验证计划的唯一执行入口。验证命令组合只在这里维护；文档和 CI 只调用 profile，不复制底层 Cargo/Bun 命令列表。
+
+实现过程中运行快速确定性验证：
 
 ```bash
-bun archgate.ts
+bun validate.ts fast
 ```
 
-它只检查源码依赖方向，并刻意保持毫秒级；不要把编译、格式化、Clippy 或 runtime 检查塞进这个门禁。
+其中 `archgate.ts` 仍只负责毫秒级源码依赖方向检查。编辑期间可以单独运行它，但不要把编译、格式化、Clippy 或 runtime 检查塞进 `archgate`。
 
-实现改动后运行完整项目验证：
+Linux 构建、测试和 lint 验证：
 
 ```bash
-bun archgate.ts
-bun test archgate.test.ts
-cargo fmt --check
-cargo test
-cargo clippy --all-targets --all-features -- -D warnings
-cargo build --release
-bun archdoc.ts check
+bun validate.ts linux
 ```
 
-Linux UI 或窗口定位发生变化时，还要做真实 Wayland runtime 验证。如果 shell 没有继承桌面环境，先在 `/run/user/$(id -u)/wayland-*` 下找到 compositor socket，再设置匹配的 `XDG_RUNTIME_DIR` 和 `WAYLAND_DISPLAY`，然后启动 `target/release/cclover-mon`。
+Windows 两个受支持目标的交叉构建验证：
+
+```bash
+bun validate.ts windows
+```
+
+工具链齐全时，`bun validate.ts all` 运行全部确定性 profile。GitHub Actions 调用相同 profile，不维护第二套 CI 命令。Windows profile 对每一次 `cargo xwin` 子进程单独设置 `XWIN_ARCH=x86,x86_64`。
+
+Linux UI 或窗口定位发生变化时，还要做真实 Wayland runtime 验证。如果 shell 没有继承桌面环境，先在 `/run/user/$(id -u)/wayland-*` 下找到 compositor socket，再设置匹配的 `XDG_RUNTIME_DIR` 和 `WAYLAND_DISPLAY`，然后启动 `target/release/cclover-mon`。真实 compositor/shell 检查属于 runtime 证据，不替代确定性验证。
 
 ## 常见陷阱
 

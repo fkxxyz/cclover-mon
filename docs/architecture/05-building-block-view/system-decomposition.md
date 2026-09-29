@@ -81,12 +81,15 @@ platform backend
   ├── process collector
   ├── network collector
   ├── disk collector
-  └── temperature collector
-        ├── hwmon source
-        └── NVIDIA NVML source
+  ├── temperature collector
+  │     └── hwmon source
+  ├── GPU memory collector
+  │     └── AMD amdgpu sysfs source
+  └── shared NVIDIA telemetry adapter
+        └── one cached NVML session/device set for temperature and GPU memory
 ```
 
-The backend may know every collector so it can assemble a batch snapshot. A metric collector does not depend on the backend or on sibling collectors. A metric collector may fan in multiple native sources when they represent the same platform-neutral metric. For Linux temperatures, generic hwmon sensors and NVIDIA NVML are peer sources owned by the temperature collector; neither becomes a separate core metric.
+The backend may know every collector so it can assemble a batch snapshot. A metric collector does not depend on the backend or on sibling collectors. A metric collector may fan in multiple native sources when they represent the same platform-neutral metric. For Linux temperatures, generic hwmon sensors and NVIDIA NVML are peer sources merged into one temperature metric. NVIDIA NVML session/device lifetime is owned by a shared Linux telemetry adapter because the same native device handles also serve GPU-memory collection; metric policy remains outside the adapter.
 
 Windows follows the same collector partition rather than one monolithic Win32 backend. CPU uses system timing counters, memory uses the system memory-status API, process collection uses one NT system-process snapshot, network uses IP Helper interface counters, and disk uses storage/device IO controls. Windows temperature support is intentionally a fan-in responsibility: PawnIO-backed CPU/Super-I/O access, GPU vendor APIs, and SMART/NVMe storage sensors may coexist as peer sources without exposing their native APIs to core. The Windows desktop host separately owns native monitor-surface policy—top-right placement, bottom window level, taskbar exclusion, undecorated sizing, and pointer passthrough—while shared Iced drawing remains platform-neutral.
 
@@ -94,6 +97,6 @@ Core sampling orchestration follows the same responsibility split. A top-level s
 
 Any state that survives beyond one observation must use an explicit stable semantic identity owned by `core`. Native numeric IDs, enumeration order, device names, display labels, and other reusable or presentation-oriented values are locators or labels, not cross-sample identity, unless the platform contract explicitly guarantees their lifetime semantics. Cross-sample delta, history, joins, caches, and deduplication must key by the corresponding stable identity type rather than an incidental field such as PID or display text. `ProcessInstanceId` is the shared process-instance identity; PID remains an observable native locator inside that identity, not a standalone process identity.
 
-Temperature, network, and disk snapshots carry stable identities distinct from their display labels. Core delta/history association is keyed by those identities, while presentation/UI may derive or display human-readable labels independently. `NetworkId` and `DiskId` are core-owned opaque identity types; platform-native locators remain uninterpreted outside the platform translation boundary. Native identities such as NVML UUIDs, PCI addresses, hwmon paths, handles, device numbers, interface indices, or library types remain platform-private; the platform collector translates them into the core-owned identity representation before crossing the boundary.
+Temperature, GPU-memory, network, and disk snapshots carry stable identities distinct from their display labels. Core delta/history association is keyed by those identities where history or cross-sample association exists, while presentation/UI may derive or display human-readable labels independently. `GpuId`, `NetworkId`, and `DiskId` are core-owned opaque identity types; platform-native locators remain uninterpreted outside the platform translation boundary. Native identities such as NVML UUIDs, PCI addresses, canonical sysfs device paths, hwmon paths, handles, device numbers, interface indices, or library types remain platform-private; the platform collector translates them into the core-owned identity representation before crossing the boundary.
 
 Linux collectors may own long-lived native instrumentation such as eBPF links and BPF maps when required by a metric. Those resources remain implementation details of the Linux platform layer. Disk and network attribution may share userspace lifecycle infrastructure, but their kernel-side observation logic remains independently owned because their attribution mechanisms differ.

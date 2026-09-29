@@ -1,5 +1,6 @@
 use crate::core::model::{
-    Collection, CpuCounter, DiskCounter, MemorySnapshot, NetworkCounter, ProcessCounter,
+    Collection, CpuCounter, DiskCounter, GpuMemorySnapshot, MemorySnapshot, NetworkCounter,
+    ProcessCounter,
 };
 #[cfg(target_os = "windows")]
 use crate::core::model::{CollectionStatus, CollectionUnavailable};
@@ -22,6 +23,8 @@ pub(crate) enum ProbeSample {
     DiskAttribution(Collection<Vec<ProcessDiskIoCounter>>),
     #[cfg(target_os = "linux")]
     Temperatures(Collection<Vec<TemperatureSnapshot>>),
+    #[cfg(target_os = "linux")]
+    GpuMemory(Collection<Vec<GpuMemorySnapshot>>),
     #[cfg(target_os = "windows")]
     Unsupported(ProbeKind),
 }
@@ -40,6 +43,8 @@ impl ProbeSample {
             Self::DiskAttribution(value) => value.is_observable(),
             #[cfg(target_os = "linux")]
             Self::Temperatures(value) => value.is_observable(),
+            #[cfg(target_os = "linux")]
+            Self::GpuMemory(value) => value.is_observable(),
             #[cfg(target_os = "windows")]
             Self::Unsupported(_) => false,
         }
@@ -58,6 +63,8 @@ impl ProbeSample {
             Self::DiskAttribution(value) => report_disk_attribution(value, notes),
             #[cfg(target_os = "linux")]
             Self::Temperatures(value) => report_temperatures(value, notes),
+            #[cfg(target_os = "linux")]
+            Self::GpuMemory(value) => report_gpu_memory(value, notes),
             #[cfg(target_os = "windows")]
             Self::Unsupported(kind) => ProbeReport {
                 status: CollectionStatus::Unavailable(CollectionUnavailable::Unsupported),
@@ -286,6 +293,29 @@ fn report_temperatures(
         status,
         summary,
         raw,
+        notes,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn report_gpu_memory(value: Collection<Vec<GpuMemorySnapshot>>, notes: Vec<String>) -> ProbeReport {
+    let status = value.status();
+    let values = value.value().map(Vec::as_slice).unwrap_or_default();
+    ProbeReport {
+        status,
+        summary: vec![format!("{} GPU memory devices", values.len())],
+        raw: values
+            .iter()
+            .map(|gpu| {
+                format!(
+                    "id={} name={} used_bytes={} total_bytes={}",
+                    gpu.id.as_opaque_key(),
+                    gpu.name,
+                    gpu.used_bytes,
+                    gpu.total_bytes
+                )
+            })
+            .collect(),
         notes,
     }
 }

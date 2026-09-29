@@ -10,8 +10,9 @@ use iced::widget::text::Wrapping;
 use iced::widget::{Column, Space, canvas, column, container, progress_bar, row, text};
 use iced::{Alignment, Border, Color, Element, Fill, Font, Theme};
 use layout::{
-    CARD_FRAME_GEOMETRY, DISK_CARD_GEOMETRY, IO_PROCESS_GEOMETRY, METRIC_CARD_GEOMETRY,
-    NETWORK_CARD_GEOMETRY, PANEL_GEOMETRY, PanelBlock, SMALL_GRAPH_CARD_GEOMETRY,
+    CARD_FRAME_GEOMETRY, DISK_CARD_GEOMETRY, GPU_MEMORY_CARD_GEOMETRY, IO_PROCESS_GEOMETRY,
+    METRIC_CARD_GEOMETRY, NETWORK_CARD_GEOMETRY, PANEL_GEOMETRY, PanelBlock,
+    SMALL_GRAPH_CARD_GEOMETRY,
 };
 
 use cclover_presentation::{CpuPanel, Dashboard, IoProcessRow, MemoryPanel, ProcessRow};
@@ -170,6 +171,20 @@ where
             })
         }
         PanelBlock::Section(section) => section_label(section.title()),
+        PanelBlock::GpuMemory(index) => {
+            let gpu = dashboard
+                .gpu_memory(index)
+                .expect("panel layout must match dashboard GPU memory entries");
+            gpu_memory_card(
+                gpu.name(),
+                gpu.value(),
+                gpu.percent(),
+                gpu.fraction(),
+                gpu.history().unwrap_or(&EMPTY_GRAPH_VALUES),
+                gpu.graph_max(),
+                capacity,
+            )
+        }
         PanelBlock::Temperature(index) => {
             let temperature = dashboard
                 .temperature(index)
@@ -342,6 +357,62 @@ struct NetworkCardParams<'a> {
     capacity: usize,
     processes: Vec<IoProcessRow<'a>>,
     process_unavailable_value: Option<&'static str>,
+}
+
+fn gpu_memory_card<'a, Message>(
+    name: &'a str,
+    value: String,
+    percent: String,
+    fraction: f32,
+    history: &'a VecDeque<f64>,
+    graph_max: f64,
+    capacity: usize,
+) -> Element<'a, Message>
+where
+    Message: 'a,
+{
+    let header = container(
+        bold_label(name, 13, FG)
+            .wrapping(Wrapping::None)
+            .width(Fill),
+    )
+    .height(GPU_MEMORY_CARD_GEOMETRY.header_height)
+    .width(Fill)
+    .clip(true);
+    let values = row![
+        label_owned(value, 12, FG).width(Fill),
+        bold_label_owned(percent, 11, MUTED),
+    ]
+    .height(GPU_MEMORY_CARD_GEOMETRY.value_row_height)
+    .align_y(Alignment::Center);
+    let progress = progress_bar(0.0..=1.0, fraction.clamp(0.0, 1.0))
+        .girth(GPU_MEMORY_CARD_GEOMETRY.progress_height)
+        .style(|_| iced::widget::progress_bar::Style {
+            background: BORDER.into(),
+            bar: GREEN.into(),
+            border: border::rounded(3),
+        });
+    let graph = Graph::new(
+        history,
+        capacity,
+        GREEN,
+        Color::from_rgba8(0x52, 0xe0, 0xc4, 0.13),
+    )
+    .range(0.0, graph_max)
+    .auto_scale(false);
+
+    card(
+        column![
+            header,
+            values,
+            progress,
+            canvas(graph)
+                .width(Fill)
+                .height(GPU_MEMORY_CARD_GEOMETRY.graph_height)
+        ]
+        .spacing(GPU_MEMORY_CARD_GEOMETRY.spacing),
+        GPU_MEMORY_CARD_GEOMETRY.height(),
+    )
 }
 
 fn small_graph_card<'a, Message>(params: SmallGraphCardParams<'a>) -> Element<'a, Message>

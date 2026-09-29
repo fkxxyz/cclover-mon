@@ -67,6 +67,7 @@ define_probe_kinds! {
     Disk => { name: "disk", aliases: ["disks"], follow_up: false },
     DiskAttribution => { name: "disk-attribution", aliases: [], follow_up: true },
     Temperatures => { name: "temperatures", aliases: ["temperature"], follow_up: false },
+    GpuMemory => { name: "gpu-memory", aliases: ["vram"], follow_up: false },
 }
 
 pub struct ProbeReport {

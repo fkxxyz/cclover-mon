@@ -22,21 +22,21 @@ facets:
 
 Linux GPU temperatures remain part of the existing temperature metric rather than becoming a vendor-specific core or UI metric.
 
-The Linux temperature collector owns two peer native sources:
+Linux temperature collection combines two peer native sources:
 
 ```text
-Linux temperature collector
-  ├── hwmon
+Linux temperature metric
+  ├── temperature collector → hwmon
   │     ├── AMD amdgpu temperatures
   │     ├── supported Intel i915/xe temperatures
   │     └── other kernel-exposed temperature sensors
-  └── NVIDIA NVML
+  └── shared NVIDIA telemetry adapter → NVML
         └── every enumerated proprietary-driver NVIDIA GPU with readable temperature
              ↓
        one core-owned temperature snapshot sequence
 ```
 
-hwmon remains the generic Linux kernel sensor path. NVIDIA proprietary-driver temperature telemetry uses NVML directly in-process. The NVML source dynamically loads `libnvidia-ml.so.1`, initializes one session, enumerates all NVIDIA devices, retains reusable device handles, and samples readable GPU temperatures at the normal one-second collection cadence. Production code does not invoke `nvidia-smi`.
+hwmon remains the generic Linux kernel sensor path. NVIDIA proprietary-driver temperature telemetry uses NVML directly in-process. The shared NVIDIA adapter dynamically loads `libnvidia-ml.so.1`, initializes one session, enumerates all NVIDIA devices, retains reusable device handles, and serves temperature plus other NVIDIA telemetry such as GPU memory from that same session. Production code does not invoke `nvidia-smi`.
 
 NVML is optional. Missing library, initialization failure, or zero enumerated NVIDIA devices contributes no NVML temperature entries and does not affect startup or hwmon collection. Failure to read one device temperature omits only that sensor. No zero value is fabricated for unavailable data.
 
@@ -54,7 +54,7 @@ Dynamic loading keeps NVIDIA support optional. A Linux build remains usable on s
 
 ## Consequences
 
-- Linux temperature collection becomes an internal fan-in of hwmon and NVML sources.
+- Linux temperature collection becomes an internal fan-in of hwmon and NVML sources, while NVML native lifetime may be shared with other NVIDIA telemetry metrics.
 - The core temperature model/history must distinguish stable sensor identity from display label.
 - NVIDIA multi-GPU systems produce one temperature entry per device that supports the queried temperature.
 - NVIDIA labels are read once from NVML during initialization; presentation may shorten only known redundant prefixes. hwmon naming semantics remain owned by the hwmon source and are not coupled to NVML naming.

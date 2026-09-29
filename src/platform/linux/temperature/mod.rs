@@ -1,5 +1,4 @@
 mod hwmon;
-mod nvml;
 
 use std::collections::HashMap;
 use std::time::Instant;
@@ -11,7 +10,6 @@ use super::diagnostics::probe_note;
 
 pub(super) struct Collector {
     hwmon: hwmon::Collector,
-    nvml: nvml::Collector,
     last_sample: Option<Instant>,
     last_outcome: Collection<Vec<TemperatureSnapshot>>,
 }
@@ -20,7 +18,6 @@ impl Collector {
     pub(super) fn new() -> Self {
         Self {
             hwmon: hwmon::Collector::new(),
-            nvml: nvml::Collector::new(),
             last_sample: None,
             last_outcome: Collection::default(),
         }
@@ -29,6 +26,7 @@ impl Collector {
     pub(super) fn collect(
         &mut self,
         now: Instant,
+        nvml: Collection<Vec<TemperatureSnapshot>>,
         mut notes: Option<&mut Vec<String>>,
     ) -> Collection<Vec<TemperatureSnapshot>> {
         if self
@@ -42,8 +40,7 @@ impl Collector {
         }
         self.last_sample = Some(now);
 
-        let hwmon = self.hwmon.collect(now, notes.as_deref_mut());
-        let nvml = self.nvml.collect(notes);
+        let hwmon = self.hwmon.collect(now, notes);
         let mut outcome = merge_sources(hwmon, nvml);
         if let Some(values) = outcome_value_mut(&mut outcome) {
             normalize_display_names(values);

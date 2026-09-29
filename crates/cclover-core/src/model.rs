@@ -53,6 +53,19 @@ impl DiskId {
     }
 }
 
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct GpuId(String);
+
+impl GpuId {
+    pub fn from_opaque_key(key: impl Into<String>) -> Self {
+        Self(key.into())
+    }
+
+    pub fn as_opaque_key(&self) -> &str {
+        &self.0
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct NetworkSnapshot {
     pub id: NetworkId,
@@ -73,6 +86,14 @@ pub struct TemperatureSnapshot {
     pub id: String,
     pub name: String,
     pub celsius: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GpuMemorySnapshot {
+    pub id: GpuId,
+    pub name: String,
+    pub used_bytes: u64,
+    pub total_bytes: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -124,6 +145,7 @@ pub struct SystemSnapshot {
     pub process_disk_io: Collection<Vec<ProcessDiskIo>>,
     pub process_network_io: Collection<Vec<ProcessNetworkIo>>,
     pub temperatures: Collection<Vec<TemperatureSnapshot>>,
+    pub gpu_memory: Collection<Vec<GpuMemorySnapshot>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -137,6 +159,7 @@ pub struct MonitorHistory {
     pub cpu: VecDeque<f64>,
     pub memory_used: VecDeque<f64>,
     pub swap_used: VecDeque<f64>,
+    pub gpu_memory_used: BTreeMap<GpuId, VecDeque<f64>>,
     pub networks: BTreeMap<NetworkId, NetworkDirectionHistory>,
     pub disks: BTreeMap<DiskId, VecDeque<f64>>,
     pub temperatures: BTreeMap<String, VecDeque<f64>>,
@@ -268,6 +291,7 @@ pub struct RawSnapshot {
     pub process_disk_io: Collection<Vec<ProcessDiskIoCounter>>,
     pub process_network_io: Collection<Vec<ProcessNetworkIoCounter>>,
     pub temperatures: Collection<Vec<TemperatureSnapshot>>,
+    pub gpu_memory: Collection<Vec<GpuMemorySnapshot>>,
 }
 
 impl Default for RawSnapshot {
@@ -288,6 +312,7 @@ impl RawSnapshot {
             process_disk_io: Collection::unavailable(reason),
             process_network_io: Collection::unavailable(reason),
             temperatures: Collection::unavailable(reason),
+            gpu_memory: Collection::unavailable(reason),
         }
     }
 }

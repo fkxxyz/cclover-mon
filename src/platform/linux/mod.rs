@@ -2,9 +2,11 @@ mod cpu;
 mod diagnostics;
 mod disk;
 mod ebpf_io;
+mod gpu_memory;
 mod memory;
 mod native;
 mod network;
+mod nvidia;
 mod process;
 mod temperature;
 
@@ -20,6 +22,7 @@ use crate::platform::{ProbeKind, ProbeReport};
 pub struct Backend {
     processes: process::Collector,
     temperatures: temperature::Collector,
+    nvidia: nvidia::Collector,
     ebpf_io: ebpf_io::Collector,
 }
 
@@ -28,6 +31,7 @@ impl Backend {
         Self {
             processes: process::Collector::new(),
             temperatures: temperature::Collector::new(),
+            nvidia: nvidia::Collector::new(),
             ebpf_io: ebpf_io::Collector::new(),
         }
     }
@@ -70,7 +74,12 @@ impl Backend {
                     .map(|result| result.rows),
             ),
             ProbeKind::Temperatures => {
-                ProbeSample::Temperatures(self.temperatures.collect(Instant::now(), notes))
+                let nvml = self.nvidia.temperatures(notes);
+                ProbeSample::Temperatures(self.temperatures.collect(Instant::now(), nvml, None))
+            }
+            ProbeKind::GpuMemory => {
+                let nvml = self.nvidia.memory(notes);
+                ProbeSample::GpuMemory(gpu_memory::collect(nvml, None))
             }
         }
     }
@@ -110,7 +119,12 @@ impl CoreCollector for Backend {
                 .map(|result| result.rows)
         });
         let temperatures = devlog::timed("collector.temperatures", || {
-            self.temperatures.collect(Instant::now(), None)
+            let nvml = self.nvidia.temperatures(None);
+            self.temperatures.collect(Instant::now(), nvml, None)
+        });
+        let gpu_memory = devlog::timed("collector.gpu-memory", || {
+            let nvml = self.nvidia.memory(None);
+            gpu_memory::collect(nvml, None)
         });
 
         RawSnapshot {
@@ -123,6 +137,7 @@ impl CoreCollector for Backend {
             process_disk_io,
             process_network_io,
             temperatures,
+            gpu_memory,
         }
     }
 }

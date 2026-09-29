@@ -82,6 +82,7 @@ fn render(frame: &mut ratatui::Frame<'_>, dashboard: Dashboard<'_>) {
             Constraint::Length(1),
             Constraint::Length(9),
             Constraint::Length(5),
+            Constraint::Length(5),
             Constraint::Min(8),
         ])
         .split(frame.area());
@@ -97,12 +98,13 @@ fn render(frame: &mut ratatui::Frame<'_>, dashboard: Dashboard<'_>) {
         .split(sections[1]);
     render_cpu(frame, overview[0], dashboard.cpu());
     render_memory(frame, overview[1], dashboard.memory());
-    render_temperatures(frame, sections[2], dashboard);
+    render_gpu_memory(frame, sections[2], dashboard);
+    render_temperatures(frame, sections[3], dashboard);
 
     let io = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(sections[3]);
+        .split(sections[4]);
     render_disks(frame, io[0], dashboard);
     render_networks(frame, io[1], dashboard);
 }
@@ -156,6 +158,22 @@ fn render_memory(frame: &mut ratatui::Frame<'_>, area: Rect, panel: MemoryPanel<
             .map(|process| Line::from(format!("{}  {}", process.name, process.value))),
     );
     frame.render_widget(Paragraph::new(lines), rows[1]);
+}
+
+fn render_gpu_memory(frame: &mut ratatui::Frame<'_>, area: Rect, dashboard: Dashboard<'_>) {
+    let inner = bordered_inner(frame, area, "GPU MEMORY".to_owned());
+    let lines: Vec<_> = (0..dashboard.gpu_memory_count())
+        .filter_map(|index| dashboard.gpu_memory(index))
+        .map(|gpu| {
+            Line::from(format!(
+                "{}  {}  {}",
+                gpu.name(),
+                gpu.value(),
+                gpu.percent()
+            ))
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 fn render_temperatures(frame: &mut ratatui::Frame<'_>, area: Rect, dashboard: Dashboard<'_>) {

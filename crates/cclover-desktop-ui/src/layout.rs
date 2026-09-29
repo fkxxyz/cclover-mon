@@ -1,4 +1,6 @@
-use cclover_presentation::{DISK_SECTION, Dashboard, NETWORK_SECTION, TEMPERATURE_SECTION};
+use cclover_presentation::{
+    DISK_SECTION, Dashboard, GPU_MEMORY_SECTION, NETWORK_SECTION, TEMPERATURE_SECTION,
+};
 
 pub const PANEL_WIDTH: u32 = 390;
 pub const INITIAL_PANEL_HEIGHT: u32 = 480;
@@ -87,6 +89,35 @@ pub(super) const SMALL_GRAPH_CARD_GEOMETRY: SmallGraphCardGeometry = SmallGraphC
 };
 
 #[derive(Debug, Clone, Copy)]
+pub(super) struct GpuMemoryCardGeometry {
+    pub spacing: u32,
+    pub header_height: u32,
+    pub value_row_height: u32,
+    pub progress_height: u32,
+    pub graph_height: u32,
+}
+
+impl GpuMemoryCardGeometry {
+    pub(super) const fn height(self) -> u32 {
+        CARD_FRAME_GEOMETRY.height_with_content(
+            self.header_height
+                + self.value_row_height
+                + self.progress_height
+                + self.graph_height
+                + self.spacing * 3,
+        )
+    }
+}
+
+pub(super) const GPU_MEMORY_CARD_GEOMETRY: GpuMemoryCardGeometry = GpuMemoryCardGeometry {
+    spacing: 4,
+    header_height: 17,
+    value_row_height: 17,
+    progress_height: 6,
+    graph_height: 24,
+};
+
+#[derive(Debug, Clone, Copy)]
 pub(super) struct IoProcessGeometry {
     pub spacing: u32,
     pub row_height: u32,
@@ -156,6 +187,7 @@ pub(super) const NETWORK_CARD_GEOMETRY: NetworkCardGeometry = NetworkCardGeometr
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Section {
+    GpuMemory,
     Temperature,
     Disk,
     Network,
@@ -164,6 +196,7 @@ pub(super) enum Section {
 impl Section {
     pub(super) const fn title(self) -> &'static str {
         match self {
+            Self::GpuMemory => GPU_MEMORY_SECTION,
             Self::Temperature => TEMPERATURE_SECTION,
             Self::Disk => DISK_SECTION,
             Self::Network => NETWORK_SECTION,
@@ -176,6 +209,7 @@ pub(super) enum PanelBlock {
     Memory { process_count: usize },
     Cpu { process_count: usize },
     Section(Section),
+    GpuMemory(usize),
     Temperature(usize),
     Disk(usize),
     Network(usize),
@@ -188,6 +222,7 @@ impl PanelBlock {
                 METRIC_CARD_GEOMETRY.height(process_count as u32)
             }
             Self::Section(_) => PANEL_GEOMETRY.section_height,
+            Self::GpuMemory(_) => GPU_MEMORY_CARD_GEOMETRY.height(),
             Self::Temperature(_) => SMALL_GRAPH_CARD_GEOMETRY.height(),
             Self::Disk(_) => DISK_CARD_GEOMETRY.height(),
             Self::Network(_) => NETWORK_CARD_GEOMETRY.height(),
@@ -199,6 +234,7 @@ impl PanelBlock {
 pub struct PanelLayout {
     memory_process_count: usize,
     cpu_process_count: usize,
+    gpu_memory_count: usize,
     temperature_count: usize,
     disk_count: usize,
     network_count: usize,
@@ -209,6 +245,7 @@ impl PanelLayout {
         Self {
             memory_process_count: dashboard.memory().process_count(),
             cpu_process_count: dashboard.cpu().process_count(),
+            gpu_memory_count: dashboard.gpu_memory_count(),
             temperature_count: dashboard.temperature_count(),
             disk_count: dashboard.disk_count(),
             network_count: dashboard.network_count(),
@@ -226,6 +263,8 @@ impl PanelLayout {
         std::iter::once(PanelBlock::Memory {
             process_count: self.memory_process_count,
         })
+        .chain(std::iter::once(PanelBlock::Section(Section::GpuMemory)))
+        .chain((0..self.gpu_memory_count).map(PanelBlock::GpuMemory))
         .chain(std::iter::once(PanelBlock::Section(Section::Temperature)))
         .chain((0..self.temperature_count).map(PanelBlock::Temperature))
     }
@@ -259,7 +298,7 @@ mod tests {
     fn layout_structure_drives_dynamic_height() {
         let empty = MonitorState::default();
         let empty_layout = PanelLayout::new(Dashboard::new(&empty));
-        assert_eq!(empty_layout.left_blocks().count(), 2);
+        assert_eq!(empty_layout.left_blocks().count(), 3);
         assert_eq!(empty_layout.right_blocks().count(), 3);
 
         let mut populated = MonitorState::default();
@@ -270,7 +309,7 @@ mod tests {
         }]);
         let populated_layout = PanelLayout::new(Dashboard::new(&populated));
 
-        assert_eq!(populated_layout.left_blocks().count(), 3);
+        assert_eq!(populated_layout.left_blocks().count(), 4);
         assert!(populated_layout.height() > empty_layout.height());
     }
 
@@ -291,6 +330,16 @@ mod tests {
         assert_eq!(
             SMALL_GRAPH_CARD_GEOMETRY.height(),
             CARD_FRAME_GEOMETRY.height_with_content(small_content)
+        );
+
+        let gpu_memory_content = GPU_MEMORY_CARD_GEOMETRY.header_height
+            + GPU_MEMORY_CARD_GEOMETRY.value_row_height
+            + GPU_MEMORY_CARD_GEOMETRY.progress_height
+            + GPU_MEMORY_CARD_GEOMETRY.graph_height
+            + GPU_MEMORY_CARD_GEOMETRY.spacing * 3;
+        assert_eq!(
+            GPU_MEMORY_CARD_GEOMETRY.height(),
+            CARD_FRAME_GEOMETRY.height_with_content(gpu_memory_content)
         );
 
         let network_content = NETWORK_CARD_GEOMETRY.header_height

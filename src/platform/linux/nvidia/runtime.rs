@@ -17,11 +17,20 @@ type NvmlDeviceGetHandleByIndex = unsafe extern "C" fn(c_uint, *mut *mut c_void)
 type NvmlDeviceGetUuid = unsafe extern "C" fn(*mut c_void, *mut c_char, c_uint) -> c_uint;
 type NvmlDeviceGetName = unsafe extern "C" fn(*mut c_void, *mut c_char, c_uint) -> c_uint;
 type NvmlDeviceGetTemperature = unsafe extern "C" fn(*mut c_void, c_uint, *mut c_uint) -> c_uint;
+type NvmlDeviceGetMemoryInfo = unsafe extern "C" fn(*mut c_void, *mut NvmlMemory) -> c_uint;
+
+#[repr(C)]
+pub(super) struct NvmlMemory {
+    pub(super) total: u64,
+    pub(super) free: u64,
+    pub(super) used: u64,
+}
 
 pub(super) struct Session {
     library: Library,
     shutdown: NvmlShutdown,
     get_temperature: NvmlDeviceGetTemperature,
+    get_memory_info: NvmlDeviceGetMemoryInfo,
     devices: Vec<Device>,
 }
 
@@ -53,6 +62,8 @@ impl Session {
         let get_name: NvmlDeviceGetName = library.function(b"nvmlDeviceGetName\0")?;
         let get_temperature: NvmlDeviceGetTemperature =
             library.function(b"nvmlDeviceGetTemperature\0")?;
+        let get_memory_info: NvmlDeviceGetMemoryInfo =
+            library.function(b"nvmlDeviceGetMemoryInfo\0")?;
 
         // SAFETY: init was resolved from the loaded NVML library with the exact NVML ABI signature.
         let init_status = unsafe { init() };
@@ -106,6 +117,7 @@ impl Session {
                 library,
                 shutdown,
                 get_temperature,
+                get_memory_info,
                 devices,
             },
             issues,
@@ -130,6 +142,23 @@ impl Session {
         };
         if status == NVML_SUCCESS {
             Ok(temperature)
+        } else {
+            Err(status)
+        }
+    }
+
+    pub(super) fn memory(&self, index: usize) -> Result<NvmlMemory, u32> {
+        let device = self.devices.get(index).ok_or(u32::MAX)?;
+        let mut memory = NvmlMemory {
+            total: 0,
+            free: 0,
+            used: 0,
+        };
+        // SAFETY: get_memory_info has the exact NVML ABI signature. The handle came from this
+        // initialized session and memory points to writable storage.
+        let status = unsafe { (self.get_memory_info)(device.handle as *mut c_void, &mut memory) };
+        if status == NVML_SUCCESS {
+            Ok(memory)
         } else {
             Err(status)
         }

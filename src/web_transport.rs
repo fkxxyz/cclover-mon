@@ -3,10 +3,10 @@ use std::collections::{BTreeMap, VecDeque};
 use serde::{Deserialize, Serialize};
 
 use crate::core::model::{
-    Collection, CollectionUnavailable, DiskId, DiskSnapshot, MemorySnapshot, MonitorHistory,
-    MonitorState, NetworkDirectionHistory, NetworkId, NetworkSnapshot, ProcessCpuUsage,
-    ProcessDiskIo, ProcessInstanceId, ProcessMemoryUsage, ProcessNetworkIo, SystemSnapshot,
-    TemperatureSnapshot,
+    Collection, CollectionUnavailable, DiskId, DiskSnapshot, GpuId, GpuMemorySnapshot,
+    MemorySnapshot, MonitorHistory, MonitorState, NetworkDirectionHistory, NetworkId,
+    NetworkSnapshot, ProcessCpuUsage, ProcessDiskIo, ProcessInstanceId, ProcessMemoryUsage,
+    ProcessNetworkIo, SystemSnapshot, TemperatureSnapshot,
 };
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -24,9 +24,11 @@ pub(crate) enum WebApiSlice {
     Disks,
     Networks,
     Temperatures,
+    GpuMemory,
     Processes,
     HistoryCpu,
     HistoryMemory,
+    HistoryGpuMemory,
     HistoryDisks,
     HistoryNetworks,
     HistoryTemperatures,
@@ -55,6 +57,9 @@ impl WebMonitorState {
             WebApiSlice::Temperatures => serde_json::to_string(&WebTemperaturesApi {
                 temperatures: &self.snapshot.temperatures,
             }),
+            WebApiSlice::GpuMemory => serde_json::to_string(&WebGpuMemoryApi {
+                gpu_memory: &self.snapshot.gpu_memory,
+            }),
             WebApiSlice::Processes => serde_json::to_string(&WebProcessesApi {
                 top_cpu: &self.snapshot.top_cpu,
                 top_memory: &self.snapshot.top_memory,
@@ -69,6 +74,10 @@ impl WebMonitorState {
                 history_capacity: self.history_capacity,
                 memory_used: &self.history.memory_used,
                 swap_used: &self.history.swap_used,
+            }),
+            WebApiSlice::HistoryGpuMemory => serde_json::to_string(&WebGpuMemoryHistoryApi {
+                history_capacity: self.history_capacity,
+                gpu_memory_used: &self.history.gpu_memory_used,
             }),
             WebApiSlice::HistoryDisks => serde_json::to_string(&WebDisksHistoryApi {
                 history_capacity: self.history_capacity,
@@ -97,6 +106,7 @@ struct WebSystemSnapshot {
     process_disk_io: WebCollection<Vec<WebProcessDiskIo>>,
     process_network_io: WebCollection<Vec<WebProcessNetworkIo>>,
     temperatures: WebCollection<Vec<WebTemperatureSnapshot>>,
+    gpu_memory: WebCollection<Vec<WebGpuMemorySnapshot>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -229,6 +239,14 @@ struct WebTemperatureSnapshot {
     celsius: f64,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct WebGpuMemorySnapshot {
+    id: String,
+    name: String,
+    used_bytes: u64,
+    total_bytes: u64,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 struct WebDirectionHistory {
     down: VecDeque<f64>,
@@ -240,6 +258,7 @@ struct WebMonitorHistory {
     cpu: VecDeque<f64>,
     memory_used: VecDeque<f64>,
     swap_used: VecDeque<f64>,
+    gpu_memory_used: BTreeMap<String, VecDeque<f64>>,
     networks: BTreeMap<String, WebDirectionHistory>,
     disks: BTreeMap<String, VecDeque<f64>>,
     temperatures: BTreeMap<String, VecDeque<f64>>,
@@ -281,6 +300,12 @@ struct WebTemperaturesApi<'a> {
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "http"))]
 #[derive(Serialize)]
+struct WebGpuMemoryApi<'a> {
+    gpu_memory: &'a WebCollection<Vec<WebGpuMemorySnapshot>>,
+}
+
+#[cfg(all(not(target_arch = "wasm32"), feature = "http"))]
+#[derive(Serialize)]
 struct WebProcessesApi<'a> {
     top_cpu: &'a WebCollection<Vec<WebProcessCpu>>,
     top_memory: &'a WebCollection<Vec<WebProcessMemory>>,
@@ -301,6 +326,13 @@ struct WebMemoryHistoryApi<'a> {
     history_capacity: usize,
     memory_used: &'a VecDeque<f64>,
     swap_used: &'a VecDeque<f64>,
+}
+
+#[cfg(all(not(target_arch = "wasm32"), feature = "http"))]
+#[derive(Serialize)]
+struct WebGpuMemoryHistoryApi<'a> {
+    history_capacity: usize,
+    gpu_memory_used: &'a BTreeMap<String, VecDeque<f64>>,
 }
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "http"))]
@@ -372,6 +404,9 @@ impl From<&SystemSnapshot> for WebSystemSnapshot {
             temperatures: WebCollection::from_core(&snapshot.temperatures, |rows| {
                 rows.iter().map(WebTemperatureSnapshot::from).collect()
             }),
+            gpu_memory: WebCollection::from_core(&snapshot.gpu_memory, |rows| {
+                rows.iter().map(WebGpuMemorySnapshot::from).collect()
+            }),
         }
     }
 }
@@ -402,6 +437,9 @@ impl From<WebSystemSnapshot> for SystemSnapshot {
             temperatures: snapshot
                 .temperatures
                 .into_core(|rows| rows.into_iter().map(TemperatureSnapshot::from).collect()),
+            gpu_memory: snapshot
+                .gpu_memory
+                .into_core(|rows| rows.into_iter().map(GpuMemorySnapshot::from).collect()),
         }
     }
 }
@@ -586,6 +624,28 @@ impl From<WebTemperatureSnapshot> for TemperatureSnapshot {
     }
 }
 
+impl From<&GpuMemorySnapshot> for WebGpuMemorySnapshot {
+    fn from(value: &GpuMemorySnapshot) -> Self {
+        Self {
+            id: value.id.as_opaque_key().to_owned(),
+            name: value.name.clone(),
+            used_bytes: value.used_bytes,
+            total_bytes: value.total_bytes,
+        }
+    }
+}
+
+impl From<WebGpuMemorySnapshot> for GpuMemorySnapshot {
+    fn from(value: WebGpuMemorySnapshot) -> Self {
+        Self {
+            id: GpuId::from_opaque_key(value.id),
+            name: value.name,
+            used_bytes: value.used_bytes,
+            total_bytes: value.total_bytes,
+        }
+    }
+}
+
 impl From<&NetworkDirectionHistory> for WebDirectionHistory {
     fn from(value: &NetworkDirectionHistory) -> Self {
         Self {
@@ -610,6 +670,11 @@ impl From<&MonitorHistory> for WebMonitorHistory {
             cpu: history.cpu.clone(),
             memory_used: history.memory_used.clone(),
             swap_used: history.swap_used.clone(),
+            gpu_memory_used: history
+                .gpu_memory_used
+                .iter()
+                .map(|(id, values)| (id.as_opaque_key().to_owned(), values.clone()))
+                .collect(),
             networks: history
                 .networks
                 .iter()
@@ -636,6 +701,11 @@ impl From<WebMonitorHistory> for MonitorHistory {
             cpu: history.cpu,
             memory_used: history.memory_used,
             swap_used: history.swap_used,
+            gpu_memory_used: history
+                .gpu_memory_used
+                .into_iter()
+                .map(|(id, values)| (GpuId::from_opaque_key(id), values))
+                .collect(),
             networks: history
                 .networks
                 .into_iter()
@@ -718,7 +788,17 @@ mod tests {
             down_bytes_per_sec: 12.0,
             up_bytes_per_sec: 5.0,
         }]);
+        state.snapshot.gpu_memory = Collection::available(vec![GpuMemorySnapshot {
+            id: GpuId::from_opaque_key("gpu-a"),
+            name: "RTX Test".to_owned(),
+            used_bytes: 4,
+            total_bytes: 8,
+        }]);
         state.history.cpu.push_back(11.0);
+        state
+            .history
+            .gpu_memory_used
+            .insert(GpuId::from_opaque_key("gpu-a"), VecDeque::from([2.0, 4.0]));
         state.history.networks.insert(
             network_id,
             NetworkDirectionHistory {
@@ -735,11 +815,19 @@ mod tests {
         assert_eq!(decoded.snapshot.cpu_percent.value().copied(), Some(37.5));
         assert_eq!(decoded.snapshot.memory.value().unwrap().used_bytes, 10);
         assert_eq!(decoded.snapshot.networks.value().unwrap()[0].name, "eth0");
+        let gpu = &decoded.snapshot.gpu_memory.value().unwrap()[0];
+        assert_eq!(gpu.id.as_opaque_key(), "gpu-a");
+        assert_eq!(gpu.name, "RTX Test");
+        assert_eq!((gpu.used_bytes, gpu.total_bytes), (4, 8));
         assert_eq!(
             decoded.history.networks[&decoded.snapshot.networks.value().unwrap()[0].id].down,
             VecDeque::from([7.0, 12.0])
         );
         assert_eq!(decoded.history.cpu, VecDeque::from([11.0]));
+        assert_eq!(
+            decoded.history.gpu_memory_used[&GpuId::from_opaque_key("gpu-a")],
+            VecDeque::from([2.0, 4.0])
+        );
         assert_eq!(decoded.history_capacity, 120);
         assert!(!decoded.snapshot.process_disk_io.is_observable());
         assert!(!decoded.snapshot.process_network_io.is_observable());

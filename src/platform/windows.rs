@@ -50,7 +50,8 @@ impl Backend {
             ProbeKind::Disk => ProbeSample::Disk(disk::collect(notes)),
             ProbeKind::NetworkAttribution
             | ProbeKind::DiskAttribution
-            | ProbeKind::Temperatures => ProbeSample::Unsupported(kind),
+            | ProbeKind::Temperatures
+            | ProbeKind::GpuMemory => ProbeSample::Unsupported(kind),
         }
     }
 }
@@ -74,6 +75,7 @@ impl CoreCollector for Backend {
             process_disk_io: Collection::unavailable(CollectionUnavailable::Unsupported),
             process_network_io: Collection::unavailable(CollectionUnavailable::Unsupported),
             temperatures: Collection::unavailable(CollectionUnavailable::Unsupported),
+            gpu_memory: Collection::unavailable(CollectionUnavailable::Unsupported),
         }
     }
 }

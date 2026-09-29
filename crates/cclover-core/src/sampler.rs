@@ -134,6 +134,7 @@ fn derive(previous: Option<&RawSnapshot>, current: &RawSnapshot) -> SystemSnapsh
             ),
         ),
         temperatures: current.temperatures.clone(),
+        gpu_memory: current.gpu_memory.clone(),
     }
 }
 

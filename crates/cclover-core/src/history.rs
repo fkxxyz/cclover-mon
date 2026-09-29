@@ -15,6 +15,18 @@ pub fn push(history: &mut MonitorHistory, snapshot: &SystemSnapshot, capacity: u
         );
     }
 
+    match &snapshot.gpu_memory {
+        Collection::Available(items) => {
+            retain_present(
+                &mut history.gpu_memory_used,
+                items.iter().map(|x| x.id.clone()),
+            );
+            append_gpu_memory(history, items, capacity);
+        }
+        Collection::Degraded(items) => append_gpu_memory(history, items, capacity),
+        Collection::Unavailable(_) => {}
+    }
+
     match &snapshot.networks {
         Collection::Available(items) => {
             retain_present(&mut history.networks, items.iter().map(|x| x.id.clone()));
@@ -43,6 +55,20 @@ pub fn push(history: &mut MonitorHistory, snapshot: &SystemSnapshot, capacity: u
         }
         Collection::Degraded(items) => append_temperatures(history, items, capacity),
         Collection::Unavailable(_) => {}
+    }
+}
+
+fn append_gpu_memory(
+    history: &mut MonitorHistory,
+    items: &[super::model::GpuMemorySnapshot],
+    capacity: usize,
+) {
+    for item in items {
+        append(
+            history.gpu_memory_used.entry(item.id.clone()).or_default(),
+            item.used_bytes as f64,
+            capacity,
+        );
     }
 }
 
@@ -105,8 +131,8 @@ fn retain_present<K: Clone + Ord, T>(map: &mut BTreeMap<K, T>, ids: impl Iterato
 mod tests {
     use super::*;
     use crate::model::{
-        CollectionUnavailable, DiskId, DiskSnapshot, NetworkId, NetworkSnapshot, SystemSnapshot,
-        TemperatureSnapshot,
+        CollectionUnavailable, DiskId, DiskSnapshot, GpuId, GpuMemorySnapshot, NetworkId,
+        NetworkSnapshot, SystemSnapshot, TemperatureSnapshot,
     };
 
     #[test]
@@ -121,6 +147,32 @@ mod tests {
         }
         assert_eq!(
             history.cpu.into_iter().collect::<Vec<_>>(),
+            vec![2.0, 3.0, 4.0]
+        );
+    }
+
+    #[test]
+    fn gpu_memory_history_is_bounded_and_uses_stable_identity() {
+        let id = GpuId::from_opaque_key("gpu-a");
+        let mut history = MonitorHistory::default();
+        for used in [1_u64, 2, 3, 4] {
+            let snapshot = SystemSnapshot {
+                gpu_memory: Collection::available(vec![GpuMemorySnapshot {
+                    id: id.clone(),
+                    name: format!("GPU {used}"),
+                    used_bytes: used,
+                    total_bytes: 8,
+                }]),
+                ..SystemSnapshot::default()
+            };
+            push(&mut history, &snapshot, 3);
+        }
+
+        assert_eq!(
+            history.gpu_memory_used[&id]
+                .iter()
+                .copied()
+                .collect::<Vec<_>>(),
             vec![2.0, 3.0, 4.0]
         );
     }

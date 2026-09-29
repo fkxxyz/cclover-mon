@@ -87,12 +87,12 @@ platform backend
   ├── temperature collector
   │     └── generic hwmon source
   ├── GPU collector
-  │     └── AMD amdgpu DRM/sysfs + device hwmon sources
+  │     └── AMD amdgpu DRM/sysfs + device hwmon non-temperature telemetry
   └── shared NVIDIA telemetry adapter
         └── one cached NVML session/device set for GPU telemetry
 ```
 
-The backend may know every collector so it can assemble a batch snapshot. A metric collector does not depend on the backend or on sibling collectors. A metric collector may fan in multiple native sources when they represent the same platform-neutral metric. Linux GPU collection merges AMD `amdgpu` native telemetry and NVIDIA NVML into one `GpuSnapshot` sequence. GPU temperature is part of that GPU snapshot; generic temperature collection remains responsible for non-GPU sensors and GPU families not yet represented by the GPU collector. NVIDIA NVML session/device lifetime is owned by a shared Linux telemetry adapter; metric policy remains outside the raw adapter.
+The backend may know every collector so it can assemble a batch snapshot. A metric collector does not depend on the backend or on sibling collectors. A metric collector may fan in multiple native sources when they represent the same platform-neutral metric. Linux GPU collection merges AMD `amdgpu` native telemetry and NVIDIA NVML into one `GpuSnapshot` sequence. Generic hwmon discovery reports temperature observations without vendor exclusion rules. At batch composition, the Linux backend reconciles temperature observations against actually discovered GPUs by canonical physical-device identity: a matching temperature is consumed into the GPU snapshot, while unmatched sensors remain in the generic temperature collection. An existing vendor GPU temperature wins over a matching hwmon fallback. NVIDIA NVML session/device lifetime is owned by a shared Linux telemetry adapter; metric policy remains outside the raw adapter.
 
 Windows follows the same collector partition rather than one monolithic Win32 backend. CPU uses system timing counters, memory uses the system memory-status API, process collection uses one NT system-process snapshot, network uses IP Helper interface counters, and disk uses storage/device IO controls. Windows temperature support is intentionally a fan-in responsibility: PawnIO-backed CPU/Super-I/O access, GPU vendor APIs, and SMART/NVMe storage sensors may coexist as peer sources without exposing their native APIs to core. The Windows desktop host separately owns native monitor-surface policy—top-right placement, bottom window level, taskbar exclusion, undecorated sizing, pointer passthrough, and native drawing realization—while shared dashboard semantics and structure remain platform-neutral.
 

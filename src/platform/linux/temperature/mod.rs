@@ -6,12 +6,19 @@ use std::time::Instant;
 use crate::core::SAMPLE_INTERVAL;
 use crate::core::model::{Collection, TemperatureSnapshot};
 
+use super::PhysicalDeviceId;
 use super::diagnostics::probe_note;
+
+#[derive(Clone, Debug)]
+pub(super) struct Observation {
+    pub(super) physical_device: Option<PhysicalDeviceId>,
+    pub(super) snapshot: TemperatureSnapshot,
+}
 
 pub(super) struct Collector {
     hwmon: hwmon::Collector,
     last_sample: Option<Instant>,
-    last_outcome: Collection<Vec<TemperatureSnapshot>>,
+    last_outcome: Collection<Vec<Observation>>,
 }
 
 impl Collector {
@@ -23,11 +30,11 @@ impl Collector {
         }
     }
 
-    pub(super) fn collect(
+    pub(super) fn collect_observations(
         &mut self,
         now: Instant,
         mut notes: Option<&mut Vec<String>>,
-    ) -> Collection<Vec<TemperatureSnapshot>> {
+    ) -> Collection<Vec<Observation>> {
         if self
             .last_sample
             .is_some_and(|last| now.saturating_duration_since(last) < SAMPLE_INTERVAL)
@@ -39,24 +46,13 @@ impl Collector {
         }
         self.last_sample = Some(now);
 
-        let mut outcome = self.hwmon.collect(now, notes);
-        if let Some(values) = outcome_value_mut(&mut outcome) {
-            normalize_display_names(values);
-        }
-
+        let outcome = self.hwmon.collect(now, notes);
         self.last_outcome = outcome.clone();
         outcome
     }
 }
 
-fn outcome_value_mut<T>(outcome: &mut Collection<T>) -> Option<&mut T> {
-    match outcome {
-        Collection::Available(value) | Collection::Degraded(value) => Some(value),
-        Collection::Unavailable(_) => None,
-    }
-}
-
-fn normalize_display_names(values: &mut [TemperatureSnapshot]) {
+pub(super) fn normalize_display_names(values: &mut [TemperatureSnapshot]) {
     let mut counts = HashMap::new();
     for value in values.iter() {
         *counts.entry(value.name.clone()).or_insert(0_usize) += 1;

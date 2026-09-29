@@ -3,19 +3,35 @@ use std::path::{Path, PathBuf};
 
 use crate::core::model::{Collection, GpuId, GpuSnapshot};
 
+use super::PhysicalDeviceId;
 use super::diagnostics::{probe_note, unavailable_from_io};
 
-pub(super) fn collect(
+#[derive(Clone, Debug)]
+pub(super) struct Observation {
+    pub(super) physical_device: Option<PhysicalDeviceId>,
+    pub(super) snapshot: GpuSnapshot,
+}
+
+pub(super) fn collect_observations(
     nvidia: Collection<Vec<GpuSnapshot>>,
     notes: Option<&mut Vec<String>>,
-) -> Collection<Vec<GpuSnapshot>> {
+) -> Collection<Vec<Observation>> {
+    let nvidia = nvidia.map(|values| {
+        values
+            .into_iter()
+            .map(|snapshot| Observation {
+                physical_device: None,
+                snapshot,
+            })
+            .collect()
+    });
     merge_sources(collect_amd(Path::new("/sys/class/drm"), notes), nvidia)
 }
 
 fn collect_amd(
     drm_root: &Path,
     mut notes: Option<&mut Vec<String>>,
-) -> Collection<Vec<GpuSnapshot>> {
+) -> Collection<Vec<Observation>> {
     let entries = match fs::read_dir(drm_root) {
         Ok(entries) => entries,
         Err(error) => {
@@ -62,8 +78,9 @@ fn is_amdgpu(device: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn read_amd_device(device: &Path) -> Result<GpuSnapshot, String> {
+fn read_amd_device(device: &Path) -> Result<Observation, String> {
     let canonical = fs::canonicalize(device).map_err(|error| error.to_string())?;
+    let physical_device = PhysicalDeviceId(canonical.clone());
     let id = GpuId::from_opaque_key(format!("drm:{}", canonical.display()));
     let name = read_device_name(device).unwrap_or_else(|| "AMD GPU".to_owned());
     let memory_used_bytes = read_optional_u64(device.join("mem_info_vram_used"));
@@ -72,10 +89,6 @@ fn read_amd_device(device: &Path) -> Result<GpuSnapshot, String> {
         .map(|value| (value as f64).clamp(0.0, 100.0));
     let core_clock_mhz = read_active_dpm_clock(device.join("pp_dpm_sclk"));
     let hwmon = first_hwmon(device);
-    let temperature_celsius = hwmon
-        .as_ref()
-        .and_then(|path| read_first_numbered(path, "temp", "_input"))
-        .map(|value| value as f64 / 1000.0);
     let power_watts = hwmon
         .as_ref()
         .and_then(|path| read_first_numbered(path, "power", "_average"))
@@ -85,17 +98,20 @@ fn read_amd_device(device: &Path) -> Result<GpuSnapshot, String> {
         .and_then(|path| read_first_numbered(path, "fan", "_input"));
     let fan_percent = hwmon.as_ref().and_then(|path| read_pwm_percent(path));
 
-    Ok(GpuSnapshot {
-        id,
-        name,
-        utilization_percent,
-        memory_used_bytes,
-        memory_total_bytes,
-        temperature_celsius,
-        power_watts,
-        core_clock_mhz,
-        fan_percent,
-        fan_rpm,
+    Ok(Observation {
+        physical_device: Some(physical_device),
+        snapshot: GpuSnapshot {
+            id,
+            name,
+            utilization_percent,
+            memory_used_bytes,
+            memory_total_bytes,
+            temperature_celsius: None,
+            power_watts,
+            core_clock_mhz,
+            fan_percent,
+            fan_rpm,
+        },
     })
 }
 
@@ -218,7 +234,7 @@ mod tests {
     }
 
     #[test]
-    fn amd_capabilities_map_to_one_gpu_snapshot() {
+    fn amd_capabilities_map_to_one_gpu_observation() {
         let fixture = Fixture::new("amd-gpu");
         fixture.dir("hwmon/hwmon0");
         fixture.write("mem_info_vram_used", "1073741824\n");
@@ -232,13 +248,14 @@ mod tests {
         fixture.write("hwmon/hwmon0/pwm1", "94\n");
         fixture.write("hwmon/hwmon0/pwm1_max", "255\n");
 
-        let snapshot = read_amd_device(fixture.path()).unwrap();
+        let observation = read_amd_device(fixture.path()).unwrap();
+        let snapshot = &observation.snapshot;
 
         assert_eq!(snapshot.name, "Radeon Test GPU");
         assert_eq!(snapshot.utilization_percent, Some(42.0));
         assert_eq!(snapshot.memory_used_bytes, Some(1_073_741_824));
         assert_eq!(snapshot.memory_total_bytes, Some(8_589_934_592));
-        assert_eq!(snapshot.temperature_celsius, Some(63.0));
+        assert_eq!(snapshot.temperature_celsius, None);
         assert_eq!(snapshot.power_watts, Some(145.0));
         assert_eq!(snapshot.core_clock_mhz, Some(2100));
         assert_eq!(snapshot.fan_rpm, Some(1320));
@@ -248,6 +265,7 @@ mod tests {
                 .is_some_and(|value| (value - 36.86).abs() < 0.1)
         );
         assert!(snapshot.id.as_opaque_key().starts_with("drm:"));
+        assert!(observation.physical_device.is_some());
     }
 
     #[test]
@@ -255,7 +273,8 @@ mod tests {
         let fixture = Fixture::new("amd-gpu-minimal");
         fixture.write("product_name", "Radeon Minimal\n");
 
-        let snapshot = read_amd_device(fixture.path()).unwrap();
+        let observation = read_amd_device(fixture.path()).unwrap();
+        let snapshot = &observation.snapshot;
 
         assert_eq!(snapshot.utilization_percent, None);
         assert_eq!(snapshot.memory_used_bytes, None);

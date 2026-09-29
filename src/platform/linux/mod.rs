@@ -13,13 +13,23 @@ mod temperature;
 mod test_support;
 
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use crate::core::Collector as CoreCollector;
 use crate::core::devlog;
-use crate::core::model::{Collection, RawSnapshot};
+use crate::core::model::{Collection, GpuSnapshot, RawSnapshot, TemperatureSnapshot};
 use crate::platform::probe::ProbeSample;
 use crate::platform::{ProbeKind, ProbeReport};
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct PhysicalDeviceId(PathBuf);
+
+impl PhysicalDeviceId {
+    fn from_path(path: &Path) -> Option<Self> {
+        std::fs::canonicalize(path).ok().map(Self)
+    }
+}
 
 pub struct Backend {
     processes: process::Collector,
@@ -76,14 +86,97 @@ impl Backend {
                     .map(|result| result.rows),
             ),
             ProbeKind::Temperatures => {
-                ProbeSample::Temperatures(self.temperatures.collect(Instant::now(), notes))
+                let (_, temperatures) = self.collect_gpu_temperatures(notes);
+                ProbeSample::Temperatures(temperatures)
             }
             ProbeKind::Gpu => {
-                let nvml = self.nvidia.gpus(notes);
-                ProbeSample::Gpu(gpu::collect(nvml, None))
+                let (gpus, _) = self.collect_gpu_temperatures(notes);
+                ProbeSample::Gpu(gpus)
             }
         }
     }
+
+    fn collect_gpu_temperatures(
+        &mut self,
+        mut notes: Option<&mut Vec<String>>,
+    ) -> (
+        Collection<Vec<GpuSnapshot>>,
+        Collection<Vec<TemperatureSnapshot>>,
+    ) {
+        let temperatures = devlog::timed("collector.temperatures", || {
+            self.temperatures
+                .collect_observations(Instant::now(), notes.as_deref_mut())
+        });
+        let gpus = devlog::timed("collector.gpu", || {
+            let nvml = self.nvidia.gpus(notes.as_deref_mut());
+            gpu::collect_observations(nvml, notes)
+        });
+        reconcile_gpu_temperatures(gpus, temperatures)
+    }
+}
+
+fn reconcile_gpu_temperatures(
+    mut gpus: Collection<Vec<gpu::Observation>>,
+    temperatures: Collection<Vec<temperature::Observation>>,
+) -> (
+    Collection<Vec<GpuSnapshot>>,
+    Collection<Vec<TemperatureSnapshot>>,
+) {
+    let mut temperatures = match temperatures {
+        Collection::Available(values) => Collection::Available(reconcile_temperature_values(
+            collection_value_mut(&mut gpus),
+            values,
+        )),
+        Collection::Degraded(values) => Collection::Degraded(reconcile_temperature_values(
+            collection_value_mut(&mut gpus),
+            values,
+        )),
+        Collection::Unavailable(reason) => Collection::Unavailable(reason),
+    };
+    if let Some(values) = collection_value_mut(&mut temperatures) {
+        temperature::normalize_display_names(values);
+    }
+    let gpus = gpus.map(|values| values.into_iter().map(|value| value.snapshot).collect());
+    (gpus, temperatures)
+}
+
+fn collection_value_mut<T>(collection: &mut Collection<T>) -> Option<&mut T> {
+    match collection {
+        Collection::Available(value) | Collection::Degraded(value) => Some(value),
+        Collection::Unavailable(_) => None,
+    }
+}
+
+fn reconcile_temperature_values(
+    gpus: Option<&mut Vec<gpu::Observation>>,
+    temperatures: Vec<temperature::Observation>,
+) -> Vec<TemperatureSnapshot> {
+    let Some(gpus) = gpus else {
+        return temperatures
+            .into_iter()
+            .map(|value| value.snapshot)
+            .collect();
+    };
+
+    temperatures
+        .into_iter()
+        .filter_map(|temperature| {
+            let Some(device) = temperature.physical_device.as_ref() else {
+                return Some(temperature.snapshot);
+            };
+            let Some(gpu) = gpus
+                .iter_mut()
+                .find(|gpu| gpu.physical_device.as_ref() == Some(device))
+            else {
+                return Some(temperature.snapshot);
+            };
+
+            if gpu.snapshot.temperature_celsius.is_none() {
+                gpu.snapshot.temperature_celsius = Some(temperature.snapshot.celsius);
+            }
+            None
+        })
+        .collect()
 }
 
 impl Default for Backend {
@@ -119,13 +212,7 @@ impl CoreCollector for Backend {
                 .collect_network(active_processes.as_ref(), None)
                 .map(|result| result.rows)
         });
-        let temperatures = devlog::timed("collector.temperatures", || {
-            self.temperatures.collect(Instant::now(), None)
-        });
-        let gpus = devlog::timed("collector.gpu", || {
-            let nvml = self.nvidia.gpus(None);
-            gpu::collect(nvml, None)
-        });
+        let (gpus, temperatures) = self.collect_gpu_temperatures(None);
 
         RawSnapshot {
             collected_at,
@@ -139,5 +226,89 @@ impl CoreCollector for Backend {
             temperatures,
             gpus,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::model::{CollectionUnavailable, GpuId};
+
+    fn gpu(device: &str, temperature_celsius: Option<f64>) -> gpu::Observation {
+        gpu::Observation {
+            physical_device: Some(PhysicalDeviceId(PathBuf::from(device))),
+            snapshot: GpuSnapshot {
+                id: GpuId::from_opaque_key(format!("gpu:{device}")),
+                name: "GPU".to_owned(),
+                utilization_percent: None,
+                memory_used_bytes: None,
+                memory_total_bytes: None,
+                temperature_celsius,
+                power_watts: None,
+                core_clock_mhz: None,
+                fan_percent: None,
+                fan_rpm: None,
+            },
+        }
+    }
+
+    fn temperature(device: Option<&str>, id: &str, value: f64) -> temperature::Observation {
+        temperature::Observation {
+            physical_device: device.map(|value| PhysicalDeviceId(PathBuf::from(value))),
+            snapshot: TemperatureSnapshot {
+                id: id.to_owned(),
+                name: "GPU".to_owned(),
+                celsius: value,
+            },
+        }
+    }
+
+    #[test]
+    fn matching_hwmon_temperature_is_owned_by_gpu() {
+        let (gpus, temperatures) = reconcile_gpu_temperatures(
+            Collection::available(vec![gpu("/device/a", None)]),
+            Collection::available(vec![temperature(Some("/device/a"), "temp-a", 63.0)]),
+        );
+
+        assert_eq!(gpus.value().unwrap()[0].temperature_celsius, Some(63.0));
+        assert!(temperatures.value().unwrap().is_empty());
+    }
+
+    #[test]
+    fn existing_gpu_temperature_wins_but_matching_hwmon_value_is_still_consumed() {
+        let (gpus, temperatures) = reconcile_gpu_temperatures(
+            Collection::available(vec![gpu("/device/a", Some(60.0))]),
+            Collection::available(vec![temperature(Some("/device/a"), "temp-a", 63.0)]),
+        );
+
+        assert_eq!(gpus.value().unwrap()[0].temperature_celsius, Some(60.0));
+        assert!(temperatures.value().unwrap().is_empty());
+    }
+
+    #[test]
+    fn unmatched_temperature_remains_generic_and_is_normalized_after_reconciliation() {
+        let (_, temperatures) = reconcile_gpu_temperatures(
+            Collection::available(vec![gpu("/device/a", None)]),
+            Collection::available(vec![
+                temperature(Some("/device/a"), "owned", 63.0),
+                temperature(Some("/device/b"), "generic", 55.0),
+            ]),
+        );
+
+        let values = temperatures.value().unwrap();
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0].id, "generic");
+        assert_eq!(values[0].name, "GPU");
+    }
+
+    #[test]
+    fn unavailable_gpu_collection_never_suppresses_temperature() {
+        let (_, temperatures) = reconcile_gpu_temperatures(
+            Collection::unavailable(CollectionUnavailable::Unsupported),
+            Collection::available(vec![temperature(Some("/device/a"), "temp-a", 63.0)]),
+        );
+
+        assert_eq!(temperatures.value().unwrap().len(), 1);
+        assert_eq!(temperatures.value().unwrap()[0].id, "temp-a");
     }
 }

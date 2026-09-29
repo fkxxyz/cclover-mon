@@ -29,7 +29,6 @@ Technical debt here means current structure that makes future reasonable change 
 
 | Debt | Status | Why it matters |
 | --- | --- | --- |
-| [GPU capability contract](technical-debt/gpu-capability-contract.md) | Active | GPU ownership and missing-field semantics still rely on cross-collector convention and compressed optional state, raising vendor/backend extension risk. |
 | [Native text metrics contract](technical-debt/native-text-metrics-contract.md) | Active | Native absolute text geometry still assumes preferred-font metrics before Cairo/GDI realize or substitute the actual face. |
 
 ## P3

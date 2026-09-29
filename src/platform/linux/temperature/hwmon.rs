@@ -7,6 +7,8 @@ use crate::core::devlog;
 use crate::core::model::{Collection, CollectionUnavailable, TemperatureSnapshot};
 
 use super::super::diagnostics::{probe_note, report_issue, unavailable_from_io};
+use super::Observation;
+use crate::platform::linux::PhysicalDeviceId;
 
 const MAX_SENSOR_BACKOFF: Duration = Duration::from_secs(300);
 const DISCOVERY_RETRY: Duration = Duration::from_secs(5);
@@ -21,6 +23,7 @@ pub(super) struct Collector {
 
 struct Chip {
     name: String,
+    physical_device: Option<PhysicalDeviceId>,
     channels: Vec<Channel>,
 }
 
@@ -47,7 +50,7 @@ impl Collector {
         &mut self,
         now: Instant,
         notes: Option<&mut Vec<String>>,
-    ) -> Collection<Vec<TemperatureSnapshot>> {
+    ) -> Collection<Vec<Observation>> {
         self.collect_from(now, Path::new("/sys/class/hwmon"), notes)
     }
 
@@ -56,7 +59,7 @@ impl Collector {
         now: Instant,
         hwmon_root: &Path,
         mut notes: Option<&mut Vec<String>>,
-    ) -> Collection<Vec<TemperatureSnapshot>> {
+    ) -> Collection<Vec<Observation>> {
         if !self.discovered
             && self
                 .retry_discovery_at
@@ -99,10 +102,13 @@ impl Collector {
                     Some(milli_celsius) => {
                         channel.failures = 0;
                         channel.retry_at = None;
-                        temperatures.push(TemperatureSnapshot {
-                            id: channel.id.clone(),
-                            name: chip.name.clone(),
-                            celsius: milli_celsius / 1000.0,
+                        temperatures.push(Observation {
+                            physical_device: chip.physical_device.clone(),
+                            snapshot: TemperatureSnapshot {
+                                id: channel.id.clone(),
+                                name: chip.name.clone(),
+                                celsius: milli_celsius / 1000.0,
+                            },
                         });
                         break;
                     }
@@ -161,12 +167,6 @@ fn discover(
                     .to_string_lossy()
                     .into_owned()
             });
-        // AMD GPU temperature is collected with the rest of that GPU's telemetry so every GPU
-        // field shares one stable GpuId and one card/history identity.
-        if raw_name.eq_ignore_ascii_case("amdgpu") {
-            continue;
-        }
-
         let files = match fs::read_dir(&chip_path) {
             Ok(files) => files,
             Err(error) => {
@@ -189,6 +189,7 @@ fn discover(
         }
         candidates.sort_by_key(|(channel, _)| *channel);
 
+        let physical_device = PhysicalDeviceId::from_path(&chip_path.join("device"));
         let device_identity = stable_device_identity(&chip_path);
         let mut channels = Vec::new();
         for (channel, path) in candidates {
@@ -212,6 +213,7 @@ fn discover(
         if !channels.is_empty() {
             chips.push(Chip {
                 name: friendly_chip_name(&raw_name),
+                physical_device,
                 channels,
             });
         }
@@ -358,7 +360,7 @@ mod tests {
     }
 
     #[test]
-    fn discovers_hwmon_sensors_from_fixture_and_skips_amdgpu_owner() {
+    fn discovers_hwmon_sensors_without_embedding_gpu_ownership_policy() {
         let fixture = Fixture::new("hwmon-discovery");
         fixture.dir("hwmon");
         add_hwmon_chip(&fixture, "hwmon0", "cpu", "coretemp", "42000");
@@ -370,10 +372,13 @@ mod tests {
             panic!("expected available hwmon collection");
         };
 
-        assert_eq!(values.len(), 1);
-        assert_eq!(values[0].name, "CPU");
-        assert_eq!(values[0].celsius, 42.0);
-        assert!(values[0].id.contains("coretemp:temp1"));
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0].snapshot.name, "CPU");
+        assert_eq!(values[0].snapshot.celsius, 42.0);
+        assert!(values[0].snapshot.id.contains("coretemp:temp1"));
+        assert_eq!(values[1].snapshot.name, "GPU");
+        assert_eq!(values[1].snapshot.celsius, 63.0);
+        assert!(values[1].physical_device.is_some());
     }
 
     #[test]
@@ -390,7 +395,7 @@ mod tests {
         };
 
         assert_eq!(values.len(), 1);
-        assert_eq!(values[0].name, "CPU");
+        assert_eq!(values[0].snapshot.name, "CPU");
     }
 
     #[test]

@@ -15,7 +15,7 @@ A lightweight native desktop system monitor with a compact always-on-screen pane
 ## Platform Support
 
 - **Linux:** supported. Uses native `/proc` and `/sys` data sources and Wayland layer-shell placement.
-- **Windows:** backend scaffold exists, but metric collection is not implemented yet.
+- **Windows:** supported native collectors for CPU, memory, processes, network interfaces, physical disks, temperatures, and NVIDIA/AMD GPU telemetry. Per-process disk/network attribution is not implemented.
 
 ## Build
 

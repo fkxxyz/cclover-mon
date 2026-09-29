@@ -59,4 +59,6 @@ Physical-network selection uses `MIB_IF_ROW2` hardware-interface capability rath
 
 The Windows desktop host owns monitor-surface creation, drawing, tray integration, and resize realization. It uses Win32 window/message APIs plus GDI and consumes `NativeScene` through the native ABI. The surface is undecorated, non-resizable, excluded from taskbar and Alt+Tab, non-activating, top-right placed, below normal windows, and pointer-transparent. Dynamic resize reapplies placement and bottom Z-order; Explorer restart triggers shell/tray recovery.
 
-Win32 handles, menu identifiers, font handles, device contexts, and drawing resources remain platform-private. User intent crosses upward only as platform-neutral lifecycle commands.
+The host establishes the best available process DPI awareness before creating DPI-sensitive drawing resources. `NativeScene` geometry stays in 96-DPI logical units; the host owns per-monitor DPI, monitor work area, logical-to-physical conversion, DPI-dependent font resources, and `WM_DPICHANGED` transitions. A DPI transition invalidates DPI-dependent resources before rebuilding the scene, resizing, placing, and repainting the surface. Newer DPI APIs are capability-detected so older supported Windows versions degrade to the best available awareness level rather than becoming load-time dependencies.
+
+Win32 handles, menu identifiers, font handles, device contexts, DPI state, monitor handles, and drawing resources remain platform-private. User intent crosses upward only as platform-neutral lifecycle commands.

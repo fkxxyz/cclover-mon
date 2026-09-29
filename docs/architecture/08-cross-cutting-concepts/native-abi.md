@@ -26,7 +26,7 @@ The Rust-to-C desktop ABI has one declarative schema authority in `cclover-deskt
 
 The scene ABI carries invalidation output already derived on the Rust side: static revision, full-redraw fallback, and merged damage rectangles. Native hosts may use those values to drive buffer/cache lifecycle and platform damage submission, but they do not independently reconstruct primitive visual identity or damage bounds.
 
-Font realization is native-host responsibility; layout policy remains in `cclover-ui`. Native hosts measure text with the font they actually realize and expose only text extents through the generated callback contract. `cclover-ui` converts those measurements into shared geometry.
+Font realization is native-host responsibility; layout policy remains in `cclover-ui`. Native hosts measure text with the font they actually realize and expose text extents through the generated callback contract in the same device-independent logical units used by `NativeScene`. Device-pixel measurements are normalized before crossing the ABI; `cclover-ui` converts the logical extents into shared geometry.
 
 ## TUI ABI
 

@@ -11,6 +11,33 @@
 #define CCLOVER_TIMER_ID 1
 #define CCLOVER_MENU_QUIT 1001
 #define CCLOVER_MARGIN 16
+#define CCLOVER_DEFAULT_DPI 96
+#ifndef WM_DPICHANGED
+#define WM_DPICHANGED 0x02E0
+#endif
+
+typedef BOOL (WINAPI *CcloverSetProcessDpiAwarenessContextFn)(HANDLE);
+typedef HRESULT (WINAPI *CcloverSetProcessDpiAwarenessFn)(int);
+typedef BOOL (WINAPI *CcloverSetProcessDPIAwareFn)(void);
+typedef UINT (WINAPI *CcloverGetDpiForWindowFn)(HWND);
+typedef UINT (WINAPI *CcloverGetDpiForSystemFn)(void);
+typedef HRESULT (WINAPI *CcloverGetDpiForMonitorFn)(HMONITOR, int, UINT *, UINT *);
+
+typedef struct {
+    HMODULE shcore;
+    CcloverSetProcessDpiAwarenessContextFn set_process_context;
+    CcloverSetProcessDpiAwarenessFn set_process_awareness;
+    CcloverSetProcessDPIAwareFn set_process_aware;
+    CcloverGetDpiForWindowFn get_window_dpi;
+    CcloverGetDpiForSystemFn get_system_dpi;
+    CcloverGetDpiForMonitorFn get_monitor_dpi;
+} CcloverDpiApi;
+
+typedef struct {
+    UINT dpi;
+    HMONITOR monitor;
+    RECT work_area;
+} CcloverDisplayState;
 
 typedef struct {
     void *context;
@@ -19,6 +46,8 @@ typedef struct {
     HFONT fonts[32][2];
     HDC measure_dc;
     UINT taskbar_created;
+    CcloverDpiApi dpi_api;
+    CcloverDisplayState display;
 } CcloverHost;
 
 static COLORREF cclover_color(uint32_t argb) {
@@ -37,11 +66,124 @@ static COLORREF cclover_color(uint32_t argb) {
 
 static int cclover_round(float value) { return (int)(value + 0.5f); }
 
-static HFONT cclover_font(CcloverHost *host, HDC dc, uint32_t size, int bold) {
+static int cclover_px(const CcloverHost *host, float logical) {
+    return cclover_round(logical * (float)host->display.dpi / (float)CCLOVER_DEFAULT_DPI);
+}
+
+static float cclover_logical_px(const CcloverHost *host, int physical) {
+    return (float)physical * (float)CCLOVER_DEFAULT_DPI / (float)host->display.dpi;
+}
+
+static void cclover_init_dpi_api(CcloverDpiApi *api) {
+    HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    ZeroMemory(api, sizeof(*api));
+    if (user32) {
+        api->set_process_context = (CcloverSetProcessDpiAwarenessContextFn)
+            GetProcAddress(user32, "SetProcessDpiAwarenessContext");
+        api->set_process_aware = (CcloverSetProcessDPIAwareFn)
+            GetProcAddress(user32, "SetProcessDPIAware");
+        api->get_window_dpi = (CcloverGetDpiForWindowFn)
+            GetProcAddress(user32, "GetDpiForWindow");
+        api->get_system_dpi = (CcloverGetDpiForSystemFn)
+            GetProcAddress(user32, "GetDpiForSystem");
+    }
+    api->shcore = LoadLibraryW(L"shcore.dll");
+    if (api->shcore) {
+        api->set_process_awareness = (CcloverSetProcessDpiAwarenessFn)
+            GetProcAddress(api->shcore, "SetProcessDpiAwareness");
+        api->get_monitor_dpi = (CcloverGetDpiForMonitorFn)
+            GetProcAddress(api->shcore, "GetDpiForMonitor");
+    }
+}
+
+static void cclover_enable_dpi_awareness(const CcloverDpiApi *api) {
+    if (api->set_process_context &&
+        api->set_process_context((HANDLE)(INT_PTR)-4)) {
+        return;
+    }
+    if (api->set_process_awareness && SUCCEEDED(api->set_process_awareness(2))) return;
+    if (api->set_process_aware) api->set_process_aware();
+}
+
+static UINT cclover_system_dpi(const CcloverDpiApi *api) {
+    HDC screen;
+    int dpi;
+    if (api->get_system_dpi) {
+        UINT current = api->get_system_dpi();
+        if (current) return current;
+    }
+    screen = GetDC(NULL);
+    if (!screen) return CCLOVER_DEFAULT_DPI;
+    dpi = GetDeviceCaps(screen, LOGPIXELSX);
+    ReleaseDC(NULL, screen);
+    return dpi > 0 ? (UINT)dpi : CCLOVER_DEFAULT_DPI;
+}
+
+static UINT cclover_monitor_dpi(const CcloverDpiApi *api, HMONITOR monitor) {
+    UINT x = 0, y = 0;
+    if (monitor && api->get_monitor_dpi &&
+        SUCCEEDED(api->get_monitor_dpi(monitor, 0, &x, &y)) && x) {
+        return x;
+    }
+    return cclover_system_dpi(api);
+}
+
+static UINT cclover_window_dpi(const CcloverHost *host, HWND hwnd, HMONITOR monitor) {
+    if (hwnd && host->dpi_api.get_window_dpi) {
+        UINT dpi = host->dpi_api.get_window_dpi(hwnd);
+        if (dpi) return dpi;
+    }
+    return cclover_monitor_dpi(&host->dpi_api, monitor);
+}
+
+static void cclover_release_fonts(CcloverHost *host) {
+    unsigned i, j;
+    for (i = 0; i < 32; ++i) {
+        for (j = 0; j < 2; ++j) {
+            if (host->fonts[i][j]) {
+                DeleteObject(host->fonts[i][j]);
+                host->fonts[i][j] = NULL;
+            }
+        }
+    }
+}
+
+static void cclover_set_display(CcloverHost *host, HMONITOR monitor, UINT dpi) {
+    MONITORINFO info;
+    if (!monitor) {
+        POINT origin = {0, 0};
+        monitor = MonitorFromPoint(origin, MONITOR_DEFAULTTOPRIMARY);
+    }
+    if (!dpi) dpi = cclover_monitor_dpi(&host->dpi_api, monitor);
+    if (!dpi) dpi = CCLOVER_DEFAULT_DPI;
+    if (host->display.dpi && host->display.dpi != dpi) cclover_release_fonts(host);
+    host->display.dpi = dpi;
+    host->display.monitor = monitor;
+    ZeroMemory(&info, sizeof(info));
+    info.cbSize = sizeof(info);
+    if (monitor && GetMonitorInfoW(monitor, &info)) {
+        host->display.work_area = info.rcWork;
+    } else {
+        host->display.work_area.left = 0;
+        host->display.work_area.top = 0;
+        host->display.work_area.right = GetSystemMetrics(SM_CXSCREEN);
+        host->display.work_area.bottom = GetSystemMetrics(SM_CYSCREEN);
+    }
+}
+
+static void cclover_refresh_display(CcloverHost *host, HWND hwnd) {
+    HMONITOR monitor = hwnd
+        ? MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY)
+        : NULL;
+    UINT dpi = cclover_window_dpi(host, hwnd, monitor);
+    cclover_set_display(host, monitor, dpi);
+}
+
+static HFONT cclover_font(CcloverHost *host, uint32_t size, int bold) {
     uint32_t slot = size < 32 ? size : 31;
     HFONT cached = host->fonts[slot][bold ? 1 : 0];
     if (cached) return cached;
-    int pixels = -MulDiv((int)size, GetDeviceCaps(dc, LOGPIXELSY), 96);
+    int pixels = -cclover_px(host, (float)size);
     if (pixels == 0) pixels = -(int)size;
     cached = CreateFontW(pixels, 0, 0, 0, bold ? FW_BOLD : FW_NORMAL,
         FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
@@ -66,39 +208,36 @@ static float cclover_measure_text(void *context, const uint8_t *text, size_t tex
         if (!wide) return 0.0f;
     }
     MultiByteToWideChar(CP_UTF8, 0, (LPCCH)text, (int)text_len, wide, wide_len);
-    font = cclover_font(host, host->measure_dc, size,
+    font = cclover_font(host, size,
                         (flags & CCLOVER_TEXT_BOLD) != 0);
     old = SelectObject(host->measure_dc, font);
     GetTextExtentPoint32W(host->measure_dc, wide, wide_len, &extent);
     SelectObject(host->measure_dc, old);
     if (wide != stack_text) HeapFree(GetProcessHeap(), 0, wide);
-    return (float)extent.cx;
+    return cclover_logical_px(host, extent.cx);
 }
 
 static void cclover_release_resources(CcloverHost *host) {
-    unsigned i, j;
-    for (i = 0; i < 32; ++i) {
-        for (j = 0; j < 2; ++j) {
-            if (host->fonts[i][j]) {
-                DeleteObject(host->fonts[i][j]);
-                host->fonts[i][j] = NULL;
-            }
-        }
-    }
+    cclover_release_fonts(host);
     if (host->measure_dc) {
         DeleteDC(host->measure_dc);
         host->measure_dc = NULL;
     }
+    if (host->dpi_api.shcore) {
+        FreeLibrary(host->dpi_api.shcore);
+        host->dpi_api.shcore = NULL;
+    }
 }
 
-static void cclover_draw_rect(HDC dc, const CcloverCommand *cmd, int fill) {
-    int left = cclover_round(cmd->x), top = cclover_round(cmd->y);
-    int right = cclover_round(cmd->x + cmd->width), bottom = cclover_round(cmd->y + cmd->height);
-    int diameter = cclover_round(cmd->radius * 2.0f);
+static void cclover_draw_rect(CcloverHost *host, HDC dc, const CcloverCommand *cmd, int fill) {
+    int left = cclover_px(host, cmd->x), top = cclover_px(host, cmd->y);
+    int right = cclover_px(host, cmd->x + cmd->width);
+    int bottom = cclover_px(host, cmd->y + cmd->height);
+    int diameter = cclover_px(host, cmd->radius * 2.0f);
     HGDIOBJ old_brush, old_pen;
     HBRUSH brush = fill ? CreateSolidBrush(cclover_color(cmd->color)) : (HBRUSH)GetStockObject(NULL_BRUSH);
     HPEN pen = fill ? (HPEN)GetStockObject(NULL_PEN)
-                    : CreatePen(PS_SOLID, max(1, cclover_round(cmd->stroke_width)), cclover_color(cmd->color));
+                    : CreatePen(PS_SOLID, max(1, cclover_px(host, cmd->stroke_width)), cclover_color(cmd->color));
     old_brush = SelectObject(dc, brush);
     old_pen = SelectObject(dc, pen);
     if (diameter > 0) RoundRect(dc, left, top, right, bottom, diameter, diameter);
@@ -111,7 +250,7 @@ static void cclover_draw_rect(HDC dc, const CcloverCommand *cmd, int fill) {
 static void cclover_draw_text(CcloverHost *host, HDC dc, const CcloverCommand *cmd) {
     RECT rect;
     UINT flags = DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX;
-    HFONT font = cclover_font(host, dc, cmd->text_size,
+    HFONT font = cclover_font(host, cmd->text_size,
                               (cmd->flags & CCLOVER_TEXT_BOLD) != 0);
     HGDIOBJ old = SelectObject(dc, font);
     wchar_t stack_text[256];
@@ -132,10 +271,10 @@ static void cclover_draw_text(CcloverHost *host, HDC dc, const CcloverCommand *c
     }
     MultiByteToWideChar(CP_UTF8, 0, (LPCCH)cmd->text, (int)cmd->text_len,
                         wide, wide_len);
-    rect.left = cclover_round(cmd->x);
-    rect.top = cclover_round(cmd->y);
-    rect.right = cclover_round(cmd->x + cmd->width);
-    rect.bottom = cclover_round(cmd->y + cmd->height);
+    rect.left = cclover_px(host, cmd->x);
+    rect.top = cclover_px(host, cmd->y);
+    rect.right = cclover_px(host, cmd->x + cmd->width);
+    rect.bottom = cclover_px(host, cmd->y + cmd->height);
     flags |= (cmd->flags & CCLOVER_TEXT_END) ? DT_RIGHT : DT_LEFT;
     if (!(cmd->flags & CCLOVER_TEXT_CLIP)) flags |= DT_NOCLIP;
     SetTextColor(dc, cclover_color(cmd->color));
@@ -150,9 +289,9 @@ static void cclover_draw_scene(CcloverHost *host, HDC dc, const CcloverScene *sc
     for (i = 0; i < scene->command_count; ++i) {
         const CcloverCommand *cmd = &scene->commands[i];
         if (cmd->kind == CCLOVER_CMD_FILL_RECT) {
-            cclover_draw_rect(dc, cmd, 1);
+            cclover_draw_rect(host, dc, cmd, 1);
         } else if (cmd->kind == CCLOVER_CMD_STROKE_RECT) {
-            cclover_draw_rect(dc, cmd, 0);
+            cclover_draw_rect(host, dc, cmd, 0);
         } else if (cmd->kind == CCLOVER_CMD_TEXT) {
             cclover_draw_text(host, dc, cmd);
         } else if (cmd->kind == CCLOVER_CMD_POLYLINE ||
@@ -167,11 +306,11 @@ static void cclover_draw_scene(CcloverHost *host, HDC dc, const CcloverScene *sc
             }
             for (j = 0; j < cmd->point_count; ++j) {
                 const CcloverPoint *source = &scene->points[cmd->point_offset + j];
-                points[j].x = cclover_round(source->x);
-                points[j].y = cclover_round(source->y);
+                points[j].x = cclover_px(host, source->x);
+                points[j].y = cclover_px(host, source->y);
             }
             if (cmd->kind == CCLOVER_CMD_POLYLINE) {
-                HPEN pen = CreatePen(PS_SOLID, max(1, cclover_round(cmd->stroke_width)), cclover_color(cmd->color));
+                HPEN pen = CreatePen(PS_SOLID, max(1, cclover_px(host, cmd->stroke_width)), cclover_color(cmd->color));
                 HGDIOBJ old_pen = SelectObject(dc, pen);
                 Polyline(dc, points, (int)cmd->point_count);
                 SelectObject(dc, old_pen);
@@ -195,25 +334,24 @@ static void cclover_scene(CcloverHost *host, CcloverScene *scene) {
     host->callbacks->scene(host->context, host, cclover_measure_text, scene);
 }
 
-static void cclover_place(HWND hwnd, uint32_t width, uint32_t height) {
+static void cclover_place(CcloverHost *host, HWND hwnd, uint32_t width, uint32_t height) {
     HWND shell = GetShellWindow();
-    RECT work;
+    RECT work = host->display.work_area;
+    int physical_width = cclover_px(host, (float)width);
+    int physical_height = cclover_px(host, (float)height);
+    int margin = cclover_px(host, (float)CCLOVER_MARGIN);
+    int radius = cclover_px(host, 32.0f);
     int x, y;
     if (shell && GetWindow(hwnd, GW_OWNER) != shell) {
         SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, (LONG_PTR)shell);
     }
-    if (!SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0)) {
-        work.left = 0;
-        work.top = 0;
-        work.right = GetSystemMetrics(SM_CXSCREEN);
-        work.bottom = GetSystemMetrics(SM_CYSCREEN);
-    }
-    x = work.right - (int)width - CCLOVER_MARGIN;
-    y = work.top + CCLOVER_MARGIN;
+    x = work.right - physical_width - margin;
+    y = work.top + margin;
     if (x < work.left) x = work.left;
-    SetWindowPos(hwnd, HWND_BOTTOM, x, y, (int)width, (int)height,
+    SetWindowPos(hwnd, HWND_BOTTOM, x, y, physical_width, physical_height,
                  SWP_NOACTIVATE | SWP_SHOWWINDOW);
-    SetWindowRgn(hwnd, CreateRoundRectRgn(0, 0, (int)width + 1, (int)height + 1, 32, 32), TRUE);
+    SetWindowRgn(hwnd, CreateRoundRectRgn(0, 0, physical_width + 1, physical_height + 1,
+                                         radius, radius), TRUE);
 }
 
 static void cclover_add_tray(HWND hwnd, CcloverHost *host) {
@@ -259,14 +397,25 @@ static LRESULT CALLBACK cclover_wndproc(HWND hwnd, UINT message, WPARAM wparam, 
 
     if (host->taskbar_created && message == host->taskbar_created) {
         CcloverScene scene;
+        cclover_refresh_display(host, hwnd);
         cclover_scene(host, &scene);
-        cclover_place(hwnd, scene.width, scene.height);
+        cclover_place(host, hwnd, scene.width, scene.height);
         cclover_add_tray(hwnd, host);
         InvalidateRect(hwnd, NULL, FALSE);
         return 0;
     }
 
     switch (message) {
+    case WM_DPICHANGED: {
+        const RECT *suggested = (const RECT *)lparam;
+        HMONITOR monitor = MonitorFromRect(suggested, MONITOR_DEFAULTTONEAREST);
+        CcloverScene scene;
+        cclover_set_display(host, monitor, LOWORD(wparam));
+        cclover_scene(host, &scene);
+        cclover_place(host, hwnd, scene.width, scene.height);
+        InvalidateRect(hwnd, NULL, FALSE);
+        return 0;
+    }
     case WM_TIMER: {
         if (wparam == CCLOVER_TIMER_ID) {
             uint32_t poll = host->callbacks->poll(host->context);
@@ -276,8 +425,9 @@ static LRESULT CALLBACK cclover_wndproc(HWND hwnd, UINT message, WPARAM wparam, 
             }
             if (poll & CCLOVER_POLL_FRAME) {
                 CcloverScene scene;
+                cclover_refresh_display(host, hwnd);
                 cclover_scene(host, &scene);
-                cclover_place(hwnd, scene.width, scene.height);
+                cclover_place(host, hwnd, scene.width, scene.height);
                 InvalidateRect(hwnd, NULL, FALSE);
             }
         }
@@ -340,8 +490,15 @@ int cclover_win32_run(void *context, const CcloverCallbacks *callbacks) {
     ZeroMemory(&host, sizeof(host));
     host.context = context;
     host.callbacks = callbacks;
+    cclover_init_dpi_api(&host.dpi_api);
+    cclover_enable_dpi_awareness(&host.dpi_api);
+    cclover_refresh_display(&host, NULL);
     host.measure_dc = CreateCompatibleDC(NULL);
-    if (!host.measure_dc) return (int)GetLastError();
+    if (!host.measure_dc) {
+        int error = (int)GetLastError();
+        cclover_release_resources(&host);
+        return error;
+    }
     host.taskbar_created = RegisterWindowMessageW(L"TaskbarCreated");
     cclover_scene(&host, &scene);
     shell = GetShellWindow();
@@ -361,7 +518,8 @@ int cclover_win32_run(void *context, const CcloverCallbacks *callbacks) {
     hwnd = CreateWindowExW(
         WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED | WS_EX_TRANSPARENT,
         CLASS_NAME, L"cclover-mon", WS_POPUP,
-        0, 0, (int)scene.width, (int)scene.height,
+        0, 0, cclover_px(&host, (float)scene.width),
+        cclover_px(&host, (float)scene.height),
         shell, NULL, instance, &host);
     if (!hwnd) {
         int error = (int)GetLastError();
@@ -369,13 +527,16 @@ int cclover_win32_run(void *context, const CcloverCallbacks *callbacks) {
         return error;
     }
 
+    cclover_refresh_display(&host, hwnd);
+    cclover_scene(&host, &scene);
+
     if (!SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)) {
         int error = (int)GetLastError();
         DestroyWindow(hwnd);
         return error;
     }
 
-    cclover_place(hwnd, scene.width, scene.height);
+    cclover_place(&host, hwnd, scene.width, scene.height);
     cclover_add_tray(hwnd, &host);
     SetTimer(hwnd, CCLOVER_TIMER_ID, 100, NULL);
     InvalidateRect(hwnd, NULL, FALSE);

@@ -9,6 +9,8 @@ mod network;
 mod nvidia;
 mod process;
 mod temperature;
+#[cfg(test)]
+mod test_support;
 
 use std::collections::HashSet;
 use std::time::Instant;

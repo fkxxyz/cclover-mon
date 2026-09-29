@@ -26,3 +26,26 @@ pub(super) fn unavailable_from_io(error: &std::io::Error) -> CollectionUnavailab
         CollectionUnavailable::Unavailable
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_permission_denied_without_requiring_filesystem_permissions() {
+        let error = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        assert_eq!(
+            unavailable_from_io(&error),
+            CollectionUnavailable::PermissionDenied
+        );
+    }
+
+    #[test]
+    fn maps_other_io_failures_to_generic_unavailability() {
+        let error = std::io::Error::from(std::io::ErrorKind::NotFound);
+        assert_eq!(
+            unavailable_from_io(&error),
+            CollectionUnavailable::Unavailable
+        );
+    }
+}

@@ -126,11 +126,19 @@ impl Collector {
 }
 
 fn resolve_device(dev: u32) -> Option<(DiskId, String)> {
+    resolve_device_from(dev, Path::new("/sys/dev/block"), Path::new("/sys/block"))
+}
+
+fn resolve_device_from(
+    dev: u32,
+    dev_block_root: &Path,
+    block_root: &Path,
+) -> Option<(DiskId, String)> {
     let (major, minor) = decode_kernel_dev(dev);
-    let sys_path = std::path::PathBuf::from(format!("/sys/dev/block/{major}:{minor}"));
+    let sys_path = dev_block_root.join(format!("{major}:{minor}"));
     let path = fs::canonicalize(&sys_path).ok()?;
     let device = block_name_from_sysfs_path(&path, sys_path.join("partition").is_file())?;
-    let disk_id = disk_metric::id_for_name(&device)?;
+    let disk_id = disk_metric::id_for_name_from(block_root, &device)?;
     Some((disk_id, device))
 }
 
@@ -165,6 +173,7 @@ fn merge_rows(rows: &mut Vec<ProcessDiskIoCounter>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::platform::linux::test_support::Fixture;
 
     fn disk_id(key: &str) -> DiskId {
         DiskId::from_opaque_key(key)
@@ -262,5 +271,33 @@ mod tests {
     #[test]
     fn unresolved_native_ids_are_unavailable_not_fabricated_names() {
         assert_eq!(resolve_device(u32::MAX), None);
+    }
+
+    #[test]
+    fn resolves_partition_native_id_to_parent_disk_identity_from_fixture() {
+        let fixture = Fixture::new("ebpf-disk-identity");
+        fixture.dir("dev/block");
+        fixture.dir("devices/nvme1n1/nvme1n1p4");
+        fixture.write("devices/nvme1n1/nvme1n1p4/partition", "4\n");
+        fixture.symlink_to("devices/nvme1n1/nvme1n1p4", "dev/block/43:7");
+
+        fixture.dir("devices/pci-nvme1");
+        fixture.dir("block/nvme1n1");
+        fixture.symlink_to("devices/pci-nvme1", "block/nvme1n1/device");
+        fixture.write("block/nvme1n1/dev", "259:0\n");
+
+        let resolved = resolve_device_from(
+            (43 << 20) | 7,
+            &fixture.path().join("dev/block"),
+            &fixture.path().join("block"),
+        )
+        .expect("fixture device must resolve");
+
+        assert_eq!(resolved.1, "nvme1n1");
+        assert_eq!(
+            resolved.0,
+            disk_metric::id_for_name_from(&fixture.path().join("block"), "nvme1n1")
+                .expect("fixture disk identity")
+        );
     }
 }

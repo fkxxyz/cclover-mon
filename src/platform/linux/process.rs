@@ -11,7 +11,6 @@ use crate::core::model::{Collection, ProcessCounter, ProcessInstanceId};
 use super::diagnostics::{probe_note, report_issue, unavailable_from_io};
 use super::native;
 
-const PROC_PREFIX: &[u8] = b"/proc/";
 const PROC_STAT_UTIME_FIELD: usize = 14;
 const PROC_STAT_STIME_FIELD: usize = 15;
 const PROC_STAT_STARTTIME_FIELD: usize = 22;
@@ -33,13 +32,23 @@ impl Collector {
 
     pub(super) fn collect(
         &mut self,
+        notes: Option<&mut Vec<String>>,
+    ) -> Collection<Vec<ProcessCounter>> {
+        self.collect_from(Path::new("/proc"), notes)
+    }
+
+    fn collect_from(
+        &mut self,
+        proc_root: &Path,
         mut notes: Option<&mut Vec<String>>,
     ) -> Collection<Vec<ProcessCounter>> {
         let mut processes = Vec::new();
-        let entries = match fs::read_dir("/proc") {
+        let entries = match fs::read_dir(proc_root) {
             Ok(entries) => entries,
             Err(error) => {
-                report_issue(&mut notes, || format!("cannot read /proc: {error}"));
+                report_issue(&mut notes, || {
+                    format!("cannot read {}: {error}", proc_root.display())
+                });
                 return Collection::unavailable(unavailable_from_io(&error));
             }
         };
@@ -53,7 +62,7 @@ impl Collector {
                 continue;
             };
 
-            let stat_path = process_stat_path(&mut stat_path_buffer, file_name);
+            let stat_path = process_stat_path(&mut stat_path_buffer, proc_root, file_name);
             self.stat_buffer.clear();
             let read_result = fs::File::open(stat_path)
                 .and_then(|mut file| file.read_to_string(&mut self.stat_buffer));
@@ -88,9 +97,12 @@ impl Collector {
     }
 }
 
-fn process_stat_path<'a>(buffer: &'a mut Vec<u8>, pid_name: &[u8]) -> &'a Path {
+fn process_stat_path<'a>(buffer: &'a mut Vec<u8>, proc_root: &Path, pid_name: &[u8]) -> &'a Path {
     buffer.clear();
-    buffer.extend_from_slice(PROC_PREFIX);
+    buffer.extend_from_slice(proc_root.as_os_str().as_bytes());
+    if !buffer.ends_with(b"/") {
+        buffer.push(b'/');
+    }
     buffer.extend_from_slice(pid_name);
     buffer.extend_from_slice(b"/stat");
     Path::new(OsStr::from_bytes(buffer))
@@ -163,6 +175,7 @@ pub(super) fn birth_marker_from_start_boottime_ns(start_boottime_ns: u64) -> u64
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::platform::linux::test_support::Fixture;
 
     #[test]
     fn parses_process_name_with_spaces_without_live_procfs() {
@@ -186,13 +199,44 @@ mod tests {
     fn builds_process_stat_path_in_reused_buffer() {
         let mut buffer = Vec::new();
         assert_eq!(
-            process_stat_path(&mut buffer, b"42"),
+            process_stat_path(&mut buffer, Path::new("/proc"), b"42"),
             Path::new("/proc/42/stat")
         );
         assert_eq!(
-            process_stat_path(&mut buffer, b"7"),
+            process_stat_path(&mut buffer, Path::new("/proc"), b"7"),
             Path::new("/proc/7/stat")
         );
+    }
+
+    #[test]
+    fn discovers_processes_from_fixture_and_reports_partial_failure() {
+        let fixture = Fixture::new("process-discovery");
+        fixture.write(
+            "42/stat",
+            "42 (fixture process) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22",
+        );
+        fixture.dir("7");
+        fixture.write("self/stat", "not a numeric directory");
+
+        let mut collector = Collector::new();
+        let outcome = collector.collect_from(fixture.path(), None);
+        let Collection::Degraded(processes) = outcome else {
+            panic!("expected degraded process collection");
+        };
+
+        assert_eq!(processes.len(), 1);
+        assert_eq!(processes[0].process.pid, 42);
+        assert_eq!(processes[0].name, "fixture process");
+    }
+
+    #[test]
+    fn missing_proc_root_is_unavailable() {
+        let fixture = Fixture::new("process-missing-root");
+        let mut collector = Collector::new();
+        assert!(matches!(
+            collector.collect_from(&fixture.path().join("missing"), None),
+            Collection::Unavailable(_)
+        ));
     }
 
     #[test]

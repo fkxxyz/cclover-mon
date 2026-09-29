@@ -11,21 +11,33 @@ fn network_id(identity_path: &Path, ifindex: u64) -> NetworkId {
 
 #[cfg(feature = "ebpf-io")]
 pub(super) fn id_for_interface(name: &str, ifindex: u32) -> Option<NetworkId> {
-    let path = Path::new("/sys/class/net").join(name);
+    id_for_interface_from(Path::new("/sys/class/net"), name, ifindex)
+}
+
+#[cfg(any(feature = "ebpf-io", test))]
+fn id_for_interface_from(net_root: &Path, name: &str, ifindex: u32) -> Option<NetworkId> {
+    let path = net_root.join(name);
     let identity_path = fs::canonicalize(path.join("device"))
         .or_else(|_| fs::canonicalize(&path))
         .ok()?;
     Some(network_id(&identity_path, u64::from(ifindex)))
 }
 
-pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Collection<Vec<NetworkCounter>> {
+pub(super) fn collect(notes: Option<&mut Vec<String>>) -> Collection<Vec<NetworkCounter>> {
+    collect_from(Path::new("/sys/class/net"), notes)
+}
+
+fn collect_from(
+    net_root: &Path,
+    mut notes: Option<&mut Vec<String>>,
+) -> Collection<Vec<NetworkCounter>> {
     let mut rows = Vec::new();
     let mut degraded = false;
-    let entries = match fs::read_dir("/sys/class/net") {
+    let entries = match fs::read_dir(net_root) {
         Ok(entries) => entries,
         Err(error) => {
             report_issue(&mut notes, || {
-                format!("cannot read /sys/class/net: {error}")
+                format!("cannot read {}: {error}", net_root.display())
             });
             return Collection::unavailable(unavailable_from_io(&error));
         }
@@ -109,10 +121,79 @@ fn parse_u64(text: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::platform::linux::test_support::Fixture;
+
+    fn add_physical_interface(
+        fixture: &Fixture,
+        name: &str,
+        ifindex: u32,
+        operstate: &str,
+        rx_bytes: &str,
+        tx_bytes: Option<&str>,
+    ) {
+        fixture.dir(format!("devices/{name}"));
+        fixture.dir(format!("net/{name}"));
+        fixture.symlink_to(format!("devices/{name}"), format!("net/{name}/device"));
+        fixture.write(format!("net/{name}/ifindex"), format!("{ifindex}\n"));
+        fixture.write(format!("net/{name}/operstate"), format!("{operstate}\n"));
+        fixture.write(format!("net/{name}/statistics/rx_bytes"), rx_bytes);
+        if let Some(tx_bytes) = tx_bytes {
+            fixture.write(format!("net/{name}/statistics/tx_bytes"), tx_bytes);
+        }
+    }
 
     #[test]
     fn parses_sysfs_counter_without_live_sysfs() {
         assert_eq!(parse_u64("12345\n"), Some(12345));
         assert_eq!(parse_u64("not-a-counter\n"), None);
+    }
+
+    #[test]
+    fn discovers_up_physical_interfaces_and_skips_nonphysical_or_down_entries() {
+        let fixture = Fixture::new("network-discovery");
+        fixture.dir("net");
+        add_physical_interface(&fixture, "eth0", 7, "up", "100\n", Some("200\n"));
+        add_physical_interface(&fixture, "eth1", 8, "down", "300\n", Some("400\n"));
+        fixture.write("net/lo/ifindex", "1\n");
+        fixture.write("net/lo/operstate", "unknown\n");
+
+        let outcome = collect_from(&fixture.path().join("net"), None);
+        let Collection::Available(rows) = outcome else {
+            panic!("expected available network collection");
+        };
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "eth0");
+        assert_eq!(rows[0].rx_bytes, 100);
+        assert_eq!(rows[0].tx_bytes, 200);
+        assert_eq!(
+            id_for_interface_from(&fixture.path().join("net"), "eth0", 7),
+            Some(rows[0].id.clone())
+        );
+    }
+
+    #[test]
+    fn unreadable_counter_degrades_but_preserves_other_interfaces() {
+        let fixture = Fixture::new("network-partial-failure");
+        fixture.dir("net");
+        add_physical_interface(&fixture, "eth0", 7, "up", "100\n", Some("200\n"));
+        add_physical_interface(&fixture, "eth1", 8, "up", "300\n", None);
+
+        let outcome = collect_from(&fixture.path().join("net"), None);
+        let Collection::Degraded(rows) = outcome else {
+            panic!("expected degraded network collection");
+        };
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "eth0");
+    }
+
+    #[test]
+    fn missing_network_root_is_unavailable() {
+        let fixture = Fixture::new("network-missing-root");
+        assert!(matches!(
+            collect_from(&fixture.path().join("missing"), None),
+            Collection::Unavailable(_)
+        ));
     }
 }

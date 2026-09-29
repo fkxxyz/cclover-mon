@@ -17,7 +17,7 @@ facets:
 
 ## Status
 
-Active — P2.
+Resolved.
 
 ## Problem
 
@@ -35,9 +35,11 @@ Collector discovery changes require host-specific runtime testing and are diffic
 
 Native IO may remain platform-specific, but interpretation and discovery policy should be testable against representative deterministic inputs without requiring the developer machine to expose the target hardware/topology.
 
-## Resolution direction
+## Resolution
 
-Introduce the smallest useful filesystem/native-IO seam or fixture-root mechanism around discovery. Avoid broad mock-heavy interfaces when a path/root or data-source boundary is sufficient.
+Linux filesystem-backed collectors now keep fixed production paths in thin wrappers and expose narrow internal path/root seams for deterministic fixture testing. CPU, memory, process, disk, network, and hwmon collection can run against temporary filesystem trees; disk/network stable-identity policy and eBPF disk native-ID resolution use the same seam rather than live sysfs. AMD GPU collection already accepted a DRM root and remains on that pattern. Tests use real `std::fs` files and symlinks through a small test-only fixture helper, while permission mapping is tested directly from synthetic `std::io::Error` values instead of depending on host ownership or chmod behavior. No generic filesystem trait, mock layer, runtime configuration, or alternate collector path was introduced.
+
+The durable rule is recorded in the platform-boundary View: filesystem-backed discovery and identity policy must retain a narrow `Path`/root seam without changing collection semantics, cadence, or ownership.
 
 ## Exit criteria
 

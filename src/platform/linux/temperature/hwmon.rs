@@ -46,6 +46,15 @@ impl Collector {
     pub(super) fn collect(
         &mut self,
         now: Instant,
+        notes: Option<&mut Vec<String>>,
+    ) -> Collection<Vec<TemperatureSnapshot>> {
+        self.collect_from(now, Path::new("/sys/class/hwmon"), notes)
+    }
+
+    fn collect_from(
+        &mut self,
+        now: Instant,
+        hwmon_root: &Path,
         mut notes: Option<&mut Vec<String>>,
     ) -> Collection<Vec<TemperatureSnapshot>> {
         if !self.discovered
@@ -53,7 +62,7 @@ impl Collector {
                 .retry_discovery_at
                 .is_none_or(|retry_at| now >= retry_at)
         {
-            match discover(notes.as_deref_mut()) {
+            match discover(hwmon_root, notes.as_deref_mut()) {
                 Ok((chips, degraded)) => {
                     self.chips = chips;
                     self.discovered = true;
@@ -120,13 +129,14 @@ impl Collector {
 }
 
 fn discover(
+    hwmon_root: &Path,
     mut notes: Option<&mut Vec<String>>,
 ) -> Result<(Vec<Chip>, bool), CollectionUnavailable> {
-    let entries = match fs::read_dir("/sys/class/hwmon") {
+    let entries = match fs::read_dir(hwmon_root) {
         Ok(entries) => entries,
         Err(error) => {
             report_issue(&mut notes, || {
-                format!("cannot read /sys/class/hwmon: {error}")
+                format!("cannot read {}: {error}", hwmon_root.display())
             });
             return Err(unavailable_from_io(&error));
         }
@@ -298,6 +308,27 @@ fn read_trimmed(path: impl AsRef<Path>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::platform::linux::test_support::Fixture;
+
+    fn add_hwmon_chip(
+        fixture: &Fixture,
+        directory: &str,
+        device: &str,
+        name: &str,
+        temperature: &str,
+    ) {
+        fixture.dir(format!("devices/{device}"));
+        fixture.dir(format!("hwmon/{directory}"));
+        fixture.symlink_to(
+            format!("devices/{device}"),
+            format!("hwmon/{directory}/device"),
+        );
+        fixture.write(format!("hwmon/{directory}/name"), format!("{name}\n"));
+        fixture.write(
+            format!("hwmon/{directory}/temp1_input"),
+            format!("{temperature}\n"),
+        );
+    }
 
     #[test]
     fn temperature_channel_is_capability_based() {
@@ -324,5 +355,51 @@ mod tests {
     fn intel_gpu_names_share_the_gpu_presentation_semantic() {
         assert_eq!(friendly_chip_name("i915"), "GPU");
         assert_eq!(friendly_chip_name("xe"), "GPU");
+    }
+
+    #[test]
+    fn discovers_hwmon_sensors_from_fixture_and_skips_amdgpu_owner() {
+        let fixture = Fixture::new("hwmon-discovery");
+        fixture.dir("hwmon");
+        add_hwmon_chip(&fixture, "hwmon0", "cpu", "coretemp", "42000");
+        add_hwmon_chip(&fixture, "hwmon1", "gpu", "amdgpu", "63000");
+
+        let mut collector = Collector::new();
+        let outcome = collector.collect_from(Instant::now(), &fixture.path().join("hwmon"), None);
+        let Collection::Available(values) = outcome else {
+            panic!("expected available hwmon collection");
+        };
+
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0].name, "CPU");
+        assert_eq!(values[0].celsius, 42.0);
+        assert!(values[0].id.contains("coretemp:temp1"));
+    }
+
+    #[test]
+    fn invalid_sensor_degrades_but_preserves_valid_hwmon_values() {
+        let fixture = Fixture::new("hwmon-partial-failure");
+        fixture.dir("hwmon");
+        add_hwmon_chip(&fixture, "hwmon0", "cpu", "coretemp", "42000");
+        add_hwmon_chip(&fixture, "hwmon1", "nvme", "nvme", "not-a-number");
+
+        let mut collector = Collector::new();
+        let outcome = collector.collect_from(Instant::now(), &fixture.path().join("hwmon"), None);
+        let Collection::Degraded(values) = outcome else {
+            panic!("expected degraded hwmon collection");
+        };
+
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0].name, "CPU");
+    }
+
+    #[test]
+    fn missing_hwmon_root_is_unavailable() {
+        let fixture = Fixture::new("hwmon-missing-root");
+        let mut collector = Collector::new();
+        assert!(matches!(
+            collector.collect_from(Instant::now(), &fixture.path().join("missing"), None),
+            Collection::Unavailable(_)
+        ));
     }
 }

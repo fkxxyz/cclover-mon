@@ -198,17 +198,7 @@ fn merge_sources<T>(left: Collection<Vec<T>>, right: Collection<Vec<T>>) -> Coll
 mod tests {
     use super::*;
     use crate::core::model::CollectionUnavailable;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn temp_root(name: &str) -> PathBuf {
-        let suffix = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!("cclover-mon-{name}-{suffix}"));
-        fs::create_dir_all(&root).unwrap();
-        root
-    }
+    use crate::platform::linux::test_support::Fixture;
 
     #[test]
     fn merging_available_vendor_sources_preserves_all_devices() {
@@ -229,21 +219,20 @@ mod tests {
 
     #[test]
     fn amd_capabilities_map_to_one_gpu_snapshot() {
-        let root = temp_root("amd-gpu");
-        let hwmon = root.join("hwmon/hwmon0");
-        fs::create_dir_all(&hwmon).unwrap();
-        fs::write(root.join("mem_info_vram_used"), "1073741824\n").unwrap();
-        fs::write(root.join("mem_info_vram_total"), "8589934592\n").unwrap();
-        fs::write(root.join("gpu_busy_percent"), "42\n").unwrap();
-        fs::write(root.join("pp_dpm_sclk"), "0: 500Mhz\n1: 2100Mhz *\n").unwrap();
-        fs::write(root.join("product_name"), "Radeon Test GPU\n").unwrap();
-        fs::write(hwmon.join("temp1_input"), "63000\n").unwrap();
-        fs::write(hwmon.join("power1_average"), "145000000\n").unwrap();
-        fs::write(hwmon.join("fan1_input"), "1320\n").unwrap();
-        fs::write(hwmon.join("pwm1"), "94\n").unwrap();
-        fs::write(hwmon.join("pwm1_max"), "255\n").unwrap();
+        let fixture = Fixture::new("amd-gpu");
+        fixture.dir("hwmon/hwmon0");
+        fixture.write("mem_info_vram_used", "1073741824\n");
+        fixture.write("mem_info_vram_total", "8589934592\n");
+        fixture.write("gpu_busy_percent", "42\n");
+        fixture.write("pp_dpm_sclk", "0: 500Mhz\n1: 2100Mhz *\n");
+        fixture.write("product_name", "Radeon Test GPU\n");
+        fixture.write("hwmon/hwmon0/temp1_input", "63000\n");
+        fixture.write("hwmon/hwmon0/power1_average", "145000000\n");
+        fixture.write("hwmon/hwmon0/fan1_input", "1320\n");
+        fixture.write("hwmon/hwmon0/pwm1", "94\n");
+        fixture.write("hwmon/hwmon0/pwm1_max", "255\n");
 
-        let snapshot = read_amd_device(&root).unwrap();
+        let snapshot = read_amd_device(fixture.path()).unwrap();
 
         assert_eq!(snapshot.name, "Radeon Test GPU");
         assert_eq!(snapshot.utilization_percent, Some(42.0));
@@ -259,15 +248,14 @@ mod tests {
                 .is_some_and(|value| (value - 36.86).abs() < 0.1)
         );
         assert!(snapshot.id.as_opaque_key().starts_with("drm:"));
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn absent_optional_amd_capabilities_remain_none() {
-        let root = temp_root("amd-gpu-minimal");
-        fs::write(root.join("product_name"), "Radeon Minimal\n").unwrap();
+        let fixture = Fixture::new("amd-gpu-minimal");
+        fixture.write("product_name", "Radeon Minimal\n");
 
-        let snapshot = read_amd_device(&root).unwrap();
+        let snapshot = read_amd_device(fixture.path()).unwrap();
 
         assert_eq!(snapshot.utilization_percent, None);
         assert_eq!(snapshot.memory_used_bytes, None);
@@ -276,6 +264,5 @@ mod tests {
         assert_eq!(snapshot.core_clock_mhz, None);
         assert_eq!(snapshot.fan_percent, None);
         assert_eq!(snapshot.fan_rpm, None);
-        fs::remove_dir_all(root).unwrap();
     }
 }

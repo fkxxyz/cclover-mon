@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, VecDeque};
+use std::sync::Arc;
 use std::time::Instant;
 
 #[derive(Clone, Debug, Default)]
@@ -25,6 +26,32 @@ pub struct ProcessMemoryUsage {
 pub struct ProcessInstanceId {
     pub pid: u32,
     pub birth_marker: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProcessDiskIoSnapshot {
+    pub disk_id: DiskId,
+    pub device: String,
+    pub read_bytes_per_sec: f64,
+    pub write_bytes_per_sec: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProcessNetworkIoSnapshot {
+    pub network_id: NetworkId,
+    pub interface: String,
+    pub rx_bytes_per_sec: f64,
+    pub tx_bytes_per_sec: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProcessSnapshot {
+    pub id: ProcessInstanceId,
+    pub name: Option<String>,
+    pub cpu_percent: Option<f64>,
+    pub memory_bytes: Option<u64>,
+    pub disk_io: Vec<ProcessDiskIoSnapshot>,
+    pub network_io: Vec<ProcessNetworkIoSnapshot>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -144,6 +171,7 @@ pub struct ProcessNetworkIo {
 pub struct SystemSnapshot {
     pub cpu_percent: Collection<f64>,
     pub memory: Collection<MemorySnapshot>,
+    pub processes: ProcessDomainSnapshot,
     pub top_cpu: Collection<Vec<ProcessCpuUsage>>,
     pub top_memory: Collection<Vec<ProcessMemoryUsage>>,
     pub networks: Collection<Vec<NetworkSnapshot>>,
@@ -225,6 +253,30 @@ pub enum CollectionStatus {
     Available,
     Degraded,
     Unavailable(CollectionUnavailable),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProcessDomainSnapshot {
+    pub by_id: Arc<BTreeMap<ProcessInstanceId, ProcessSnapshot>>,
+    pub metadata_status: CollectionStatus,
+    pub cpu_status: CollectionStatus,
+    pub memory_status: CollectionStatus,
+    pub disk_io_status: CollectionStatus,
+    pub network_io_status: CollectionStatus,
+}
+
+impl Default for ProcessDomainSnapshot {
+    fn default() -> Self {
+        let unavailable = CollectionStatus::Unavailable(CollectionUnavailable::Unavailable);
+        Self {
+            by_id: Arc::default(),
+            metadata_status: unavailable,
+            cpu_status: unavailable,
+            memory_status: unavailable,
+            disk_io_status: unavailable,
+            network_io_status: unavailable,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

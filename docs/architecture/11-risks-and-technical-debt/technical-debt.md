@@ -25,5 +25,4 @@ Presence is the state: every document in `technical-debt/` represents debt that 
 
 | Debt | Why it matters |
 | --- | --- |
-| [Process-domain projection](technical-debt/process-domain-projection.md) | Process data is projected per metric, which will complicate richer process-oriented frontends. |
 | [Pinned Iced WebGL workaround](technical-debt/pinned-iced-webgl-workaround.md) | Browser Canvas correctness currently depends on a maintained fork of `iced_widget`. |

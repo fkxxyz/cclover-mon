@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::devlog;
@@ -92,47 +93,30 @@ fn derive(previous: Option<&RawSnapshot>, current: &RawSnapshot) -> SystemSnapsh
         .value()
         .map(Vec::as_slice)
         .unwrap_or_default();
-    let process_names: HashMap<ProcessInstanceId, &str> = current_processes
-        .iter()
-        .map(|process| (process.process, process.name.as_str()))
-        .collect();
-    let (cpu_percent, top_cpu) = derive_cpu(previous, current, current_processes);
+    let (cpu_percent, process_cpu) = derive_cpu(previous, current, current_processes);
     let dt = sample_interval_seconds(previous, current);
+    let processes = derive_process_domain(previous, current, current_processes, &process_cpu, dt);
+    let top_cpu = collection_from_status(processes.cpu_status, top_cpu(&processes));
+    let top_memory = collection_from_status(processes.memory_status, top_memory(&processes));
+    let process_disk_io = collection_from_status(
+        processes.disk_io_status,
+        project_process_disk_io(&processes),
+    );
+    let process_network_io = collection_from_status(
+        processes.network_io_status,
+        project_process_network_io(&processes),
+    );
 
     SystemSnapshot {
         cpu_percent,
         memory: current.memory.clone(),
+        processes,
         top_cpu,
-        top_memory: map_status(&current.processes, top_memory(current_processes)),
+        top_memory,
         networks: derive_networks(previous, current, dt),
         disks: derive_disks(previous, current, dt),
-        process_disk_io: map_status(
-            &current.process_disk_io,
-            derive_process_disk_io(
-                previous.and_then(|snapshot| snapshot.process_disk_io.value().map(Vec::as_slice)),
-                current
-                    .process_disk_io
-                    .value()
-                    .map(Vec::as_slice)
-                    .unwrap_or_default(),
-                &process_names,
-                dt,
-            ),
-        ),
-        process_network_io: map_status(
-            &current.process_network_io,
-            derive_process_network_io(
-                previous
-                    .and_then(|snapshot| snapshot.process_network_io.value().map(Vec::as_slice)),
-                current
-                    .process_network_io
-                    .value()
-                    .map(Vec::as_slice)
-                    .unwrap_or_default(),
-                &process_names,
-                dt,
-            ),
-        ),
+        process_disk_io,
+        process_network_io,
         temperatures: current.temperatures.clone(),
         gpus: current.gpus.clone(),
     }
@@ -160,57 +144,79 @@ fn combine_status<A, B, T>(
     }
 }
 
+fn collection_from_status<T>(status: CollectionStatus, value: T) -> Collection<T> {
+    match status {
+        CollectionStatus::Available => Collection::Available(value),
+        CollectionStatus::Degraded => Collection::Degraded(value),
+        CollectionStatus::Unavailable(reason) => Collection::Unavailable(reason),
+    }
+}
+
 fn derive_cpu(
     previous: Option<&RawSnapshot>,
     current: &RawSnapshot,
     current_processes: &[ProcessCounter],
-) -> (Collection<f64>, Collection<Vec<ProcessCpuUsage>>) {
+) -> (Collection<f64>, Collection<HashMap<ProcessInstanceId, f64>>) {
+    let process_status = combine_status(&current.cpu, &current.processes, ()).status();
     let Some(new) = current.cpu.value() else {
-        let reason = match current.cpu {
-            Collection::Unavailable(reason) => reason,
+        let reason = match current.cpu.status() {
+            CollectionStatus::Unavailable(reason) => reason,
             _ => unreachable!("observable collection must expose a value"),
         };
         return (
             Collection::Unavailable(reason),
-            Collection::Unavailable(reason),
+            collection_from_status(process_status, HashMap::new()),
         );
     };
 
     let Some((previous, old)) =
         previous.and_then(|snapshot| snapshot.cpu.value().map(|counter| (snapshot, counter)))
     else {
-        let top = baseline_top_cpu(current_processes);
+        let values = current_processes
+            .iter()
+            .map(|process| (process.process, 0.0))
+            .collect();
         return (
             map_status(&current.cpu, 0.0),
-            combine_status(&current.cpu, &current.processes, top),
+            collection_from_status(process_status, values),
         );
     };
 
     let total = new.total_time_units.saturating_sub(old.total_time_units);
     if total == 0 {
-        let top = baseline_top_cpu(current_processes);
+        let values = current_processes
+            .iter()
+            .map(|process| (process.process, 0.0))
+            .collect();
         return (
             map_status(&current.cpu, 0.0),
-            combine_status(&current.cpu, &current.processes, top),
+            collection_from_status(process_status, values),
         );
     }
 
     let idle = new.idle_time_units.saturating_sub(old.idle_time_units);
     let percent = (100.0 * (total.saturating_sub(idle)) as f64 / total as f64).clamp(0.0, 100.0);
-    let top = previous.processes.value().map_or_else(
-        || baseline_top_cpu(current_processes),
-        |previous_processes| {
-            top_cpu(
-                previous_processes,
-                current_processes,
-                total,
-                new.logical_cpu_count,
-            )
-        },
-    );
+    let old_processes: HashMap<ProcessInstanceId, &ProcessCounter> = previous
+        .processes
+        .value()
+        .into_iter()
+        .flatten()
+        .map(|process| (process.process, process))
+        .collect();
+    let scale = new.logical_cpu_count.max(1) as f64 * 100.0 / total as f64;
+    let values = current_processes
+        .iter()
+        .map(|process| {
+            let delta = old_processes.get(&process.process).map_or(0, |old| {
+                process.cpu_time_units.saturating_sub(old.cpu_time_units)
+            });
+            (process.process, delta as f64 * scale)
+        })
+        .collect();
+
     (
         map_status(&current.cpu, percent),
-        combine_status(&current.cpu, &current.processes, top),
+        collection_from_status(process_status, values),
     )
 }
 
@@ -292,40 +298,213 @@ fn derive_disks(
     map_status(&current.disks, values)
 }
 
-fn derive_process_disk_io(
+fn derive_process_domain(
+    previous: Option<&RawSnapshot>,
+    current: &RawSnapshot,
+    current_processes: &[ProcessCounter],
+    process_cpu: &Collection<HashMap<ProcessInstanceId, f64>>,
+    dt: f64,
+) -> ProcessDomainSnapshot {
+    let mut by_id = BTreeMap::new();
+    let cpu_values = process_cpu.value();
+
+    for process in current_processes {
+        by_id.insert(
+            process.process,
+            ProcessSnapshot {
+                id: process.process,
+                name: Some(process.name.clone()),
+                cpu_percent: cpu_values.and_then(|values| values.get(&process.process).copied()),
+                memory_bytes: Some(process.rss_bytes),
+                disk_io: Vec::new(),
+                network_io: Vec::new(),
+            },
+        );
+    }
+
+    let disk_rows = derive_process_disk_io_rates(
+        previous.and_then(|snapshot| snapshot.process_disk_io.value().map(Vec::as_slice)),
+        current
+            .process_disk_io
+            .value()
+            .map(Vec::as_slice)
+            .unwrap_or_default(),
+        dt,
+    );
+    for (process, io) in disk_rows {
+        process_entry(&mut by_id, process).disk_io.push(io);
+    }
+
+    let network_rows = derive_process_network_io_rates(
+        previous.and_then(|snapshot| snapshot.process_network_io.value().map(Vec::as_slice)),
+        current
+            .process_network_io
+            .value()
+            .map(Vec::as_slice)
+            .unwrap_or_default(),
+        dt,
+    );
+    for (process, io) in network_rows {
+        process_entry(&mut by_id, process).network_io.push(io);
+    }
+
+    for process in by_id.values_mut() {
+        process
+            .disk_io
+            .sort_unstable_by(|a, b| a.disk_id.cmp(&b.disk_id));
+        process
+            .network_io
+            .sort_unstable_by(|a, b| a.network_id.cmp(&b.network_id));
+    }
+
+    ProcessDomainSnapshot {
+        by_id: Arc::new(by_id),
+        metadata_status: current.processes.status(),
+        cpu_status: process_cpu.status(),
+        memory_status: current.processes.status(),
+        disk_io_status: current.process_disk_io.status(),
+        network_io_status: current.process_network_io.status(),
+    }
+}
+
+fn process_entry(
+    by_id: &mut BTreeMap<ProcessInstanceId, ProcessSnapshot>,
+    id: ProcessInstanceId,
+) -> &mut ProcessSnapshot {
+    by_id.entry(id).or_insert_with(|| ProcessSnapshot {
+        id,
+        name: None,
+        cpu_percent: None,
+        memory_bytes: None,
+        disk_io: Vec::new(),
+        network_io: Vec::new(),
+    })
+}
+
+fn derive_process_disk_io_rates(
     previous: Option<&[ProcessDiskIoCounter]>,
     current: &[ProcessDiskIoCounter],
-    process_names: &HashMap<ProcessInstanceId, &str>,
     dt: f64,
-) -> Vec<ProcessDiskIo> {
+) -> Vec<(ProcessInstanceId, ProcessDiskIoSnapshot)> {
     let old: HashMap<(ProcessInstanceId, &DiskId), &ProcessDiskIoCounter> = previous
         .into_iter()
         .flatten()
         .map(|item| ((item.process, &item.disk_id), item))
         .collect();
+    current
+        .iter()
+        .map(|item| {
+            let (read, write) = old
+                .get(&(item.process, &item.disk_id))
+                .map_or((0.0, 0.0), |old| {
+                    (
+                        item.read_bytes.saturating_sub(old.read_bytes) as f64 / dt,
+                        item.write_bytes.saturating_sub(old.write_bytes) as f64 / dt,
+                    )
+                });
+            (
+                item.process,
+                ProcessDiskIoSnapshot {
+                    disk_id: item.disk_id.clone(),
+                    device: item.device.clone(),
+                    read_bytes_per_sec: read,
+                    write_bytes_per_sec: write,
+                },
+            )
+        })
+        .collect()
+}
+
+fn derive_process_network_io_rates(
+    previous: Option<&[ProcessNetworkIoCounter]>,
+    current: &[ProcessNetworkIoCounter],
+    dt: f64,
+) -> Vec<(ProcessInstanceId, ProcessNetworkIoSnapshot)> {
+    let old: HashMap<(ProcessInstanceId, &NetworkId), &ProcessNetworkIoCounter> = previous
+        .into_iter()
+        .flatten()
+        .map(|item| ((item.process, &item.network_id), item))
+        .collect();
+    current
+        .iter()
+        .map(|item| {
+            let (rx, tx) = old
+                .get(&(item.process, &item.network_id))
+                .map_or((0.0, 0.0), |old| {
+                    (
+                        item.rx_bytes.saturating_sub(old.rx_bytes) as f64 / dt,
+                        item.tx_bytes.saturating_sub(old.tx_bytes) as f64 / dt,
+                    )
+                });
+            (
+                item.process,
+                ProcessNetworkIoSnapshot {
+                    network_id: item.network_id.clone(),
+                    interface: item.interface.clone(),
+                    rx_bytes_per_sec: rx,
+                    tx_bytes_per_sec: tx,
+                },
+            )
+        })
+        .collect()
+}
+
+fn top_cpu(processes: &ProcessDomainSnapshot) -> Vec<ProcessCpuUsage> {
+    let mut values: Vec<_> = processes
+        .by_id
+        .values()
+        .filter_map(|process| Some((process, process.cpu_percent?)))
+        .collect();
+    keep_top_n_by(&mut values, TOP_N, |a, b| {
+        b.1.total_cmp(&a.1).then_with(|| a.0.id.cmp(&b.0.id))
+    });
+    values
+        .into_iter()
+        .filter_map(|(process, percent)| {
+            Some(ProcessCpuUsage {
+                name: process.name.clone()?,
+                percent,
+            })
+        })
+        .collect()
+}
+
+fn top_memory(processes: &ProcessDomainSnapshot) -> Vec<ProcessMemoryUsage> {
+    let mut values: Vec<_> = processes
+        .by_id
+        .values()
+        .filter_map(|process| Some((process, process.memory_bytes?)))
+        .collect();
+    keep_top_n_by(&mut values, TOP_N, |a, b| {
+        b.1.cmp(&a.1).then_with(|| a.0.id.cmp(&b.0.id))
+    });
+    values
+        .into_iter()
+        .filter_map(|(process, bytes)| {
+            Some(ProcessMemoryUsage {
+                name: process.name.clone()?,
+                bytes,
+            })
+        })
+        .collect()
+}
+
+fn project_process_disk_io(processes: &ProcessDomainSnapshot) -> Vec<ProcessDiskIo> {
     let mut by_disk: BTreeMap<DiskId, Vec<ProcessDiskIo>> = BTreeMap::new();
-    for item in current {
-        let (read, write) = old
-            .get(&(item.process, &item.disk_id))
-            .map_or((0.0, 0.0), |old| {
-                (
-                    item.read_bytes.saturating_sub(old.read_bytes) as f64 / dt,
-                    item.write_bytes.saturating_sub(old.write_bytes) as f64 / dt,
-                )
-            });
-        by_disk
-            .entry(item.disk_id.clone())
-            .or_default()
-            .push(ProcessDiskIo {
-                process: item.process,
-                name: process_names
-                    .get(&item.process)
-                    .map(|name| (*name).to_owned()),
-                disk_id: item.disk_id.clone(),
-                device: item.device.clone(),
-                read_bytes_per_sec: read,
-                write_bytes_per_sec: write,
-            });
+    for process in processes.by_id.values() {
+        for io in &process.disk_io {
+            by_disk
+                .entry(io.disk_id.clone())
+                .or_default()
+                .push(ProcessDiskIo {
+                    process: process.id,
+                    name: process.name.clone(),
+                    disk_id: io.disk_id.clone(),
+                    device: io.device.clone(),
+                    read_bytes_per_sec: io.read_bytes_per_sec,
+                    write_bytes_per_sec: io.write_bytes_per_sec,
+                });
+        }
     }
     for rows in by_disk.values_mut() {
         keep_top_n_by(rows, PROCESS_IO_TOP_N, |a, b| {
@@ -339,40 +518,22 @@ fn derive_process_disk_io(
     by_disk.into_values().flatten().collect()
 }
 
-fn derive_process_network_io(
-    previous: Option<&[ProcessNetworkIoCounter]>,
-    current: &[ProcessNetworkIoCounter],
-    process_names: &HashMap<ProcessInstanceId, &str>,
-    dt: f64,
-) -> Vec<ProcessNetworkIo> {
-    let old: HashMap<(ProcessInstanceId, &NetworkId), &ProcessNetworkIoCounter> = previous
-        .into_iter()
-        .flatten()
-        .map(|item| ((item.process, &item.network_id), item))
-        .collect();
+fn project_process_network_io(processes: &ProcessDomainSnapshot) -> Vec<ProcessNetworkIo> {
     let mut by_network: BTreeMap<NetworkId, Vec<ProcessNetworkIo>> = BTreeMap::new();
-    for item in current {
-        let (rx, tx) = old
-            .get(&(item.process, &item.network_id))
-            .map_or((0.0, 0.0), |old| {
-                (
-                    item.rx_bytes.saturating_sub(old.rx_bytes) as f64 / dt,
-                    item.tx_bytes.saturating_sub(old.tx_bytes) as f64 / dt,
-                )
-            });
-        by_network
-            .entry(item.network_id.clone())
-            .or_default()
-            .push(ProcessNetworkIo {
-                process: item.process,
-                name: process_names
-                    .get(&item.process)
-                    .map(|name| (*name).to_owned()),
-                network_id: item.network_id.clone(),
-                interface: item.interface.clone(),
-                rx_bytes_per_sec: rx,
-                tx_bytes_per_sec: tx,
-            });
+    for process in processes.by_id.values() {
+        for io in &process.network_io {
+            by_network
+                .entry(io.network_id.clone())
+                .or_default()
+                .push(ProcessNetworkIo {
+                    process: process.id,
+                    name: process.name.clone(),
+                    network_id: io.network_id.clone(),
+                    interface: io.interface.clone(),
+                    rx_bytes_per_sec: io.rx_bytes_per_sec,
+                    tx_bytes_per_sec: io.tx_bytes_per_sec,
+                });
+        }
     }
     for rows in by_network.values_mut() {
         keep_top_n_by(rows, PROCESS_IO_TOP_N, |a, b| {
@@ -384,57 +545,6 @@ fn derive_process_network_io(
         });
     }
     by_network.into_values().flatten().collect()
-}
-
-fn baseline_top_cpu(current: &[ProcessCounter]) -> Vec<ProcessCpuUsage> {
-    current
-        .iter()
-        .take(TOP_N)
-        .map(|item| ProcessCpuUsage {
-            name: item.name.clone(),
-            percent: 0.0,
-        })
-        .collect()
-}
-
-fn top_cpu(
-    previous: &[ProcessCounter],
-    current: &[ProcessCounter],
-    total_delta: u64,
-    cpu_count: usize,
-) -> Vec<ProcessCpuUsage> {
-    let old: HashMap<ProcessInstanceId, &ProcessCounter> =
-        previous.iter().map(|x| (x.process, x)).collect();
-    let scale = cpu_count.max(1) as f64 * 100.0 / total_delta.max(1) as f64;
-    let mut values: Vec<_> = current
-        .iter()
-        .map(|item| {
-            let delta = old.get(&item.process).map_or(0, |prev| {
-                item.cpu_time_units.saturating_sub(prev.cpu_time_units)
-            });
-            (item, delta as f64 * scale)
-        })
-        .collect();
-    keep_top_n_by(&mut values, TOP_N, |a, b| b.1.total_cmp(&a.1));
-    values
-        .into_iter()
-        .map(|(item, percent)| ProcessCpuUsage {
-            name: item.name.clone(),
-            percent,
-        })
-        .collect()
-}
-
-fn top_memory(current: &[ProcessCounter]) -> Vec<ProcessMemoryUsage> {
-    let mut values: Vec<_> = current.iter().collect();
-    keep_top_n_by(&mut values, TOP_N, |a, b| b.rss_bytes.cmp(&a.rss_bytes));
-    values
-        .into_iter()
-        .map(|item| ProcessMemoryUsage {
-            name: item.name.clone(),
-            bytes: item.rss_bytes,
-        })
-        .collect()
 }
 
 fn keep_top_n_by<T>(
@@ -767,16 +877,23 @@ mod tests {
                 rss_bytes: u64::from(index),
             })
             .collect();
+        let current = RawSnapshot {
+            processes: Collection::available(processes),
+            ..RawSnapshot::default()
+        };
 
-        let top = top_memory(&processes);
+        let out = derive(None, &current);
+        let top = out.top_memory.value().unwrap();
         assert_eq!(top.len(), TOP_N);
         assert_eq!(top[0].name, "p11");
         assert_eq!(top[TOP_N - 1].name, "p4");
+        assert_eq!(out.processes.by_id.len(), 12);
     }
 
     #[test]
     fn top_cpu_keeps_only_highest_processes_in_order() {
-        let previous: Vec<_> = (0..12)
+        let t = Instant::now();
+        let previous_processes: Vec<_> = (0..12)
             .map(|index| ProcessCounter {
                 process: process_id(index, 1),
                 name: format!("p{index}"),
@@ -784,18 +901,40 @@ mod tests {
                 rss_bytes: 0,
             })
             .collect();
-        let current: Vec<_> = previous
+        let current_processes: Vec<_> = previous_processes
             .iter()
             .map(|process| ProcessCounter {
                 cpu_time_units: process.cpu_time_units + u64::from(process.process.pid),
                 ..process.clone()
             })
             .collect();
+        let previous = RawSnapshot {
+            collected_at: t,
+            cpu: Collection::available(CpuCounter {
+                total_time_units: 1_000,
+                idle_time_units: 0,
+                logical_cpu_count: 1,
+            }),
+            processes: Collection::available(previous_processes),
+            ..RawSnapshot::default()
+        };
+        let current = RawSnapshot {
+            collected_at: t + Duration::from_secs(1),
+            cpu: Collection::available(CpuCounter {
+                total_time_units: 1_100,
+                idle_time_units: 0,
+                logical_cpu_count: 1,
+            }),
+            processes: Collection::available(current_processes),
+            ..RawSnapshot::default()
+        };
 
-        let top = top_cpu(&previous, &current, 100, 1);
+        let out = derive(Some(&previous), &current);
+        let top = out.top_cpu.value().unwrap();
         assert_eq!(top.len(), TOP_N);
         assert_eq!(top[0].name, "p11");
         assert_eq!(top[TOP_N - 1].name, "p4");
+        assert_eq!(out.processes.by_id.len(), 12);
     }
 
     #[test]
@@ -868,6 +1007,61 @@ mod tests {
     }
 
     #[test]
+    fn process_domain_unions_process_and_attribution_identities() {
+        let current = RawSnapshot {
+            cpu: Collection::available(CpuCounter {
+                total_time_units: 1_000,
+                idle_time_units: 500,
+                logical_cpu_count: 4,
+            }),
+            processes: Collection::available(vec![ProcessCounter {
+                process: process_id(1, 10),
+                name: "known".into(),
+                cpu_time_units: 100,
+                rss_bytes: 4096,
+            }]),
+            process_disk_io: Collection::available(vec![ProcessDiskIoCounter {
+                process: process_id(2, 20),
+                disk_id: disk_id("disk-a"),
+                device: "sda".into(),
+                read_bytes: 100,
+                write_bytes: 200,
+            }]),
+            process_network_io: Collection::available(vec![ProcessNetworkIoCounter {
+                process: process_id(3, 30),
+                network_id: network_id("network-a"),
+                interface: "eth0".into(),
+                rx_bytes: 300,
+                tx_bytes: 400,
+            }]),
+            ..RawSnapshot::default()
+        };
+
+        let out = derive(None, &current);
+
+        assert_eq!(out.processes.by_id.len(), 3);
+        let known = &out.processes.by_id[&process_id(1, 10)];
+        assert_eq!(known.name.as_deref(), Some("known"));
+        assert_eq!(known.memory_bytes, Some(4096));
+        assert_eq!(known.cpu_percent, Some(0.0));
+
+        let disk_only = &out.processes.by_id[&process_id(2, 20)];
+        assert_eq!(disk_only.name, None);
+        assert_eq!(disk_only.memory_bytes, None);
+        assert_eq!(disk_only.cpu_percent, None);
+        assert_eq!(disk_only.disk_io.len(), 1);
+
+        let network_only = &out.processes.by_id[&process_id(3, 30)];
+        assert_eq!(network_only.name, None);
+        assert_eq!(network_only.network_io.len(), 1);
+        assert_eq!(out.processes.metadata_status, CollectionStatus::Available);
+        assert_eq!(out.processes.cpu_status, CollectionStatus::Available);
+        assert_eq!(out.processes.memory_status, CollectionStatus::Available);
+        assert_eq!(out.processes.disk_io_status, CollectionStatus::Available);
+        assert_eq!(out.processes.network_io_status, CollectionStatus::Available);
+    }
+
+    #[test]
     fn process_io_does_not_reuse_delta_when_display_name_is_reused_by_new_identity() {
         let old_disk = [ProcessDiskIoCounter {
             process: process_id(10, 1),
@@ -898,18 +1092,18 @@ mod tests {
             tx_bytes: 1400,
         }];
 
-        let disk = derive_process_disk_io(Some(&old_disk), &new_disk, &HashMap::new(), 1.0);
-        let network =
-            derive_process_network_io(Some(&old_network), &new_network, &HashMap::new(), 1.0);
+        let disk = derive_process_disk_io_rates(Some(&old_disk), &new_disk, 1.0);
+        let network = derive_process_network_io_rates(Some(&old_network), &new_network, 1.0);
 
-        assert_eq!(disk[0].read_bytes_per_sec, 0.0);
-        assert_eq!(disk[0].write_bytes_per_sec, 0.0);
-        assert_eq!(network[0].rx_bytes_per_sec, 0.0);
-        assert_eq!(network[0].tx_bytes_per_sec, 0.0);
+        assert_eq!(disk[0].1.read_bytes_per_sec, 0.0);
+        assert_eq!(disk[0].1.write_bytes_per_sec, 0.0);
+        assert_eq!(network[0].1.rx_bytes_per_sec, 0.0);
+        assert_eq!(network[0].1.tx_bytes_per_sec, 0.0);
     }
 
     #[test]
-    fn process_io_keeps_top_three_per_device() {
+    fn process_domain_keeps_complete_io_before_card_top_n_projection() {
+        let t = Instant::now();
         let mut old_disk: Vec<_> = (1..=4)
             .map(|pid| ProcessDiskIoCounter {
                 process: process_id(pid, 1),
@@ -975,25 +1169,31 @@ mod tests {
             rx_bytes: 1,
             tx_bytes: 0,
         });
-
-        let process_names: HashMap<_, _> = (1..=5)
-            .map(|pid| {
-                (
-                    process_id(pid, 1),
-                    match pid {
-                        1 => "p1",
-                        2 => "p2",
-                        3 => "p3",
-                        4 => "p4",
-                        _ => "p5",
-                    },
-                )
+        let processes = (1..=5)
+            .map(|pid| ProcessCounter {
+                process: process_id(pid, 1),
+                name: format!("p{pid}"),
+                cpu_time_units: 0,
+                rss_bytes: u64::from(pid),
             })
             .collect();
+        let old = RawSnapshot {
+            collected_at: t,
+            process_disk_io: Collection::available(old_disk),
+            process_network_io: Collection::available(old_network),
+            ..RawSnapshot::default()
+        };
+        let new = RawSnapshot {
+            collected_at: t + Duration::from_secs(1),
+            processes: Collection::available(processes),
+            process_disk_io: Collection::available(new_disk),
+            process_network_io: Collection::available(new_network),
+            ..RawSnapshot::default()
+        };
 
-        let disk = derive_process_disk_io(Some(&old_disk), &new_disk, &process_names, 1.0);
-        let network =
-            derive_process_network_io(Some(&old_network), &new_network, &process_names, 1.0);
+        let out = derive(Some(&old), &new);
+        let disk = out.process_disk_io.value().unwrap();
+        let network = out.process_network_io.value().unwrap();
 
         assert_eq!(disk.len(), PROCESS_IO_TOP_N + 1);
         assert_eq!(network.len(), PROCESS_IO_TOP_N + 1);
@@ -1012,8 +1212,9 @@ mod tests {
                 .collect::<Vec<_>>(),
             [4, 3, 2]
         );
-        assert!(disk.iter().any(|row| row.process.pid == 5));
-        assert!(network.iter().any(|row| row.process.pid == 5));
+        assert_eq!(out.processes.by_id.len(), 5);
+        assert_eq!(out.processes.by_id[&process_id(1, 1)].disk_io.len(), 1);
+        assert_eq!(out.processes.by_id[&process_id(1, 1)].network_io.len(), 1);
         assert_eq!(disk[0].name.as_deref(), Some("p4"));
         assert_eq!(network[0].name.as_deref(), Some("p4"));
     }
@@ -1073,23 +1274,42 @@ mod tests {
 
     #[test]
     fn pid_reuse_does_not_inherit_cpu_delta() {
-        let previous = vec![ProcessCounter {
-            process: process_id(42, 100),
-            name: "old".into(),
-            cpu_time_units: 1_000,
-            rss_bytes: 0,
-        }];
-        let current = vec![ProcessCounter {
-            process: process_id(42, 200),
-            name: "new".into(),
-            cpu_time_units: 25,
-            rss_bytes: 0,
-        }];
+        let t = Instant::now();
+        let previous = RawSnapshot {
+            collected_at: t,
+            cpu: Collection::available(CpuCounter {
+                total_time_units: 1_000,
+                idle_time_units: 0,
+                logical_cpu_count: 1,
+            }),
+            processes: Collection::available(vec![ProcessCounter {
+                process: process_id(42, 100),
+                name: "old".into(),
+                cpu_time_units: 1_000,
+                rss_bytes: 0,
+            }]),
+            ..RawSnapshot::default()
+        };
+        let current = RawSnapshot {
+            collected_at: t + Duration::from_secs(1),
+            cpu: Collection::available(CpuCounter {
+                total_time_units: 1_100,
+                idle_time_units: 0,
+                logical_cpu_count: 1,
+            }),
+            processes: Collection::available(vec![ProcessCounter {
+                process: process_id(42, 200),
+                name: "new".into(),
+                cpu_time_units: 25,
+                rss_bytes: 0,
+            }]),
+            ..RawSnapshot::default()
+        };
 
-        let top = top_cpu(&previous, &current, 100, 1);
-        assert_eq!(top.len(), 1);
-        assert_eq!(top[0].name, "new");
-        assert_eq!(top[0].percent, 0.0);
+        let out = derive(Some(&previous), &current);
+        let process = &out.processes.by_id[&process_id(42, 200)];
+        assert_eq!(process.name.as_deref(), Some("new"));
+        assert_eq!(process.cpu_percent, Some(0.0));
     }
 
     #[test]
@@ -1123,18 +1343,17 @@ mod tests {
             tx_bytes: 400,
         }];
 
-        let disk = derive_process_disk_io(Some(&old_disk), &new_disk, &HashMap::new(), 1.0);
-        let network =
-            derive_process_network_io(Some(&old_network), &new_network, &HashMap::new(), 1.0);
+        let disk = derive_process_disk_io_rates(Some(&old_disk), &new_disk, 1.0);
+        let network = derive_process_network_io_rates(Some(&old_network), &new_network, 1.0);
 
-        assert_eq!(disk[0].process, process_id(42, 200));
+        assert_eq!(disk[0].0, process_id(42, 200));
         assert_eq!(
-            (disk[0].read_bytes_per_sec, disk[0].write_bytes_per_sec),
+            (disk[0].1.read_bytes_per_sec, disk[0].1.write_bytes_per_sec),
             (0.0, 0.0)
         );
-        assert_eq!(network[0].process, process_id(42, 200));
+        assert_eq!(network[0].0, process_id(42, 200));
         assert_eq!(
-            (network[0].rx_bytes_per_sec, network[0].tx_bytes_per_sec),
+            (network[0].1.rx_bytes_per_sec, network[0].1.tx_bytes_per_sec),
             (0.0, 0.0)
         );
     }
@@ -1164,6 +1383,14 @@ mod tests {
             out.process_network_io.status(),
             CollectionStatus::Unavailable(CollectionUnavailable::PermissionDenied)
         );
+        assert_eq!(
+            out.processes.disk_io_status,
+            CollectionStatus::Unavailable(CollectionUnavailable::PermissionDenied)
+        );
+        assert_eq!(
+            out.processes.network_io_status,
+            CollectionStatus::Unavailable(CollectionUnavailable::PermissionDenied)
+        );
     }
 
     #[test]
@@ -1183,6 +1410,7 @@ mod tests {
 
         assert_eq!(out.networks.status(), CollectionStatus::Degraded);
         assert_eq!(out.process_disk_io.status(), CollectionStatus::Degraded);
+        assert_eq!(out.processes.disk_io_status, CollectionStatus::Degraded);
         assert_eq!(out.networks.value().unwrap().len(), 1);
         assert!(out.process_disk_io.value().unwrap().is_empty());
     }

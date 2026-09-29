@@ -253,6 +253,7 @@ impl From<WebSystemSnapshot> for SystemSnapshot {
         Self {
             cpu_percent: snapshot.cpu_percent.into_core(|value| value),
             memory: snapshot.memory.into_core(MemorySnapshot::from),
+            processes: Default::default(),
             top_cpu: snapshot
                 .top_cpu
                 .into_core(|rows| rows.into_iter().map(ProcessCpuUsage::from).collect()),

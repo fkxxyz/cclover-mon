@@ -26,7 +26,6 @@ impl Collector {
     pub(super) fn collect(
         &mut self,
         now: Instant,
-        nvml: Collection<Vec<TemperatureSnapshot>>,
         mut notes: Option<&mut Vec<String>>,
     ) -> Collection<Vec<TemperatureSnapshot>> {
         if self
@@ -40,8 +39,7 @@ impl Collector {
         }
         self.last_sample = Some(now);
 
-        let hwmon = self.hwmon.collect(now, notes);
-        let mut outcome = merge_sources(hwmon, nvml);
+        let mut outcome = self.hwmon.collect(now, notes);
         if let Some(values) = outcome_value_mut(&mut outcome) {
             normalize_display_names(values);
         }
@@ -55,28 +53,6 @@ fn outcome_value_mut<T>(outcome: &mut Collection<T>) -> Option<&mut T> {
     match outcome {
         Collection::Available(value) | Collection::Degraded(value) => Some(value),
         Collection::Unavailable(_) => None,
-    }
-}
-
-fn merge_sources<T>(left: Collection<Vec<T>>, right: Collection<Vec<T>>) -> Collection<Vec<T>> {
-    use Collection::{Available, Degraded, Unavailable};
-
-    match (left, right) {
-        (Available(mut left), Available(right)) => {
-            left.extend(right);
-            Available(left)
-        }
-        (Available(mut left), Degraded(right))
-        | (Degraded(mut left), Available(right))
-        | (Degraded(mut left), Degraded(right)) => {
-            left.extend(right);
-            Degraded(left)
-        }
-        (Available(value), Unavailable(_))
-        | (Degraded(value), Unavailable(_))
-        | (Unavailable(_), Available(value))
-        | (Unavailable(_), Degraded(value)) => Degraded(value),
-        (Unavailable(reason), Unavailable(_)) => Unavailable(reason),
     }
 }
 

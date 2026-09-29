@@ -10,7 +10,7 @@ use iced::widget::text::Wrapping;
 use iced::widget::{Column, Space, canvas, column, container, progress_bar, row, text};
 use iced::{Alignment, Border, Color, Element, Fill, Font, Theme};
 use layout::{
-    CARD_FRAME_GEOMETRY, DISK_CARD_GEOMETRY, GPU_MEMORY_CARD_GEOMETRY, IO_PROCESS_GEOMETRY,
+    CARD_FRAME_GEOMETRY, DISK_CARD_GEOMETRY, GPU_CARD_GEOMETRY, IO_PROCESS_GEOMETRY,
     METRIC_CARD_GEOMETRY, NETWORK_CARD_GEOMETRY, PANEL_GEOMETRY, PanelBlock,
     SMALL_GRAPH_CARD_GEOMETRY,
 };
@@ -171,19 +171,46 @@ where
             })
         }
         PanelBlock::Section(section) => section_label(section.title()),
-        PanelBlock::GpuMemory(index) => {
+        PanelBlock::Gpu(index) => {
             let gpu = dashboard
-                .gpu_memory(index)
-                .expect("panel layout must match dashboard GPU memory entries");
-            gpu_memory_card(
-                gpu.name(),
-                gpu.value(),
-                gpu.percent(),
-                gpu.fraction(),
-                gpu.history().unwrap_or(&EMPTY_GRAPH_VALUES),
-                gpu.graph_max(),
-                capacity,
-            )
+                .gpu(index)
+                .expect("panel layout must match dashboard GPU entries");
+            gpu_card(GpuCardParams {
+                name: gpu.name(),
+                utilization_value: gpu.utilization_value(),
+                utilization_graph: GraphParams {
+                    values: gpu.utilization_history().unwrap_or(&EMPTY_GRAPH_VALUES),
+                    min: 0.0,
+                    max: 100.0,
+                    auto_scale: false,
+                    color: ACCENT,
+                    fill_color: Color::from_rgba8(0x7c, 0x9c, 0xff, 0.14),
+                    capacity,
+                },
+                memory_value: gpu.memory_value(),
+                memory_graph: GraphParams {
+                    values: gpu.memory_history().unwrap_or(&EMPTY_GRAPH_VALUES),
+                    min: 0.0,
+                    max: gpu.memory_graph_max(),
+                    auto_scale: false,
+                    color: GREEN,
+                    fill_color: Color::from_rgba8(0x52, 0xe0, 0xc4, 0.13),
+                    capacity,
+                },
+                temperature_value: gpu.temperature_value(),
+                temperature_graph: GraphParams {
+                    values: gpu.temperature_history().unwrap_or(&EMPTY_GRAPH_VALUES),
+                    min: 20.0,
+                    max: 100.0,
+                    auto_scale: false,
+                    color: RED,
+                    fill_color: Color::from_rgba8(0xff, 0x7e, 0x9b, 0.13),
+                    capacity,
+                },
+                power_value: gpu.power_value(),
+                core_clock_value: gpu.core_clock_value(),
+                fan_value: gpu.fan_value(),
+            })
         }
         PanelBlock::Temperature(index) => {
             let temperature = dashboard
@@ -334,6 +361,19 @@ where
     card(content, METRIC_CARD_GEOMETRY.height(process_count as u32))
 }
 
+struct GpuCardParams<'a> {
+    name: &'a str,
+    utilization_value: String,
+    utilization_graph: GraphParams<'a>,
+    memory_value: String,
+    memory_graph: GraphParams<'a>,
+    temperature_value: String,
+    temperature_graph: GraphParams<'a>,
+    power_value: String,
+    core_clock_value: String,
+    fan_value: String,
+}
+
 struct SmallGraphCardParams<'a> {
     name: &'a str,
     value: String,
@@ -359,60 +399,89 @@ struct NetworkCardParams<'a> {
     process_unavailable_value: Option<&'static str>,
 }
 
-fn gpu_memory_card<'a, Message>(
-    name: &'a str,
-    value: String,
-    percent: String,
-    fraction: f32,
-    history: &'a VecDeque<f64>,
-    graph_max: f64,
-    capacity: usize,
-) -> Element<'a, Message>
+fn gpu_card<'a, Message>(params: GpuCardParams<'a>) -> Element<'a, Message>
 where
     Message: 'a,
 {
+    let GpuCardParams {
+        name,
+        utilization_value,
+        utilization_graph,
+        memory_value,
+        memory_graph,
+        temperature_value,
+        temperature_graph,
+        power_value,
+        core_clock_value,
+        fan_value,
+    } = params;
+
     let header = container(
         bold_label(name, 13, FG)
             .wrapping(Wrapping::None)
             .width(Fill),
     )
-    .height(GPU_MEMORY_CARD_GEOMETRY.header_height)
+    .height(GPU_CARD_GEOMETRY.header_height)
     .width(Fill)
     .clip(true);
-    let values = row![
-        label_owned(value, 12, FG).width(Fill),
-        bold_label_owned(percent, 11, MUTED),
-    ]
-    .height(GPU_MEMORY_CARD_GEOMETRY.value_row_height)
-    .align_y(Alignment::Center);
-    let progress = progress_bar(0.0..=1.0, fraction.clamp(0.0, 1.0))
-        .girth(GPU_MEMORY_CARD_GEOMETRY.progress_height)
-        .style(|_| iced::widget::progress_bar::Style {
-            background: BORDER.into(),
-            bar: GREEN.into(),
-            border: border::rounded(3),
-        });
-    let graph = Graph::new(
-        history,
-        capacity,
-        GREEN,
-        Color::from_rgba8(0x52, 0xe0, 0xc4, 0.13),
-    )
-    .range(0.0, graph_max)
-    .auto_scale(false);
+
+    let utilization_row = gpu_metric_row("UTILIZATION", utilization_value);
+    let memory_row = gpu_metric_row("MEMORY", memory_value);
+    let temperature_row = gpu_metric_row("TEMPERATURE", temperature_value);
+    let power_row = gpu_status_row("POWER", power_value);
+    let clock_row = gpu_status_row("CORE CLOCK", core_clock_value);
+    let fan_row = gpu_status_row("FAN", fan_value);
+
+    let utilization_graph = gpu_graph(utilization_graph);
+    let memory_graph = gpu_graph(memory_graph);
+    let temperature_graph = gpu_graph(temperature_graph);
 
     card(
         column![
             header,
-            values,
-            progress,
-            canvas(graph)
-                .width(Fill)
-                .height(GPU_MEMORY_CARD_GEOMETRY.graph_height)
+            utilization_row,
+            utilization_graph,
+            memory_row,
+            memory_graph,
+            temperature_row,
+            temperature_graph,
+            power_row,
+            clock_row,
+            fan_row,
         ]
-        .spacing(GPU_MEMORY_CARD_GEOMETRY.spacing),
-        GPU_MEMORY_CARD_GEOMETRY.height(),
+        .spacing(GPU_CARD_GEOMETRY.spacing),
+        GPU_CARD_GEOMETRY.height(),
     )
+}
+
+fn gpu_metric_row<'a, Message: 'a>(label: &'static str, value: String) -> Element<'a, Message> {
+    row![
+        bold_label_owned(label.to_owned(), 10, MUTED).width(Fill),
+        label_owned(value, 12, FG),
+    ]
+    .height(GPU_CARD_GEOMETRY.metric_row_height)
+    .align_y(Alignment::Center)
+    .into()
+}
+
+fn gpu_status_row<'a, Message: 'a>(label: &'static str, value: String) -> Element<'a, Message> {
+    row![
+        bold_label_owned(label.to_owned(), 10, MUTED).width(Fill),
+        label_owned(value, 11, MUTED),
+    ]
+    .height(GPU_CARD_GEOMETRY.status_row_height)
+    .align_y(Alignment::Center)
+    .into()
+}
+
+fn gpu_graph<'a, Message: 'a>(graph: GraphParams<'a>) -> Element<'a, Message> {
+    let graph = Graph::new(graph.values, graph.capacity, graph.color, graph.fill_color)
+        .range(graph.min, graph.max)
+        .auto_scale(graph.auto_scale);
+    canvas(graph)
+        .width(Fill)
+        .height(GPU_CARD_GEOMETRY.graph_height)
+        .into()
 }
 
 fn small_graph_card<'a, Message>(params: SmallGraphCardParams<'a>) -> Element<'a, Message>

@@ -2,7 +2,7 @@ mod cpu;
 mod diagnostics;
 mod disk;
 mod ebpf_io;
-mod gpu_memory;
+mod gpu;
 mod memory;
 mod native;
 mod network;
@@ -74,12 +74,11 @@ impl Backend {
                     .map(|result| result.rows),
             ),
             ProbeKind::Temperatures => {
-                let nvml = self.nvidia.temperatures(notes);
-                ProbeSample::Temperatures(self.temperatures.collect(Instant::now(), nvml, None))
+                ProbeSample::Temperatures(self.temperatures.collect(Instant::now(), notes))
             }
-            ProbeKind::GpuMemory => {
-                let nvml = self.nvidia.memory(notes);
-                ProbeSample::GpuMemory(gpu_memory::collect(nvml, None))
+            ProbeKind::Gpu => {
+                let nvml = self.nvidia.gpus(notes);
+                ProbeSample::Gpu(gpu::collect(nvml, None))
             }
         }
     }
@@ -119,12 +118,11 @@ impl CoreCollector for Backend {
                 .map(|result| result.rows)
         });
         let temperatures = devlog::timed("collector.temperatures", || {
-            let nvml = self.nvidia.temperatures(None);
-            self.temperatures.collect(Instant::now(), nvml, None)
+            self.temperatures.collect(Instant::now(), None)
         });
-        let gpu_memory = devlog::timed("collector.gpu-memory", || {
-            let nvml = self.nvidia.memory(None);
-            gpu_memory::collect(nvml, None)
+        let gpus = devlog::timed("collector.gpu", || {
+            let nvml = self.nvidia.gpus(None);
+            gpu::collect(nvml, None)
         });
 
         RawSnapshot {
@@ -137,7 +135,7 @@ impl CoreCollector for Backend {
             process_disk_io,
             process_network_io,
             temperatures,
-            gpu_memory,
+            gpus,
         }
     }
 }

@@ -151,6 +151,11 @@ fn discover(
                     .to_string_lossy()
                     .into_owned()
             });
+        // AMD GPU temperature is collected with the rest of that GPU's telemetry so every GPU
+        // field shares one stable GpuId and one card/history identity.
+        if raw_name.eq_ignore_ascii_case("amdgpu") {
+            continue;
+        }
 
         let files = match fs::read_dir(&chip_path) {
             Ok(files) => files,

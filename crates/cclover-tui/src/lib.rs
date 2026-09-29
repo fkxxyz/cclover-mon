@@ -98,7 +98,7 @@ fn render(frame: &mut ratatui::Frame<'_>, dashboard: Dashboard<'_>) {
         .split(sections[1]);
     render_cpu(frame, overview[0], dashboard.cpu());
     render_memory(frame, overview[1], dashboard.memory());
-    render_gpu_memory(frame, sections[2], dashboard);
+    render_gpus(frame, sections[2], dashboard);
     render_temperatures(frame, sections[3], dashboard);
 
     let io = Layout::default()
@@ -160,16 +160,19 @@ fn render_memory(frame: &mut ratatui::Frame<'_>, area: Rect, panel: MemoryPanel<
     frame.render_widget(Paragraph::new(lines), rows[1]);
 }
 
-fn render_gpu_memory(frame: &mut ratatui::Frame<'_>, area: Rect, dashboard: Dashboard<'_>) {
-    let inner = bordered_inner(frame, area, "GPU MEMORY".to_owned());
-    let lines: Vec<_> = (0..dashboard.gpu_memory_count())
-        .filter_map(|index| dashboard.gpu_memory(index))
+fn render_gpus(frame: &mut ratatui::Frame<'_>, area: Rect, dashboard: Dashboard<'_>) {
+    let inner = bordered_inner(frame, area, "GPU".to_owned());
+    let lines: Vec<_> = (0..dashboard.gpu_count())
+        .filter_map(|index| dashboard.gpu(index))
         .map(|gpu| {
             Line::from(format!(
-                "{}  {}  {}",
+                "{}  {}  {}  {}  {}  {}",
                 gpu.name(),
-                gpu.value(),
-                gpu.percent()
+                gpu.utilization_value(),
+                gpu.memory_value(),
+                gpu.temperature_value(),
+                gpu.power_value(),
+                gpu.core_clock_value(),
             ))
         })
         .collect();

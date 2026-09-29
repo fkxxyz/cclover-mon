@@ -1,5 +1,5 @@
 ---
-summary: "Chooses hwmon plus optional dynamically loaded NVML as peer Linux GPU-temperature sources behind one platform-neutral temperature metric."
+summary: "Chooses amdgpu sysfs/hwmon plus optional dynamically loaded NVML as Linux GPU telemetry sources behind one platform-neutral GPU metric."
 viewpoint: decision
 concerns:
   - architecture-coherence
@@ -16,76 +16,72 @@ facets:
     - platform
 ---
 
-# ADR 006: Linux GPU Temperature Sources
+# ADR 006: Linux GPU Telemetry Sources
 
 ## Decision
 
-Linux GPU temperatures remain part of the existing temperature metric rather than becoming a vendor-specific core or UI metric.
+Linux exposes one platform-neutral `GpuSnapshot` per GPU. The shared model contains optional utilization, VRAM used/total, temperature, power, core clock, fan percent, and fan RPM fields. Unsupported fields remain `None`; collectors never fabricate zero to represent missing capability.
 
-Linux temperature collection combines two peer native sources:
+Linux collection combines two peer native sources:
 
 ```text
-Linux temperature metric
-  ├── temperature collector → hwmon
-  │     ├── AMD amdgpu temperatures
-  │     ├── supported Intel i915/xe temperatures
-  │     └── other kernel-exposed temperature sensors
-  └── shared NVIDIA telemetry adapter → NVML
-        └── every enumerated proprietary-driver NVIDIA GPU with readable temperature
+Linux GPU metric
+  ├── AMD amdgpu
+  │     ├── DRM/sysfs: identity, utilization, VRAM, core clock
+  │     └── device hwmon: temperature, power, fan
+  └── NVIDIA adapter
+        └── dynamically loaded NVML: identity + supported telemetry
              ↓
-       one core-owned temperature snapshot sequence
+       one core-owned GPU snapshot sequence keyed by GpuId
 ```
 
-hwmon remains the generic Linux kernel sensor path. NVIDIA proprietary-driver temperature telemetry uses NVML directly in-process. The shared NVIDIA adapter dynamically loads `libnvidia-ml.so.1`, initializes one session, enumerates all NVIDIA devices, retains reusable device handles, and serves temperature plus other NVIDIA telemetry such as GPU memory from that same session. Production code does not invoke `nvidia-smi`.
+NVIDIA proprietary-driver telemetry uses NVML directly in-process. The adapter dynamically loads `libnvidia-ml.so.1`, initializes one session, enumerates devices once, retains reusable handles, and reads all supported fields from those handles. Production code does not invoke `nvidia-smi`.
 
-NVML is optional. Missing library, initialization failure, or zero enumerated NVIDIA devices contributes no NVML temperature entries and does not affect startup or hwmon collection. Failure to read one device temperature omits only that sensor. No zero value is fabricated for unavailable data.
+AMD collection is capability-based. DRM card discovery identifies `amdgpu` devices, derives `GpuId` from canonical device identity, then reads only native files actually present. Current sources are `gpu_busy_percent`, `mem_info_vram_used`, `mem_info_vram_total`, active `pp_dpm_sclk`, and device-associated hwmon temperature/power/fan files.
 
-Every temperature sensor crossing into core has a stable identity distinct from its display label. NVIDIA identity is derived from a stable NVML device identity such as UUID, while the display label comes from `nvmlDeviceGetName()` and remains independent from history identity. hwmon identity is likewise derived from stable platform/device/channel identity rather than the human-readable label. Core history keys use sensor identity. Presentation/UI consume the merged temperature sequence uniformly and do not branch on hwmon versus NVML. Presentation may remove known redundant vendor/product-family prefixes from NVIDIA labels without changing the core snapshot value.
+GPU temperature belongs to the GPU snapshot so current value and bounded history use the same `GpuId` as utilization and VRAM. Generic temperature collection remains responsible for non-GPU sensors and GPU families not yet represented by the GPU collector; AMD `amdgpu` hwmon is excluded there to avoid duplicate presentation.
 
 ## Rationale
 
-AMD and supported Intel Linux drivers already expose GPU temperature through the kernel hwmon ABI, which is cheap, native, and vendor-neutral. NVIDIA's proprietary driver exposes supported telemetry through NVML; spawning `nvidia-smi` would only add a process lifecycle and text-parsing layer around the same management interface.
+The product semantic is a GPU, not a set of vendor-specific telemetry widgets. One typed snapshot lets presentation bind each current value directly to its corresponding history while keeping NVML/sysfs/hwmon details below the platform boundary.
 
-Keeping hwmon and NVML as peer sources under one metric preserves the existing platform boundary. It prevents native library types and vendor distinctions from leaking into core, history, presentation, or frontend layout. It also lets multiple GPUs appear as ordinary parallel temperature entries without creating vendor-specific UI paths.
+Stable identity must be separate from display labels because labels and enumeration positions are neither unique nor durable enough for cross-sample history. NVIDIA uses stable NVML identity such as UUID; AMD uses canonical DRM device identity.
 
-Stable identity must be separate from display labels because multiple GPUs or sensors may share the same friendly name, labels may change for presentation reasons, and NVML device indices are not a durable cross-restart identity.
-
-Dynamic loading keeps NVIDIA support optional. A Linux build remains usable on systems with no NVIDIA driver or GPU and does not acquire a mandatory loader dependency solely for telemetry.
+Dynamic NVML loading keeps NVIDIA support optional. Native sysfs/hwmon access keeps AMD support dependency-free. Both paths avoid subprocess creation and text protocol layers around native telemetry.
 
 ## Consequences
 
-- Linux temperature collection becomes an internal fan-in of hwmon and NVML sources, while NVML native lifetime may be shared with other NVIDIA telemetry metrics.
-- The core temperature model/history must distinguish stable sensor identity from display label.
-- NVIDIA multi-GPU systems produce one temperature entry per device that supports the queried temperature.
-- NVIDIA labels are read once from NVML during initialization; presentation may shorten only known redundant prefixes. hwmon naming semantics remain owned by the hwmon source and are not coupled to NVML naming.
-- NVML initialization, discovery, and handles are long-lived collector state; normal one-second sampling reads existing devices rather than recreating the session each cycle.
-- NVIDIA topology changes may require an explicit refresh/recovery path, but they do not justify per-sample rediscovery.
-- Missing or unusable NVML is a degradable source condition and must remain diagnosable without becoming a user-visible failure of unrelated metrics.
-- Read-only NVIDIA temperature telemetry must not introduce a root/setuid requirement or a helper process.
-- Windows remains free to use Windows-native GPU telemetry behind the same core temperature semantics; Linux hwmon/NVML APIs do not become shared dependencies.
+- Core, presentation, desktop, TUI, and Web consume one `GpuSnapshot` contract without vendor branching.
+- Utilization, VRAM, and GPU temperature histories are independently bounded and keyed by the same `GpuId`.
+- Power, core clock, and fan are current-state fields; no history is retained for them.
+- A field missing on one device degrades only that capability; other fields for the device remain usable.
+- Fan percent and RPM are distinct optional source semantics. Presentation prefers percent and falls back to RPM.
+- NVML initialization and device handles are long-lived collector state; normal one-second sampling does not recreate the session.
+- AMD paths are capability-probed rather than assumed from a GPU model whitelist.
+- Windows remains free to use Windows-native GPU telemetry behind the same core contract.
 
 ## Rejected Alternatives
 
-### `nvidia-smi` subprocess polling
+### Vendor-specific core/UI GPU models
 
-Rejected because it adds process creation, text parsing, external-command behavior, and avoidable overhead to a one-second monitor loop while NVML provides the native API directly.
+Rejected because vendor distinction is an acquisition concern. It would duplicate history, formatting, and layout behavior.
+
+### `nvidia-smi` or other subprocess polling
+
+Rejected because it adds process creation and text parsing to a one-second sampling loop while NVML provides the native API directly.
 
 ### Mandatory link-time NVML dependency
 
-Rejected because systems without NVIDIA's library must still start and run normally. NVIDIA telemetry is optional capability, not a deployment prerequisite.
+Rejected because systems without NVIDIA's library must still start normally.
 
-### Vendor-specific core/UI temperature models
+### Treating missing metrics as zero
 
-Rejected because hwmon and NVML differ only in native acquisition. The product semantic is still a temperature sensor, and source-specific contracts would duplicate history, presentation, and layout behavior.
+Rejected because zero is valid telemetry. Absence must remain distinguishable from an observed zero value.
 
-### Treating display label as sensor identity
+### Treating display labels or DRM card numbers as identity
 
-Rejected because labels are not unique or stable enough for multi-GPU history. Identity and presentation naming have different responsibilities.
-
-### Rediscovering all devices every sample
-
-Rejected because normal topology is stable and the one-second path should reuse hwmon discovery state and NVML session/device handles. Device refresh belongs to lifecycle/recovery handling instead.
+Rejected because both can change independently of the physical device and would corrupt history association.
 
 ## Reassessment
 
-Revisit this decision if NVIDIA exposes equivalent proprietary-driver temperature data through a stable kernel hwmon ABI on the supported fleet, if NVML no longer provides the required read-only telemetry, or if measured long-lived NVML integration cost is materially worse than another in-process native interface with the same semantics.
+Revisit if supported Linux drivers expose a more stable vendor-neutral GPU telemetry ABI covering the required fields, if NVML stops providing the required read-only telemetry, or if measured native polling overhead materially exceeds the current budget.

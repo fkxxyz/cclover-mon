@@ -1,8 +1,6 @@
 mod runtime;
 
-use crate::core::model::{
-    Collection, CollectionUnavailable, GpuMemorySnapshot, TemperatureSnapshot,
-};
+use crate::core::model::{Collection, CollectionUnavailable, GpuId, GpuSnapshot};
 
 use super::diagnostics::{probe_note, report_issue};
 
@@ -43,10 +41,10 @@ impl Collector {
         };
     }
 
-    pub(super) fn temperatures(
+    pub(super) fn gpus(
         &mut self,
         mut notes: Option<&mut Vec<String>>,
-    ) -> Collection<Vec<TemperatureSnapshot>> {
+    ) -> Collection<Vec<GpuSnapshot>> {
         self.ensure_initialized(&mut notes);
         match &self.state {
             State::Uninitialized => unreachable!(),
@@ -58,23 +56,62 @@ impl Collector {
                 let mut degraded = *degraded;
                 let mut values = Vec::with_capacity(session.devices().len());
                 for (index, device) in session.devices().iter().enumerate() {
-                    let temperature = match session.temperature(index) {
-                        Ok(value) => value,
-                        Err(status) => {
-                            degraded = true;
-                            probe_note(&mut notes, || {
-                                format!(
-                                    "NVML GPU {} skipped: temperature query failed with status {status}",
-                                    device.uuid()
-                                )
-                            });
-                            continue;
-                        }
-                    };
-                    values.push(TemperatureSnapshot {
-                        id: format!("nvml:{}", device.uuid()),
+                    let utilization_percent = optional_query(
+                        &mut degraded,
+                        &mut notes,
+                        device.uuid(),
+                        "utilization",
+                        session.utilization(index).map(|value| f64::from(value.gpu)),
+                    );
+                    let memory = optional_query(
+                        &mut degraded,
+                        &mut notes,
+                        device.uuid(),
+                        "memory",
+                        session.memory(index),
+                    );
+                    let temperature_celsius = optional_query(
+                        &mut degraded,
+                        &mut notes,
+                        device.uuid(),
+                        "temperature",
+                        session.temperature(index).map(f64::from),
+                    );
+                    let power_watts = optional_query(
+                        &mut degraded,
+                        &mut notes,
+                        device.uuid(),
+                        "power",
+                        session
+                            .power_milliwatts(index)
+                            .map(|value| f64::from(value) / 1000.0),
+                    );
+                    let core_clock_mhz = optional_query(
+                        &mut degraded,
+                        &mut notes,
+                        device.uuid(),
+                        "graphics clock",
+                        session.graphics_clock_mhz(index).map(u64::from),
+                    );
+                    let fan_percent = optional_query(
+                        &mut degraded,
+                        &mut notes,
+                        device.uuid(),
+                        "fan speed",
+                        session.fan_percent(index).map(f64::from),
+                    );
+
+                    values.push(GpuSnapshot {
+                        id: GpuId::from_opaque_key(format!("nvml:{}", device.uuid())),
                         name: device.name().to_owned(),
-                        celsius: f64::from(temperature),
+                        utilization_percent,
+                        memory_used_bytes: memory.as_ref().map(|value| value.used),
+                        memory_total_bytes: memory.as_ref().map(|value| value.total),
+                        temperature_celsius,
+                        power_watts,
+                        core_clock_mhz,
+                        fan_percent,
+                        fan_rpm: None,
                     });
                 }
                 if degraded {
@@ -85,51 +122,23 @@ impl Collector {
             }
         }
     }
+}
 
-    pub(super) fn memory(
-        &mut self,
-        mut notes: Option<&mut Vec<String>>,
-    ) -> Collection<Vec<GpuMemorySnapshot>> {
-        self.ensure_initialized(&mut notes);
-        match &self.state {
-            State::Uninitialized => unreachable!(),
-            State::Unavailable(reason) => {
-                probe_note(&mut notes, || format!("NVML unavailable: {reason}"));
-                Collection::unavailable(CollectionUnavailable::Unsupported)
-            }
-            State::Available { session, degraded } => {
-                let mut degraded = *degraded;
-                let mut values = Vec::with_capacity(session.devices().len());
-                for (index, device) in session.devices().iter().enumerate() {
-                    let memory = match session.memory(index) {
-                        Ok(value) => value,
-                        Err(status) => {
-                            degraded = true;
-                            probe_note(&mut notes, || {
-                                format!(
-                                    "NVML GPU {} skipped: memory query failed with status {status}",
-                                    device.uuid()
-                                )
-                            });
-                            continue;
-                        }
-                    };
-                    values.push(GpuMemorySnapshot {
-                        id: crate::core::model::GpuId::from_opaque_key(format!(
-                            "nvml:{}",
-                            device.uuid()
-                        )),
-                        name: device.name().to_owned(),
-                        used_bytes: memory.used,
-                        total_bytes: memory.total,
-                    });
-                }
-                if degraded {
-                    Collection::degraded(values)
-                } else {
-                    Collection::available(values)
-                }
-            }
+fn optional_query<T>(
+    degraded: &mut bool,
+    notes: &mut Option<&mut Vec<String>>,
+    uuid: &str,
+    metric: &str,
+    result: Result<T, u32>,
+) -> Option<T> {
+    match result {
+        Ok(value) => Some(value),
+        Err(status) => {
+            *degraded = true;
+            probe_note(notes, || {
+                format!("NVML GPU {uuid} {metric} unavailable: status {status}")
+            });
+            None
         }
     }
 }

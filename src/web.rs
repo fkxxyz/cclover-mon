@@ -290,12 +290,14 @@ fn handle_connection(
         "/api/v1/disks" => write_api_slice(&mut stream, &hub, WebApiSlice::Disks),
         "/api/v1/networks" => write_api_slice(&mut stream, &hub, WebApiSlice::Networks),
         "/api/v1/temperatures" => write_api_slice(&mut stream, &hub, WebApiSlice::Temperatures),
-        "/api/v1/gpu-memory" => write_api_slice(&mut stream, &hub, WebApiSlice::GpuMemory),
+        "/api/v1/gpus" | "/api/v1/gpu-memory" => {
+            write_api_slice(&mut stream, &hub, WebApiSlice::Gpus)
+        }
         "/api/v1/processes" => write_api_slice(&mut stream, &hub, WebApiSlice::Processes),
         "/api/v1/history/cpu" => write_api_slice(&mut stream, &hub, WebApiSlice::HistoryCpu),
         "/api/v1/history/memory" => write_api_slice(&mut stream, &hub, WebApiSlice::HistoryMemory),
-        "/api/v1/history/gpu-memory" => {
-            write_api_slice(&mut stream, &hub, WebApiSlice::HistoryGpuMemory)
+        "/api/v1/history/gpus" | "/api/v1/history/gpu-memory" => {
+            write_api_slice(&mut stream, &hub, WebApiSlice::HistoryGpus)
         }
         "/api/v1/history/disks" => write_api_slice(&mut stream, &hub, WebApiSlice::HistoryDisks),
         "/api/v1/history/networks" => {
@@ -547,10 +549,12 @@ mod tests {
             "/api/v1/disks",
             "/api/v1/networks",
             "/api/v1/temperatures",
+            "/api/v1/gpus",
             "/api/v1/gpu-memory",
             "/api/v1/processes",
             "/api/v1/history/cpu",
             "/api/v1/history/memory",
+            "/api/v1/history/gpus",
             "/api/v1/history/gpu-memory",
             "/api/v1/history/disks",
             "/api/v1/history/networks",

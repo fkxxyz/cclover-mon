@@ -7,6 +7,7 @@ use libc::{RTLD_LOCAL, RTLD_NOW, c_char, c_uint, c_void};
 
 const NVML_SUCCESS: c_uint = 0;
 const NVML_TEMPERATURE_GPU: c_uint = 0;
+const NVML_CLOCK_GRAPHICS: c_uint = 0;
 const NVML_DEVICE_UUID_BUFFER_SIZE: usize = 96;
 const NVML_DEVICE_NAME_BUFFER_SIZE: usize = 256;
 
@@ -18,6 +19,11 @@ type NvmlDeviceGetUuid = unsafe extern "C" fn(*mut c_void, *mut c_char, c_uint) 
 type NvmlDeviceGetName = unsafe extern "C" fn(*mut c_void, *mut c_char, c_uint) -> c_uint;
 type NvmlDeviceGetTemperature = unsafe extern "C" fn(*mut c_void, c_uint, *mut c_uint) -> c_uint;
 type NvmlDeviceGetMemoryInfo = unsafe extern "C" fn(*mut c_void, *mut NvmlMemory) -> c_uint;
+type NvmlDeviceGetUtilizationRates =
+    unsafe extern "C" fn(*mut c_void, *mut NvmlUtilization) -> c_uint;
+type NvmlDeviceGetPowerUsage = unsafe extern "C" fn(*mut c_void, *mut c_uint) -> c_uint;
+type NvmlDeviceGetClockInfo = unsafe extern "C" fn(*mut c_void, c_uint, *mut c_uint) -> c_uint;
+type NvmlDeviceGetFanSpeed = unsafe extern "C" fn(*mut c_void, *mut c_uint) -> c_uint;
 
 #[repr(C)]
 pub(super) struct NvmlMemory {
@@ -26,11 +32,21 @@ pub(super) struct NvmlMemory {
     pub(super) used: u64,
 }
 
+#[repr(C)]
+pub(super) struct NvmlUtilization {
+    pub(super) gpu: c_uint,
+    pub(super) memory: c_uint,
+}
+
 pub(super) struct Session {
     library: Library,
     shutdown: NvmlShutdown,
     get_temperature: NvmlDeviceGetTemperature,
     get_memory_info: NvmlDeviceGetMemoryInfo,
+    get_utilization_rates: NvmlDeviceGetUtilizationRates,
+    get_power_usage: NvmlDeviceGetPowerUsage,
+    get_clock_info: NvmlDeviceGetClockInfo,
+    get_fan_speed: NvmlDeviceGetFanSpeed,
     devices: Vec<Device>,
 }
 
@@ -64,6 +80,13 @@ impl Session {
             library.function(b"nvmlDeviceGetTemperature\0")?;
         let get_memory_info: NvmlDeviceGetMemoryInfo =
             library.function(b"nvmlDeviceGetMemoryInfo\0")?;
+        let get_utilization_rates: NvmlDeviceGetUtilizationRates =
+            library.function(b"nvmlDeviceGetUtilizationRates\0")?;
+        let get_power_usage: NvmlDeviceGetPowerUsage =
+            library.function(b"nvmlDeviceGetPowerUsage\0")?;
+        let get_clock_info: NvmlDeviceGetClockInfo =
+            library.function(b"nvmlDeviceGetClockInfo\0")?;
+        let get_fan_speed: NvmlDeviceGetFanSpeed = library.function(b"nvmlDeviceGetFanSpeed\0")?;
 
         // SAFETY: init was resolved from the loaded NVML library with the exact NVML ABI signature.
         let init_status = unsafe { init() };
@@ -118,6 +141,10 @@ impl Session {
                 shutdown,
                 get_temperature,
                 get_memory_info,
+                get_utilization_rates,
+                get_power_usage,
+                get_clock_info,
+                get_fan_speed,
                 devices,
             },
             issues,
@@ -159,6 +186,63 @@ impl Session {
         let status = unsafe { (self.get_memory_info)(device.handle as *mut c_void, &mut memory) };
         if status == NVML_SUCCESS {
             Ok(memory)
+        } else {
+            Err(status)
+        }
+    }
+
+    pub(super) fn utilization(&self, index: usize) -> Result<NvmlUtilization, u32> {
+        let device = self.devices.get(index).ok_or(u32::MAX)?;
+        let mut utilization = NvmlUtilization { gpu: 0, memory: 0 };
+        // SAFETY: get_utilization_rates has the exact NVML ABI signature. The handle came from
+        // this initialized session and utilization points to writable storage.
+        let status =
+            unsafe { (self.get_utilization_rates)(device.handle as *mut c_void, &mut utilization) };
+        if status == NVML_SUCCESS {
+            Ok(utilization)
+        } else {
+            Err(status)
+        }
+    }
+
+    pub(super) fn power_milliwatts(&self, index: usize) -> Result<u32, u32> {
+        self.read_uint(index, self.get_power_usage)
+    }
+
+    pub(super) fn graphics_clock_mhz(&self, index: usize) -> Result<u32, u32> {
+        self.read_clock(index, NVML_CLOCK_GRAPHICS)
+    }
+
+    pub(super) fn fan_percent(&self, index: usize) -> Result<u32, u32> {
+        self.read_uint(index, self.get_fan_speed)
+    }
+
+    fn read_uint(
+        &self,
+        index: usize,
+        function: unsafe extern "C" fn(*mut c_void, *mut c_uint) -> c_uint,
+    ) -> Result<u32, u32> {
+        let device = self.devices.get(index).ok_or(u32::MAX)?;
+        let mut value = 0_u32;
+        // SAFETY: function is one of the loaded NVML scalar getters with this exact signature;
+        // the device handle is live and value points to writable storage.
+        let status = unsafe { function(device.handle as *mut c_void, &mut value) };
+        if status == NVML_SUCCESS {
+            Ok(value)
+        } else {
+            Err(status)
+        }
+    }
+
+    fn read_clock(&self, index: usize, clock: c_uint) -> Result<u32, u32> {
+        let device = self.devices.get(index).ok_or(u32::MAX)?;
+        let mut value = 0_u32;
+        // SAFETY: get_clock_info has the exact NVML ABI signature. The handle came from this
+        // initialized session and value points to writable storage.
+        let status =
+            unsafe { (self.get_clock_info)(device.handle as *mut c_void, clock, &mut value) };
+        if status == NVML_SUCCESS {
+            Ok(value)
         } else {
             Err(status)
         }

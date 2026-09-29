@@ -1,13 +1,13 @@
 use std::collections::VecDeque;
 
 use cclover_core::model::{
-    Collection, DiskSnapshot, GpuMemorySnapshot, MemorySnapshot, MonitorState,
-    NetworkDirectionHistory, NetworkSnapshot, ProcessCpuUsage, ProcessDiskIo, ProcessMemoryUsage,
-    ProcessNetworkIo, TemperatureSnapshot,
+    Collection, DiskSnapshot, GpuSnapshot, MemorySnapshot, MonitorState, NetworkDirectionHistory,
+    NetworkSnapshot, ProcessCpuUsage, ProcessDiskIo, ProcessMemoryUsage, ProcessNetworkIo,
+    TemperatureSnapshot,
 };
 
 pub const TEMPERATURE_SECTION: &str = "TEMPERATURE";
-pub const GPU_MEMORY_SECTION: &str = "GPU MEMORY";
+pub const GPU_SECTION: &str = "GPU";
 pub const DISK_SECTION: &str = "DISK I/O";
 pub const NETWORK_SECTION: &str = "NETWORK";
 
@@ -65,15 +65,17 @@ impl<'a> Dashboard<'a> {
         })
     }
 
-    pub fn gpu_memory_count(self) -> usize {
-        self.state.snapshot.gpu_memory.value().map_or(0, Vec::len)
+    pub fn gpu_count(self) -> usize {
+        self.state.snapshot.gpus.value().map_or(0, Vec::len)
     }
 
-    pub fn gpu_memory(self, index: usize) -> Option<GpuMemoryPanel<'a>> {
-        let value = self.state.snapshot.gpu_memory.value()?.get(index)?;
-        Some(GpuMemoryPanel {
+    pub fn gpu(self, index: usize) -> Option<GpuPanel<'a>> {
+        let value = self.state.snapshot.gpus.value()?.get(index)?;
+        Some(GpuPanel {
             value,
-            history: self.state.history.gpu_memory_used.get(&value.id),
+            utilization_history: self.state.history.gpu_utilization.get(&value.id),
+            memory_history: self.state.history.gpu_memory_used.get(&value.id),
+            temperature_history: self.state.history.gpu_temperature.get(&value.id),
         })
     }
 
@@ -210,42 +212,88 @@ pub struct ProcessRow<'a> {
 }
 
 #[derive(Clone, Copy)]
-pub struct GpuMemoryPanel<'a> {
-    value: &'a GpuMemorySnapshot,
-    history: Option<&'a VecDeque<f64>>,
+pub struct GpuPanel<'a> {
+    value: &'a GpuSnapshot,
+    utilization_history: Option<&'a VecDeque<f64>>,
+    memory_history: Option<&'a VecDeque<f64>>,
+    temperature_history: Option<&'a VecDeque<f64>>,
 }
 
-impl<'a> GpuMemoryPanel<'a> {
+impl<'a> GpuPanel<'a> {
     pub fn name(self) -> &'a str {
         short_gpu_name(&self.value.name)
     }
 
-    pub fn value(self) -> String {
-        format!(
-            "{} / {}",
-            format_bytes(self.value.used_bytes),
-            format_bytes(self.value.total_bytes)
-        )
+    pub fn utilization_value(self) -> String {
+        self.value
+            .utilization_percent
+            .map(format_percent)
+            .unwrap_or_else(unavailable)
     }
 
-    pub fn percent(self) -> String {
-        format_percent(f64::from(self.fraction()) * 100.0)
+    pub fn utilization_fraction(self) -> f32 {
+        (self.value.utilization_percent.unwrap_or(0.0) as f32 / 100.0).clamp(0.0, 1.0)
     }
 
-    pub fn fraction(self) -> f32 {
-        if self.value.total_bytes == 0 {
-            0.0
-        } else {
-            (self.value.used_bytes as f32 / self.value.total_bytes as f32).clamp(0.0, 1.0)
+    pub fn utilization_history(self) -> Option<&'a VecDeque<f64>> {
+        self.utilization_history
+    }
+
+    pub fn memory_value(self) -> String {
+        match (self.value.memory_used_bytes, self.value.memory_total_bytes) {
+            (Some(used), Some(total)) => {
+                format!("{} / {}", format_bytes(used), format_bytes(total))
+            }
+            _ => unavailable(),
         }
     }
 
-    pub fn history(self) -> Option<&'a VecDeque<f64>> {
-        self.history
+    pub fn memory_fraction(self) -> f32 {
+        match (self.value.memory_used_bytes, self.value.memory_total_bytes) {
+            (Some(used), Some(total)) if total > 0 => (used as f32 / total as f32).clamp(0.0, 1.0),
+            _ => 0.0,
+        }
     }
 
-    pub fn graph_max(self) -> f64 {
-        self.value.total_bytes.max(1) as f64
+    pub fn memory_history(self) -> Option<&'a VecDeque<f64>> {
+        self.memory_history
+    }
+
+    pub fn memory_graph_max(self) -> f64 {
+        self.value.memory_total_bytes.unwrap_or(1).max(1) as f64
+    }
+
+    pub fn temperature_value(self) -> String {
+        self.value
+            .temperature_celsius
+            .map(|value| format!("{value:.1}°C"))
+            .unwrap_or_else(unavailable)
+    }
+
+    pub fn temperature_history(self) -> Option<&'a VecDeque<f64>> {
+        self.temperature_history
+    }
+
+    pub fn power_value(self) -> String {
+        self.value
+            .power_watts
+            .map(|value| format!("{value:.0} W"))
+            .unwrap_or_else(unavailable)
+    }
+
+    pub fn core_clock_value(self) -> String {
+        self.value
+            .core_clock_mhz
+            .map(|value| format!("{value} MHz"))
+            .unwrap_or_else(unavailable)
+    }
+
+    pub fn fan_value(self) -> String {
+        self.value
+            .fan_percent
+            .map(format_percent)
+            .or_else(|| self.value.fan_rpm.map(|value| format!("{value} RPM")))
+            .unwrap_or_else(unavailable)
     }
 }
 
@@ -435,28 +483,55 @@ mod tests {
     }
 
     #[test]
-    fn gpu_memory_panel_formats_capacity_and_fraction() {
+    fn gpu_panel_formats_public_metrics_and_histories() {
         let mut state = MonitorState::default();
-        state.snapshot.gpu_memory = Collection::available(vec![GpuMemorySnapshot {
-            id: cclover_core::model::GpuId::from_opaque_key("gpu-a"),
+        let gpu_id = cclover_core::model::GpuId::from_opaque_key("gpu-a");
+        state.snapshot.gpus = Collection::available(vec![GpuSnapshot {
+            id: gpu_id.clone(),
             name: "NVIDIA GeForce RTX Test".into(),
-            used_bytes: 4 * 1024 * 1024 * 1024,
-            total_bytes: 8 * 1024 * 1024 * 1024,
+            utilization_percent: Some(42.0),
+            memory_used_bytes: Some(4 * 1024 * 1024 * 1024),
+            memory_total_bytes: Some(8 * 1024 * 1024 * 1024),
+            temperature_celsius: Some(63.0),
+            power_watts: Some(145.0),
+            core_clock_mhz: Some(1830),
+            fan_percent: Some(37.0),
+            fan_rpm: Some(1320),
         }]);
-
-        let gpu_id = state.snapshot.gpu_memory.value().unwrap()[0].id.clone();
+        state
+            .history
+            .gpu_utilization
+            .insert(gpu_id.clone(), VecDeque::from([40.0, 42.0]));
         state
             .history
             .gpu_memory_used
-            .insert(gpu_id, VecDeque::from([1.0, 2.0, 3.0]));
+            .insert(gpu_id.clone(), VecDeque::from([1.0, 2.0]));
+        state
+            .history
+            .gpu_temperature
+            .insert(gpu_id, VecDeque::from([61.0, 63.0]));
 
-        let panel = Dashboard::new(&state).gpu_memory(0).unwrap();
+        let panel = Dashboard::new(&state).gpu(0).unwrap();
         assert_eq!(panel.name(), "RTX Test");
-        assert_eq!(panel.value(), "4.00 GiB / 8.00 GiB");
-        assert_eq!(panel.percent(), "50.0%");
-        assert_eq!(panel.fraction(), 0.5);
-        assert_eq!(panel.history().unwrap(), &VecDeque::from([1.0, 2.0, 3.0]));
-        assert_eq!(panel.graph_max(), (8_u64 * 1024 * 1024 * 1024) as f64);
+        assert_eq!(panel.utilization_value(), "42.0%");
+        assert_eq!(panel.memory_value(), "4.00 GiB / 8.00 GiB");
+        assert_eq!(panel.temperature_value(), "63.0°C");
+        assert_eq!(panel.power_value(), "145 W");
+        assert_eq!(panel.core_clock_value(), "1830 MHz");
+        assert_eq!(panel.fan_value(), "37.0%");
+        assert_eq!(
+            panel.utilization_history().unwrap(),
+            &VecDeque::from([40.0, 42.0])
+        );
+        assert_eq!(panel.memory_history().unwrap(), &VecDeque::from([1.0, 2.0]));
+        assert_eq!(
+            panel.temperature_history().unwrap(),
+            &VecDeque::from([61.0, 63.0])
+        );
+        assert_eq!(
+            panel.memory_graph_max(),
+            (8_u64 * 1024 * 1024 * 1024) as f64
+        );
     }
 
     #[test]

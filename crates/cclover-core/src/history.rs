@@ -15,15 +15,32 @@ pub fn push(history: &mut MonitorHistory, snapshot: &SystemSnapshot, capacity: u
         );
     }
 
-    match &snapshot.gpu_memory {
+    match &snapshot.gpus {
         Collection::Available(items) => {
             retain_present(
-                &mut history.gpu_memory_used,
-                items.iter().map(|x| x.id.clone()),
+                &mut history.gpu_utilization,
+                items
+                    .iter()
+                    .filter(|x| x.utilization_percent.is_some())
+                    .map(|x| x.id.clone()),
             );
-            append_gpu_memory(history, items, capacity);
+            retain_present(
+                &mut history.gpu_memory_used,
+                items
+                    .iter()
+                    .filter(|x| x.memory_used_bytes.is_some())
+                    .map(|x| x.id.clone()),
+            );
+            retain_present(
+                &mut history.gpu_temperature,
+                items
+                    .iter()
+                    .filter(|x| x.temperature_celsius.is_some())
+                    .map(|x| x.id.clone()),
+            );
+            append_gpus(history, items, capacity);
         }
-        Collection::Degraded(items) => append_gpu_memory(history, items, capacity),
+        Collection::Degraded(items) => append_gpus(history, items, capacity),
         Collection::Unavailable(_) => {}
     }
 
@@ -58,17 +75,29 @@ pub fn push(history: &mut MonitorHistory, snapshot: &SystemSnapshot, capacity: u
     }
 }
 
-fn append_gpu_memory(
-    history: &mut MonitorHistory,
-    items: &[super::model::GpuMemorySnapshot],
-    capacity: usize,
-) {
+fn append_gpus(history: &mut MonitorHistory, items: &[super::model::GpuSnapshot], capacity: usize) {
     for item in items {
-        append(
-            history.gpu_memory_used.entry(item.id.clone()).or_default(),
-            item.used_bytes as f64,
-            capacity,
-        );
+        if let Some(value) = item.utilization_percent {
+            append(
+                history.gpu_utilization.entry(item.id.clone()).or_default(),
+                value,
+                capacity,
+            );
+        }
+        if let Some(value) = item.memory_used_bytes {
+            append(
+                history.gpu_memory_used.entry(item.id.clone()).or_default(),
+                value as f64,
+                capacity,
+            );
+        }
+        if let Some(value) = item.temperature_celsius {
+            append(
+                history.gpu_temperature.entry(item.id.clone()).or_default(),
+                value,
+                capacity,
+            );
+        }
     }
 }
 
@@ -131,7 +160,7 @@ fn retain_present<K: Clone + Ord, T>(map: &mut BTreeMap<K, T>, ids: impl Iterato
 mod tests {
     use super::*;
     use crate::model::{
-        CollectionUnavailable, DiskId, DiskSnapshot, GpuId, GpuMemorySnapshot, NetworkId,
+        CollectionUnavailable, DiskId, DiskSnapshot, GpuId, GpuSnapshot, NetworkId,
         NetworkSnapshot, SystemSnapshot, TemperatureSnapshot,
     };
 
@@ -152,16 +181,22 @@ mod tests {
     }
 
     #[test]
-    fn gpu_memory_history_is_bounded_and_uses_stable_identity() {
+    fn gpu_histories_are_bounded_and_use_stable_identity() {
         let id = GpuId::from_opaque_key("gpu-a");
         let mut history = MonitorHistory::default();
-        for used in [1_u64, 2, 3, 4] {
+        for sample in [1_u64, 2, 3, 4] {
             let snapshot = SystemSnapshot {
-                gpu_memory: Collection::available(vec![GpuMemorySnapshot {
+                gpus: Collection::available(vec![GpuSnapshot {
                     id: id.clone(),
-                    name: format!("GPU {used}"),
-                    used_bytes: used,
-                    total_bytes: 8,
+                    name: format!("GPU {sample}"),
+                    utilization_percent: Some(sample as f64 * 10.0),
+                    memory_used_bytes: Some(sample),
+                    memory_total_bytes: Some(8),
+                    temperature_celsius: Some(50.0 + sample as f64),
+                    power_watts: None,
+                    core_clock_mhz: None,
+                    fan_percent: None,
+                    fan_rpm: None,
                 }]),
                 ..SystemSnapshot::default()
             };
@@ -169,11 +204,25 @@ mod tests {
         }
 
         assert_eq!(
+            history.gpu_utilization[&id]
+                .iter()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![20.0, 30.0, 40.0]
+        );
+        assert_eq!(
             history.gpu_memory_used[&id]
                 .iter()
                 .copied()
                 .collect::<Vec<_>>(),
             vec![2.0, 3.0, 4.0]
+        );
+        assert_eq!(
+            history.gpu_temperature[&id]
+                .iter()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![52.0, 53.0, 54.0]
         );
     }
 

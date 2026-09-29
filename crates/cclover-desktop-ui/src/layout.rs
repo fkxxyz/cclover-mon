@@ -1,5 +1,5 @@
 use cclover_presentation::{
-    DISK_SECTION, Dashboard, GPU_MEMORY_SECTION, NETWORK_SECTION, TEMPERATURE_SECTION,
+    DISK_SECTION, Dashboard, GPU_SECTION, NETWORK_SECTION, TEMPERATURE_SECTION,
 };
 
 pub const PANEL_WIDTH: u32 = 390;
@@ -89,32 +89,31 @@ pub(super) const SMALL_GRAPH_CARD_GEOMETRY: SmallGraphCardGeometry = SmallGraphC
 };
 
 #[derive(Debug, Clone, Copy)]
-pub(super) struct GpuMemoryCardGeometry {
+pub(super) struct GpuCardGeometry {
     pub spacing: u32,
     pub header_height: u32,
-    pub value_row_height: u32,
-    pub progress_height: u32,
+    pub metric_row_height: u32,
     pub graph_height: u32,
+    pub status_row_height: u32,
 }
 
-impl GpuMemoryCardGeometry {
+impl GpuCardGeometry {
     pub(super) const fn height(self) -> u32 {
-        CARD_FRAME_GEOMETRY.height_with_content(
-            self.header_height
-                + self.value_row_height
-                + self.progress_height
-                + self.graph_height
-                + self.spacing * 3,
-        )
+        let content_height = self.header_height
+            + self.metric_row_height * 3
+            + self.graph_height * 3
+            + self.status_row_height * 3
+            + self.spacing * 9;
+        CARD_FRAME_GEOMETRY.height_with_content(content_height)
     }
 }
 
-pub(super) const GPU_MEMORY_CARD_GEOMETRY: GpuMemoryCardGeometry = GpuMemoryCardGeometry {
+pub(super) const GPU_CARD_GEOMETRY: GpuCardGeometry = GpuCardGeometry {
     spacing: 4,
     header_height: 17,
-    value_row_height: 17,
-    progress_height: 6,
-    graph_height: 24,
+    metric_row_height: 17,
+    graph_height: 22,
+    status_row_height: 15,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -187,7 +186,7 @@ pub(super) const NETWORK_CARD_GEOMETRY: NetworkCardGeometry = NetworkCardGeometr
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Section {
-    GpuMemory,
+    Gpu,
     Temperature,
     Disk,
     Network,
@@ -196,7 +195,7 @@ pub(super) enum Section {
 impl Section {
     pub(super) const fn title(self) -> &'static str {
         match self {
-            Self::GpuMemory => GPU_MEMORY_SECTION,
+            Self::Gpu => GPU_SECTION,
             Self::Temperature => TEMPERATURE_SECTION,
             Self::Disk => DISK_SECTION,
             Self::Network => NETWORK_SECTION,
@@ -209,7 +208,7 @@ pub(super) enum PanelBlock {
     Memory { process_count: usize },
     Cpu { process_count: usize },
     Section(Section),
-    GpuMemory(usize),
+    Gpu(usize),
     Temperature(usize),
     Disk(usize),
     Network(usize),
@@ -222,7 +221,7 @@ impl PanelBlock {
                 METRIC_CARD_GEOMETRY.height(process_count as u32)
             }
             Self::Section(_) => PANEL_GEOMETRY.section_height,
-            Self::GpuMemory(_) => GPU_MEMORY_CARD_GEOMETRY.height(),
+            Self::Gpu(_) => GPU_CARD_GEOMETRY.height(),
             Self::Temperature(_) => SMALL_GRAPH_CARD_GEOMETRY.height(),
             Self::Disk(_) => DISK_CARD_GEOMETRY.height(),
             Self::Network(_) => NETWORK_CARD_GEOMETRY.height(),
@@ -234,7 +233,7 @@ impl PanelBlock {
 pub struct PanelLayout {
     memory_process_count: usize,
     cpu_process_count: usize,
-    gpu_memory_count: usize,
+    gpu_count: usize,
     temperature_count: usize,
     disk_count: usize,
     network_count: usize,
@@ -245,7 +244,7 @@ impl PanelLayout {
         Self {
             memory_process_count: dashboard.memory().process_count(),
             cpu_process_count: dashboard.cpu().process_count(),
-            gpu_memory_count: dashboard.gpu_memory_count(),
+            gpu_count: dashboard.gpu_count(),
             temperature_count: dashboard.temperature_count(),
             disk_count: dashboard.disk_count(),
             network_count: dashboard.network_count(),
@@ -263,8 +262,8 @@ impl PanelLayout {
         std::iter::once(PanelBlock::Memory {
             process_count: self.memory_process_count,
         })
-        .chain(std::iter::once(PanelBlock::Section(Section::GpuMemory)))
-        .chain((0..self.gpu_memory_count).map(PanelBlock::GpuMemory))
+        .chain(std::iter::once(PanelBlock::Section(Section::Gpu)))
+        .chain((0..self.gpu_count).map(PanelBlock::Gpu))
         .chain(std::iter::once(PanelBlock::Section(Section::Temperature)))
         .chain((0..self.temperature_count).map(PanelBlock::Temperature))
     }
@@ -332,14 +331,14 @@ mod tests {
             CARD_FRAME_GEOMETRY.height_with_content(small_content)
         );
 
-        let gpu_memory_content = GPU_MEMORY_CARD_GEOMETRY.header_height
-            + GPU_MEMORY_CARD_GEOMETRY.value_row_height
-            + GPU_MEMORY_CARD_GEOMETRY.progress_height
-            + GPU_MEMORY_CARD_GEOMETRY.graph_height
-            + GPU_MEMORY_CARD_GEOMETRY.spacing * 3;
+        let gpu_content = GPU_CARD_GEOMETRY.header_height
+            + GPU_CARD_GEOMETRY.metric_row_height * 3
+            + GPU_CARD_GEOMETRY.graph_height * 3
+            + GPU_CARD_GEOMETRY.status_row_height * 3
+            + GPU_CARD_GEOMETRY.spacing * 9;
         assert_eq!(
-            GPU_MEMORY_CARD_GEOMETRY.height(),
-            CARD_FRAME_GEOMETRY.height_with_content(gpu_memory_content)
+            GPU_CARD_GEOMETRY.height(),
+            CARD_FRAME_GEOMETRY.height_with_content(gpu_content)
         );
 
         let network_content = NETWORK_CARD_GEOMETRY.header_height

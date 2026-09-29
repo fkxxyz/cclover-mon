@@ -88,12 +88,18 @@ pub struct TemperatureSnapshot {
     pub celsius: f64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GpuMemorySnapshot {
+#[derive(Clone, Debug, PartialEq)]
+pub struct GpuSnapshot {
     pub id: GpuId,
     pub name: String,
-    pub used_bytes: u64,
-    pub total_bytes: u64,
+    pub utilization_percent: Option<f64>,
+    pub memory_used_bytes: Option<u64>,
+    pub memory_total_bytes: Option<u64>,
+    pub temperature_celsius: Option<f64>,
+    pub power_watts: Option<f64>,
+    pub core_clock_mhz: Option<u64>,
+    pub fan_percent: Option<f64>,
+    pub fan_rpm: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -145,7 +151,7 @@ pub struct SystemSnapshot {
     pub process_disk_io: Collection<Vec<ProcessDiskIo>>,
     pub process_network_io: Collection<Vec<ProcessNetworkIo>>,
     pub temperatures: Collection<Vec<TemperatureSnapshot>>,
-    pub gpu_memory: Collection<Vec<GpuMemorySnapshot>>,
+    pub gpus: Collection<Vec<GpuSnapshot>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -159,7 +165,9 @@ pub struct MonitorHistory {
     pub cpu: VecDeque<f64>,
     pub memory_used: VecDeque<f64>,
     pub swap_used: VecDeque<f64>,
+    pub gpu_utilization: BTreeMap<GpuId, VecDeque<f64>>,
     pub gpu_memory_used: BTreeMap<GpuId, VecDeque<f64>>,
+    pub gpu_temperature: BTreeMap<GpuId, VecDeque<f64>>,
     pub networks: BTreeMap<NetworkId, NetworkDirectionHistory>,
     pub disks: BTreeMap<DiskId, VecDeque<f64>>,
     pub temperatures: BTreeMap<String, VecDeque<f64>>,
@@ -291,7 +299,7 @@ pub struct RawSnapshot {
     pub process_disk_io: Collection<Vec<ProcessDiskIoCounter>>,
     pub process_network_io: Collection<Vec<ProcessNetworkIoCounter>>,
     pub temperatures: Collection<Vec<TemperatureSnapshot>>,
-    pub gpu_memory: Collection<Vec<GpuMemorySnapshot>>,
+    pub gpus: Collection<Vec<GpuSnapshot>>,
 }
 
 impl Default for RawSnapshot {
@@ -312,7 +320,7 @@ impl RawSnapshot {
             process_disk_io: Collection::unavailable(reason),
             process_network_io: Collection::unavailable(reason),
             temperatures: Collection::unavailable(reason),
-            gpu_memory: Collection::unavailable(reason),
+            gpus: Collection::unavailable(reason),
         }
     }
 }

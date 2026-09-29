@@ -1,5 +1,5 @@
 use crate::core::model::{
-    Collection, CpuCounter, DiskCounter, GpuMemorySnapshot, MemorySnapshot, NetworkCounter,
+    Collection, CpuCounter, DiskCounter, GpuSnapshot, MemorySnapshot, NetworkCounter,
     ProcessCounter,
 };
 #[cfg(target_os = "windows")]
@@ -24,7 +24,7 @@ pub(crate) enum ProbeSample {
     #[cfg(target_os = "linux")]
     Temperatures(Collection<Vec<TemperatureSnapshot>>),
     #[cfg(target_os = "linux")]
-    GpuMemory(Collection<Vec<GpuMemorySnapshot>>),
+    Gpu(Collection<Vec<GpuSnapshot>>),
     #[cfg(target_os = "windows")]
     Unsupported(ProbeKind),
 }
@@ -44,7 +44,7 @@ impl ProbeSample {
             #[cfg(target_os = "linux")]
             Self::Temperatures(value) => value.is_observable(),
             #[cfg(target_os = "linux")]
-            Self::GpuMemory(value) => value.is_observable(),
+            Self::Gpu(value) => value.is_observable(),
             #[cfg(target_os = "windows")]
             Self::Unsupported(_) => false,
         }
@@ -64,7 +64,7 @@ impl ProbeSample {
             #[cfg(target_os = "linux")]
             Self::Temperatures(value) => report_temperatures(value, notes),
             #[cfg(target_os = "linux")]
-            Self::GpuMemory(value) => report_gpu_memory(value, notes),
+            Self::Gpu(value) => report_gpus(value, notes),
             #[cfg(target_os = "windows")]
             Self::Unsupported(kind) => ProbeReport {
                 status: CollectionStatus::Unavailable(CollectionUnavailable::Unsupported),
@@ -298,21 +298,27 @@ fn report_temperatures(
 }
 
 #[cfg(target_os = "linux")]
-fn report_gpu_memory(value: Collection<Vec<GpuMemorySnapshot>>, notes: Vec<String>) -> ProbeReport {
+fn report_gpus(value: Collection<Vec<GpuSnapshot>>, notes: Vec<String>) -> ProbeReport {
     let status = value.status();
     let values = value.value().map(Vec::as_slice).unwrap_or_default();
     ProbeReport {
         status,
-        summary: vec![format!("{} GPU memory devices", values.len())],
+        summary: vec![format!("{} GPUs", values.len())],
         raw: values
             .iter()
             .map(|gpu| {
                 format!(
-                    "id={} name={} used_bytes={} total_bytes={}",
+                    "id={} name={} utilization_percent={:?} memory_used_bytes={:?} memory_total_bytes={:?} temperature_celsius={:?} power_watts={:?} core_clock_mhz={:?} fan_percent={:?} fan_rpm={:?}",
                     gpu.id.as_opaque_key(),
                     gpu.name,
-                    gpu.used_bytes,
-                    gpu.total_bytes
+                    gpu.utilization_percent,
+                    gpu.memory_used_bytes,
+                    gpu.memory_total_bytes,
+                    gpu.temperature_celsius,
+                    gpu.power_watts,
+                    gpu.core_clock_mhz,
+                    gpu.fan_percent,
+                    gpu.fan_rpm,
                 )
             })
             .collect(),

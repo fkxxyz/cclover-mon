@@ -120,6 +120,11 @@ fn configure_monitor_window(hwnd: HWND) {
     // SAFETY: hwnd comes from the live Iced/winit Win32 window on the UI thread.
     unsafe {
         let before = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        #[cfg(target_pointer_width = "32")]
+        let requested = (before & !(WS_EX_APPWINDOW as i32))
+            | WS_EX_TOOLWINDOW as i32
+            | WS_EX_NOACTIVATE as i32;
+        #[cfg(target_pointer_width = "64")]
         let requested = (before & !(WS_EX_APPWINDOW as isize))
             | WS_EX_TOOLWINDOW as isize
             | WS_EX_NOACTIVATE as isize;

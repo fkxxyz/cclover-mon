@@ -31,6 +31,19 @@ The executable is written to:
 target/release/cclover-mon
 ```
 
+Windows cross-builds can use `cargo-xwin`. Both 64-bit and 32-bit MSVC targets are supported:
+
+```bash
+cargo xwin build --release --target x86_64-pc-windows-msvc
+XWIN_ARCH=x86,x86_64 cargo xwin build --release --target i686-pc-windows-msvc
+```
+
+The 32-bit executable is written to:
+
+```text
+target/i686-pc-windows-msvc/release/cclover-mon.exe
+```
+
 ## Run
 
 ```bash

@@ -24,6 +24,8 @@ Linux and Windows builds include only their selected platform backend. The Linux
 
 Windows deployment supports both `x86_64-pc-windows-msvc` and `i686-pc-windows-msvc`. Platform integration code must therefore remain pointer-width correct rather than assuming 64-bit Win32 handle or style types.
 
+All cargo-xwin builds for this project must use the fixed architecture set `XWIN_ARCH=x86,x86_64`, regardless of whether the immediate Rust target is 32-bit or 64-bit. The setting controls which Microsoft CRT/Windows SDK architectures cargo-xwin materializes, not the Rust target itself. Keeping this value stable gives both supported Windows targets one shared cache layout and avoids cargo-xwin falling back to its different default architecture set or re-preparing the cache when the setting changes. Build instructions and automation must not omit, narrow, or otherwise vary this value per target.
+
 The Windows executable uses the GUI PE subsystem so the default desktop mode does not create a console window. At startup it attaches to an existing parent console when available; terminal-facing modes such as `--tui` and diagnostic CLI commands allocate a console only when no parent console exists. This preserves the single-executable, composable-frontend model without making desktop-only launches behave like console applications.
 
 The native executable can expose desktop, terminal, and HTTP frontends in any combination. With no frontend flag it defaults to the desktop panel; once any of `--desktop`, `--tui`, or `--http` is present, only explicitly selected frontends run. All enabled frontends share the process's single sampler and completed state stream.

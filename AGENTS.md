@@ -123,6 +123,7 @@ For Linux UI or window-placement changes, also perform a real Wayland runtime ch
 ## Common Pitfalls
 
 - `iced_layershell` 0.19.1 currently requires exact `winit-core` and `winit-common` `0.31.0-beta.2` compatibility pins. Do not relax these pins without build and runtime validation.
+- Every `cargo xwin` build must use exactly `XWIN_ARCH=x86,x86_64`, including builds targeting only `i686-pc-windows-msvc` or only `x86_64-pc-windows-msvc`. Do not omit it or switch to a per-target value: cargo-xwin's default architecture set differs, and changing this setting can force CRT/SDK cache re-download/re-splat work.
 - Linux is implemented and runtime-validated; the Windows collector is still a placeholder. Do not describe Windows metric parity as complete.
 - Static compilation is insufficient for UI changes. Previous runtime checks caught layout overlap and virtual block devices that passed Rust tests and Clippy.
 - The Linux panel intentionally uses top-right anchoring, bottom layer, and zero exclusive zone. Preserve these semantics unless the product behavior is intentionally changed.
@@ -151,6 +152,13 @@ Built executable:
 
 ```text
 target/release/cclover-mon
+```
+
+Windows cross-builds:
+
+```bash
+XWIN_ARCH=x86,x86_64 cargo xwin build --release --target x86_64-pc-windows-msvc
+XWIN_ARCH=x86,x86_64 cargo xwin build --release --target i686-pc-windows-msvc
 ```
 
 Each target produces one application executable containing the selected platform backend and any required native bridge objects.

@@ -31,10 +31,10 @@ The executable is written to:
 target/release/cclover-mon
 ```
 
-Windows cross-builds can use `cargo-xwin`. Both 64-bit and 32-bit MSVC targets are supported:
+Windows cross-builds can use `cargo-xwin`. This project fixes `XWIN_ARCH=x86,x86_64` for all xwin builds so the same CRT/SDK cache layout is reused for both supported targets. Do not omit or change `XWIN_ARCH` between builds; cargo-xwin's default architecture set differs and can trigger unnecessary cache re-download/re-splat work.
 
 ```bash
-cargo xwin build --release --target x86_64-pc-windows-msvc
+XWIN_ARCH=x86,x86_64 cargo xwin build --release --target x86_64-pc-windows-msvc
 XWIN_ARCH=x86,x86_64 cargo xwin build --release --target i686-pc-windows-msvc
 ```
 

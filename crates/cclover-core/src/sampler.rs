@@ -118,6 +118,7 @@ fn derive(previous: Option<&RawSnapshot>, current: &RawSnapshot) -> SystemSnapsh
         process_disk_io,
         process_network_io,
         temperatures: current.temperatures.clone(),
+        fans: current.fans.clone(),
         gpus: current.gpus.clone(),
     }
 }

@@ -3,9 +3,9 @@ use std::collections::{BTreeMap, VecDeque};
 use serde::Serialize;
 
 use crate::core::model::{
-    Collection, CollectionUnavailable, DiskSnapshot, GpuSnapshot, MemorySnapshot, MonitorHistory,
-    MonitorState, NetworkDirectionHistory, NetworkSnapshot, ProcessCpuUsage, ProcessDiskIo,
-    ProcessMemoryUsage, ProcessNetworkIo, SystemSnapshot, TemperatureSnapshot,
+    Collection, CollectionUnavailable, DiskSnapshot, FanSnapshot, GpuSnapshot, MemorySnapshot,
+    MonitorHistory, MonitorState, NetworkDirectionHistory, NetworkSnapshot, ProcessCpuUsage,
+    ProcessDiskIo, ProcessMemoryUsage, ProcessNetworkIo, SystemSnapshot, TemperatureSnapshot,
 };
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -22,6 +22,7 @@ pub(crate) enum ApiV1Slice {
     Disks,
     Networks,
     Temperatures,
+    Fans,
     Gpus,
     GpuMemoryLegacy,
     Processes,
@@ -32,6 +33,7 @@ pub(crate) enum ApiV1Slice {
     HistoryDisks,
     HistoryNetworks,
     HistoryTemperatures,
+    HistoryFans,
 }
 
 impl ApiV1State {
@@ -55,6 +57,9 @@ impl ApiV1State {
             }),
             ApiV1Slice::Temperatures => serde_json::to_string(&ApiV1Temperatures {
                 temperatures: &self.snapshot.temperatures,
+            }),
+            ApiV1Slice::Fans => serde_json::to_string(&ApiV1Fans {
+                fans: &self.snapshot.fans,
             }),
             ApiV1Slice::Gpus => serde_json::to_string(&ApiV1Gpus {
                 gpus: &self.snapshot.gpus,
@@ -101,6 +106,10 @@ impl ApiV1State {
                 history_capacity: self.history_capacity,
                 temperatures: &self.history.temperatures,
             }),
+            ApiV1Slice::HistoryFans => serde_json::to_string(&ApiV1FansHistory {
+                history_capacity: self.history_capacity,
+                fans: &self.history.fans,
+            }),
         }
     }
 }
@@ -116,6 +125,7 @@ struct ApiV1Snapshot {
     process_disk_io: ApiV1Collection<Vec<ApiV1ProcessDiskIo>>,
     process_network_io: ApiV1Collection<Vec<ApiV1ProcessNetworkIo>>,
     temperatures: ApiV1Collection<Vec<ApiV1TemperatureSnapshot>>,
+    fans: ApiV1Collection<Vec<ApiV1FanSnapshot>>,
     gpus: ApiV1Collection<Vec<ApiV1GpuSnapshot>>,
 }
 
@@ -252,6 +262,13 @@ struct ApiV1TemperatureSnapshot {
 }
 
 #[derive(Clone, Debug, Serialize)]
+struct ApiV1FanSnapshot {
+    id: String,
+    name: String,
+    rpm: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
 struct ApiV1GpuSnapshot {
     id: String,
     name: String,
@@ -290,6 +307,7 @@ struct ApiV1History {
     networks: BTreeMap<String, ApiV1DirectionHistory>,
     disks: BTreeMap<String, VecDeque<f64>>,
     temperatures: BTreeMap<String, VecDeque<f64>>,
+    fans: BTreeMap<String, VecDeque<f64>>,
 }
 
 #[derive(Serialize)]
@@ -319,6 +337,11 @@ struct ApiV1Networks<'a> {
 #[derive(Serialize)]
 struct ApiV1Temperatures<'a> {
     temperatures: &'a ApiV1Collection<Vec<ApiV1TemperatureSnapshot>>,
+}
+
+#[derive(Serialize)]
+struct ApiV1Fans<'a> {
+    fans: &'a ApiV1Collection<Vec<ApiV1FanSnapshot>>,
 }
 
 #[derive(Serialize)]
@@ -384,6 +407,12 @@ struct ApiV1TemperaturesHistory<'a> {
     temperatures: &'a BTreeMap<String, VecDeque<f64>>,
 }
 
+#[derive(Serialize)]
+struct ApiV1FansHistory<'a> {
+    history_capacity: usize,
+    fans: &'a BTreeMap<String, VecDeque<f64>>,
+}
+
 impl From<&MonitorState> for ApiV1State {
     fn from(state: &MonitorState) -> Self {
         Self {
@@ -421,6 +450,9 @@ impl From<&SystemSnapshot> for ApiV1Snapshot {
             }),
             temperatures: ApiV1Collection::from_core(&snapshot.temperatures, |rows| {
                 rows.iter().map(ApiV1TemperatureSnapshot::from).collect()
+            }),
+            fans: ApiV1Collection::from_core(&snapshot.fans, |rows| {
+                rows.iter().map(ApiV1FanSnapshot::from).collect()
             }),
             gpus: ApiV1Collection::from_core(&snapshot.gpus, |rows| {
                 rows.iter().map(ApiV1GpuSnapshot::from).collect()
@@ -517,6 +549,16 @@ impl From<&TemperatureSnapshot> for ApiV1TemperatureSnapshot {
     }
 }
 
+impl From<&FanSnapshot> for ApiV1FanSnapshot {
+    fn from(value: &FanSnapshot) -> Self {
+        Self {
+            id: value.id.as_opaque_key().to_owned(),
+            name: value.name.clone(),
+            rpm: value.rpm,
+        }
+    }
+}
+
 impl From<&GpuSnapshot> for ApiV1GpuSnapshot {
     fn from(value: &GpuSnapshot) -> Self {
         Self {
@@ -580,6 +622,11 @@ impl From<&MonitorHistory> for ApiV1History {
                 .map(|(id, values)| (id.as_opaque_key().to_owned(), values.clone()))
                 .collect(),
             temperatures: history.temperatures.clone(),
+            fans: history
+                .fans
+                .iter()
+                .map(|(id, values)| (id.as_opaque_key().to_owned(), values.clone()))
+                .collect(),
         }
     }
 }

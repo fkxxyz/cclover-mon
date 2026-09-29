@@ -52,7 +52,7 @@ machine lifecycle, only when required
 process lifecycle
   acquire PawnIO session/module handles once
                     ↓
-  repeated temperature sampling
+  repeated hardware-telemetry sampling
                     ↓
   release process-owned handles
 ```
@@ -85,7 +85,7 @@ Declining elevation, installation failure, required reboot, signature rejection,
 
 ## Runtime Ownership and Interface
 
-The Windows temperature collector owns a long-lived PawnIO runtime/session for as long as the backend needs PawnIO-backed sensors. Initialization discovers and opens the existing capability once; repeated samples reuse stable handles. Sampling must not install, start, stop, unload, rediscover, or re-provision the driver on every cycle.
+The Windows hardware-telemetry runtime owns long-lived PawnIO sessions/modules for as long as the backend needs PawnIO-backed sensors. Initialization discovers and opens each required capability once; repeated temperature, fan, and future hardware-sensor samples reuse stable handles and topology. Sampling must not install, start, stop, unload, rediscover, or re-provision the driver on every cycle.
 
 cclover-mon talks to PawnIO through a small in-process Windows platform adapter over the documented device IO-control contract rather than deploying `PawnIOLib.dll`. This keeps the single-file runtime free of an extract-and-load DLL lifecycle and permits one client implementation to support compatible process bitnesses. Platform-neutral code does not see PawnIO handles, IOCTL values, or NTSTATUS details.
 

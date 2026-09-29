@@ -32,7 +32,9 @@ PID reuse therefore creates a new identity and never inherits prior CPU or I/O c
 
 ## Devices
 
-`GpuId`, `NetworkId`, and `DiskId` are opaque core-owned identities. Native locators such as NVML UUIDs, ADL UDIDs/PCI positions, interface indices, sysfs paths, device numbers, handles, or `PhysicalDriveN` remain platform-private.
+`GpuId`, `NetworkId`, `DiskId`, and hardware-sensor identities such as `FanId` are opaque core-owned identities. Native locators such as NVML UUIDs, ADL UDIDs/PCI positions, Super-I/O slots/channels, interface indices, sysfs paths, device numbers, handles, or `PhysicalDriveN` remain platform-private.
+
+Hardware-sensor display labels are not identities. Windows canonicalizes a stable physical source/chip/channel identity before applying optional board-specific names, so learning that `Fan #1` is `CPU Fan` does not create a new fan. Linux hwmon likewise derives identity from the hardware source/channel rather than the volatile `hwmonN` enumeration directory or label text.
 
 Linux network identity is derived from canonical sysfs device identity plus interface index so rename does not change `NetworkId`; disk identity uses canonical sysfs device identity plus device number so the kernel block name remains a label.
 

@@ -18,34 +18,40 @@ pub(crate) struct Frame {
     pub(crate) memory: Panel,
     pub(crate) gpu: Panel,
     pub(crate) temperatures: Panel,
+    pub(crate) fans: Panel,
     pub(crate) disks: Panel,
     pub(crate) networks: Panel,
 }
 
-#[repr(C)]
-struct NativeText {
-    ptr: *const u8,
-    len: usize,
+macro_rules! abi_rust_type {
+    (usize) => { usize };
+    (const_u8_ptr) => { *const u8 };
+    (const_u64_ptr) => { *const u64 };
+    (native_text) => { NativeText };
+    (const_native_text_ptr) => { *const NativeText };
+    (native_panel) => { NativePanel };
 }
 
-#[repr(C)]
-struct NativePanel {
-    title: NativeText,
-    rows: *const NativeText,
-    row_count: usize,
-    history: *const u64,
-    history_count: usize,
+macro_rules! define_native_abi {
+    (
+        structs {
+            $(
+                $rust_struct:ident => $c_struct:ident {
+                    $( $field:ident : $field_type:ident, )*
+                }
+            )*
+        }
+    ) => {
+        $(
+            #[repr(C)]
+            struct $rust_struct {
+                $( $field: abi_rust_type!($field_type), )*
+            }
+        )*
+    };
 }
 
-#[repr(C)]
-struct NativeFrame {
-    cpu: NativePanel,
-    memory: NativePanel,
-    gpu: NativePanel,
-    temperatures: NativePanel,
-    disks: NativePanel,
-    networks: NativePanel,
-}
+include!("native_abi_spec.rs");
 
 struct PanelView {
     rows: Vec<NativeText>,
@@ -112,6 +118,7 @@ impl Terminal {
         let memory = PanelView::new(&frame.memory);
         let gpu = PanelView::new(&frame.gpu);
         let temperatures = PanelView::new(&frame.temperatures);
+        let fans = PanelView::new(&frame.fans);
         let disks = PanelView::new(&frame.disks);
         let networks = PanelView::new(&frame.networks);
         let native = NativeFrame {
@@ -119,6 +126,7 @@ impl Terminal {
             memory: memory.native(&frame.memory),
             gpu: gpu.native(&frame.gpu),
             temperatures: temperatures.native(&frame.temperatures),
+            fans: fans.native(&frame.fans),
             disks: disks.native(&frame.disks),
             networks: networks.native(&frame.networks),
         };

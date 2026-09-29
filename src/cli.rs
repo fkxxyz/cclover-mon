@@ -57,7 +57,7 @@ pub fn parse() -> Option<LaunchOptions> {
             if let Some(extra) = args.next() {
                 fail(&format!("unexpected probe argument: {extra}"));
             }
-            prepare_pawnio_if_needed(kind == ProbeKind::Temperatures);
+            prepare_pawnio_if_needed(probe_needs_pawnio(kind));
             probe(kind, raw);
         }
         "perf" => perf(args),
@@ -180,7 +180,7 @@ fn perf(mut args: impl Iterator<Item = String>) {
                 .parse::<ProbeKind>()
                 .unwrap_or_else(|error| fail(&error));
             let limit = parse_perf_limit(args);
-            prepare_pawnio_if_needed(kind == ProbeKind::Temperatures);
+            prepare_pawnio_if_needed(probe_needs_pawnio(kind));
             let mut backend = Backend::new();
             run_perf(limit, || backend.collect_for_perf(kind));
         }
@@ -188,6 +188,10 @@ fn perf(mut args: impl Iterator<Item = String>) {
             "unknown perf workload {other:?}; expected headless or collector"
         )),
     }
+}
+
+fn probe_needs_pawnio(kind: ProbeKind) -> bool {
+    matches!(kind, ProbeKind::Temperatures | ProbeKind::Fans)
 }
 
 fn prepare_pawnio_if_needed(needed: bool) {
@@ -401,6 +405,15 @@ fn dump(samples: u64) {
             .flatten()
             .map(|item| format!("{}  {:.1}°C", item.name, item.celsius)),
     );
+    print_section(
+        "Fans",
+        snapshot
+            .fans
+            .value()
+            .into_iter()
+            .flatten()
+            .map(|item| format!("{}  {} RPM", item.name, item.rpm)),
+    );
 }
 
 fn probe(kind: ProbeKind, raw: bool) {
@@ -510,6 +523,13 @@ mod tests {
                 http: Some(HttpConfig::default()),
             }
         );
+    }
+
+    #[test]
+    fn pawnio_probe_requirement_covers_hardware_telemetry() {
+        assert!(probe_needs_pawnio(ProbeKind::Temperatures));
+        assert!(probe_needs_pawnio(ProbeKind::Fans));
+        assert!(!probe_needs_pawnio(ProbeKind::Cpu));
     }
 
     #[cfg(not(feature = "http"))]

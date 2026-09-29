@@ -60,6 +60,14 @@ fn build_frame(dashboard: Dashboard<'_>) -> Frame {
                 .collect(),
             ..Panel::default()
         },
+        fans: Panel {
+            title: "FAN".to_owned(),
+            rows: (0..dashboard.fan_count())
+                .filter_map(|index| dashboard.fan(index))
+                .map(|fan| format!("{}  {}", fan.name(), fan.value()))
+                .collect(),
+            ..Panel::default()
+        },
         disks: Panel {
             title: "DISK I/O".to_owned(),
             rows: disk_rows(dashboard),

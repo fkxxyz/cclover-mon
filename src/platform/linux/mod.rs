@@ -2,6 +2,7 @@ mod cpu;
 mod diagnostics;
 mod disk;
 mod ebpf_io;
+mod fan;
 mod gpu;
 mod memory;
 mod native;
@@ -34,6 +35,7 @@ impl PhysicalDeviceId {
 pub struct Backend {
     processes: process::Collector,
     temperatures: temperature::Collector,
+    fans: fan::Collector,
     nvidia: nvidia::Collector,
     ebpf_io: ebpf_io::Collector,
 }
@@ -43,6 +45,7 @@ impl Backend {
         Self {
             processes: process::Collector::new(),
             temperatures: temperature::Collector::new(),
+            fans: fan::Collector::new(),
             nvidia: nvidia::Collector::new(),
             ebpf_io: ebpf_io::Collector::new(),
         }
@@ -89,6 +92,7 @@ impl Backend {
                 let (_, temperatures) = self.collect_gpu_temperatures(notes);
                 ProbeSample::Temperatures(temperatures)
             }
+            ProbeKind::Fans => ProbeSample::Fans(self.fans.collect(Instant::now(), notes)),
             ProbeKind::Gpu => {
                 let (gpus, _) = self.collect_gpu_temperatures(notes);
                 ProbeSample::Gpu(gpus)
@@ -213,6 +217,7 @@ impl CoreCollector for Backend {
                 .map(|result| result.rows)
         });
         let (gpus, temperatures) = self.collect_gpu_temperatures(None);
+        let fans = devlog::timed("collector.fans", || self.fans.collect(Instant::now(), None));
 
         RawSnapshot {
             collected_at,
@@ -224,6 +229,7 @@ impl CoreCollector for Backend {
             process_disk_io,
             process_network_io,
             temperatures,
+            fans,
             gpus,
         }
     }

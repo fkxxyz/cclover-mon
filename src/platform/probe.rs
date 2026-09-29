@@ -1,4 +1,6 @@
 #[cfg(any(target_os = "linux", target_os = "windows"))]
+use crate::core::model::FanSnapshot;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 use crate::core::model::GpuSnapshot;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use crate::core::model::TemperatureSnapshot;
@@ -27,6 +29,8 @@ pub(crate) enum ProbeSample {
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     Temperatures(Collection<Vec<TemperatureSnapshot>>),
     #[cfg(any(target_os = "linux", target_os = "windows"))]
+    Fans(Collection<Vec<FanSnapshot>>),
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     Gpu(Collection<Vec<GpuSnapshot>>),
     #[cfg(target_os = "windows")]
     Unsupported(ProbeKind),
@@ -47,6 +51,8 @@ impl ProbeSample {
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             Self::Temperatures(value) => value.is_observable(),
             #[cfg(any(target_os = "linux", target_os = "windows"))]
+            Self::Fans(value) => value.is_observable(),
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
             Self::Gpu(value) => value.is_observable(),
             #[cfg(target_os = "windows")]
             Self::Unsupported(_) => false,
@@ -66,6 +72,8 @@ impl ProbeSample {
             Self::DiskAttribution(value) => report_disk_attribution(value, notes),
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             Self::Temperatures(value) => report_temperatures(value, notes),
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            Self::Fans(value) => report_fans(value, notes),
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             Self::Gpu(value) => report_gpus(value, notes),
             #[cfg(target_os = "windows")]
@@ -290,6 +298,37 @@ fn report_temperatures(
         values
             .iter()
             .map(|temperature| format!("{} {:.1}°C", temperature.name, temperature.celsius))
+            .collect()
+    };
+    ProbeReport {
+        status,
+        summary,
+        raw,
+        notes,
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+fn report_fans(value: Collection<Vec<FanSnapshot>>, notes: Vec<String>) -> ProbeReport {
+    let status = value.status();
+    let values = value.value().map(Vec::as_slice).unwrap_or_default();
+    let raw = values
+        .iter()
+        .map(|fan| {
+            format!(
+                "id={} name={} rpm={}",
+                fan.id.as_opaque_key(),
+                fan.name,
+                fan.rpm
+            )
+        })
+        .collect();
+    let summary = if values.is_empty() {
+        vec!["0 fan sensors".to_owned()]
+    } else {
+        values
+            .iter()
+            .map(|fan| format!("{} {} RPM", fan.name, fan.rpm))
             .collect()
     };
     ProbeReport {

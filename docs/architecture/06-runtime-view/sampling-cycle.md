@@ -29,7 +29,7 @@ delta / aggregation / bounded history
 UI state update
 ```
 
-A sampling cycle performs one coordinated batch rather than independent polling per widget or metric. Transiently unavailable native data is represented as unavailable data, not as a reason to rebuild the pipeline. The normal production cadence is one second; temperature sources participate in that same cadence rather than running widget-specific timers.
+A sampling cycle performs one coordinated batch rather than independent polling per widget or metric. Transiently unavailable native data is represented as unavailable data, not as a reason to rebuild the pipeline. The normal production cadence is one second; temperature and fan sources participate in that same cadence rather than running widget-specific timers.
 
 Sampling cadence is measured from the start of each sampling cycle. Core owns the cadence policy: after a cycle, callers wait only for the portion of the one-second interval not already consumed by collection and derivation. If a cycle overruns the interval, the next cycle may begin immediately rather than accumulating additional delay. GUI and CLI adapters may use different waiting mechanisms, but they must consume this shared policy rather than reimplement interval arithmetic. Execution adapters such as `app` and `cli` must not depend directly on `SAMPLE_INTERVAL`; direct interval use is reserved for non-scheduler semantics such as cache freshness or explicit diagnostic sampling where no next-cycle scheduling decision is being made.
 
@@ -52,6 +52,8 @@ presentation/UI as one GPU card per device
 ```
 
 Source absence does not synthesize zero values. Missing GPU fields remain `None`; readable fields on the same device stay available. Generic temperature collection runs independently for non-GPU sensors and GPU families not represented by the GPU collector.
+
+Windows hardware telemetry performs stable discovery outside the sampling hot path. Each cycle reads each known CPU/Super-I/O/EC source once and projects the resulting observation into metric-specific temperature and fan collections. Those projections do not reopen PawnIO, rediscover the same chip, or independently serialize the same bus. A source failure may trigger bounded reinitialization without rebuilding unrelated collectors.
 
 Event-driven native collectors may accumulate state continuously between sampling deadlines. For Linux eBPF I/O attribution, kernel programs update bounded BPF maps when I/O occurs and the sampling cycle reads already-aggregated counters. Sampling remains coordinated even when native observation itself is event-driven rather than initiated by the deadline.
 

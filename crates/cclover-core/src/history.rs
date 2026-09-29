@@ -73,6 +73,15 @@ pub fn push(history: &mut MonitorHistory, snapshot: &SystemSnapshot, capacity: u
         Collection::Degraded(items) => append_temperatures(history, items, capacity),
         Collection::Unavailable(_) => {}
     }
+
+    match &snapshot.fans {
+        Collection::Available(items) => {
+            retain_present(&mut history.fans, items.iter().map(|x| x.id.clone()));
+            append_fans(history, items, capacity);
+        }
+        Collection::Degraded(items) => append_fans(history, items, capacity),
+        Collection::Unavailable(_) => {}
+    }
 }
 
 fn append_gpus(history: &mut MonitorHistory, items: &[super::model::GpuSnapshot], capacity: usize) {
@@ -136,6 +145,16 @@ fn append_temperatures(
         append(
             history.temperatures.entry(item.id.clone()).or_default(),
             item.celsius,
+            capacity,
+        );
+    }
+}
+
+fn append_fans(history: &mut MonitorHistory, items: &[super::model::FanSnapshot], capacity: usize) {
+    for item in items {
+        append(
+            history.fans.entry(item.id.clone()).or_default(),
+            item.rpm as f64,
             capacity,
         );
     }

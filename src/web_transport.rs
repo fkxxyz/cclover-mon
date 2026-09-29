@@ -3,10 +3,10 @@ use std::collections::{BTreeMap, VecDeque};
 use serde::{Deserialize, Serialize};
 
 use crate::core::model::{
-    Collection, CollectionUnavailable, DiskId, DiskSnapshot, GpuId, GpuSnapshot, MemorySnapshot,
-    MonitorHistory, MonitorState, NetworkDirectionHistory, NetworkId, NetworkSnapshot,
-    ProcessCpuUsage, ProcessDiskIo, ProcessInstanceId, ProcessMemoryUsage, ProcessNetworkIo,
-    SystemSnapshot, TemperatureSnapshot,
+    Collection, CollectionUnavailable, DiskId, DiskSnapshot, FanId, FanSnapshot, GpuId,
+    GpuSnapshot, MemorySnapshot, MonitorHistory, MonitorState, NetworkDirectionHistory, NetworkId,
+    NetworkSnapshot, ProcessCpuUsage, ProcessDiskIo, ProcessInstanceId, ProcessMemoryUsage,
+    ProcessNetworkIo, SystemSnapshot, TemperatureSnapshot,
 };
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -27,6 +27,7 @@ struct WebSystemSnapshot {
     process_disk_io: WebCollection<Vec<WebProcessDiskIo>>,
     process_network_io: WebCollection<Vec<WebProcessNetworkIo>>,
     temperatures: WebCollection<Vec<WebTemperatureSnapshot>>,
+    fans: WebCollection<Vec<WebFanSnapshot>>,
     gpus: WebCollection<Vec<WebGpuSnapshot>>,
 }
 
@@ -161,6 +162,13 @@ struct WebTemperatureSnapshot {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+struct WebFanSnapshot {
+    id: String,
+    name: String,
+    rpm: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 struct WebGpuSnapshot {
     id: String,
     name: String,
@@ -191,6 +199,7 @@ struct WebMonitorHistory {
     networks: BTreeMap<String, WebDirectionHistory>,
     disks: BTreeMap<String, VecDeque<f64>>,
     temperatures: BTreeMap<String, VecDeque<f64>>,
+    fans: BTreeMap<String, VecDeque<f64>>,
 }
 
 impl From<&MonitorState> for WebMonitorState {
@@ -241,6 +250,9 @@ impl From<&SystemSnapshot> for WebSystemSnapshot {
             temperatures: WebCollection::from_core(&snapshot.temperatures, |rows| {
                 rows.iter().map(WebTemperatureSnapshot::from).collect()
             }),
+            fans: WebCollection::from_core(&snapshot.fans, |rows| {
+                rows.iter().map(WebFanSnapshot::from).collect()
+            }),
             gpus: WebCollection::from_core(&snapshot.gpus, |rows| {
                 rows.iter().map(WebGpuSnapshot::from).collect()
             }),
@@ -275,6 +287,9 @@ impl From<WebSystemSnapshot> for SystemSnapshot {
             temperatures: snapshot
                 .temperatures
                 .into_core(|rows| rows.into_iter().map(TemperatureSnapshot::from).collect()),
+            fans: snapshot
+                .fans
+                .into_core(|rows| rows.into_iter().map(FanSnapshot::from).collect()),
             gpus: snapshot
                 .gpus
                 .into_core(|rows| rows.into_iter().map(GpuSnapshot::from).collect()),
@@ -462,6 +477,26 @@ impl From<WebTemperatureSnapshot> for TemperatureSnapshot {
     }
 }
 
+impl From<&FanSnapshot> for WebFanSnapshot {
+    fn from(value: &FanSnapshot) -> Self {
+        Self {
+            id: value.id.as_opaque_key().to_owned(),
+            name: value.name.clone(),
+            rpm: value.rpm,
+        }
+    }
+}
+
+impl From<WebFanSnapshot> for FanSnapshot {
+    fn from(value: WebFanSnapshot) -> Self {
+        Self {
+            id: FanId::from_opaque_key(value.id),
+            name: value.name,
+            rpm: value.rpm,
+        }
+    }
+}
+
 impl From<&GpuSnapshot> for WebGpuSnapshot {
     fn from(value: &GpuSnapshot) -> Self {
         Self {
@@ -551,6 +586,11 @@ impl From<&MonitorHistory> for WebMonitorHistory {
                 .map(|(id, values)| (id.as_opaque_key().to_owned(), values.clone()))
                 .collect(),
             temperatures: history.temperatures.clone(),
+            fans: history
+                .fans
+                .iter()
+                .map(|(id, values)| (id.as_opaque_key().to_owned(), values.clone()))
+                .collect(),
         }
     }
 }
@@ -592,6 +632,11 @@ impl From<WebMonitorHistory> for MonitorHistory {
                 .map(|(id, values)| (DiskId::from_opaque_key(id), values))
                 .collect(),
             temperatures: history.temperatures,
+            fans: history
+                .fans
+                .into_iter()
+                .map(|(id, values)| (FanId::from_opaque_key(id), values))
+                .collect(),
         }
     }
 }

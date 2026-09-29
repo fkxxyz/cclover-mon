@@ -96,7 +96,15 @@ try {
     cabPath,
   );
   run(["7z", "e", "-y", "-aou", cabPath], cab);
-  run(["7z", "e", "-y", modulesArchive, PAWNIO.modules.required.intelMsr.name, "COPYING"], modules);
+  run([
+    "7z",
+    "e",
+    "-y",
+    modulesArchive,
+    PAWNIO.modules.required.intelMsr.name,
+    PAWNIO.modules.required.lpcIo.name,
+    "COPYING",
+  ], modules);
 
   const x64 = join(pawnioRoot, "x86_64");
   const x86 = join(pawnioRoot, "x86");
@@ -113,6 +121,10 @@ try {
   await verify(intelMsr, PAWNIO.modules.required.intelMsr.sha256);
   await copyFile(intelMsr, join(x64, "modules", "IntelMSR.bin"));
   await copyFile(intelMsr, join(x86, "modules", "IntelMSR.bin"));
+
+  const lpcIo = join(modules, PAWNIO.modules.required.lpcIo.name);
+  await verify(lpcIo, PAWNIO.modules.required.lpcIo.sha256);
+  await copyFile(lpcIo, join(x64, "modules", "LpcIO.bin"));
 
   const copying = join(modules, "COPYING");
   await copyFile(copying, join(pawnioRoot, "PawnIO.Modules.COPYING"));

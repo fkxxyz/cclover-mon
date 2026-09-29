@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::collections::VecDeque;
 
 use cclover_presentation::{
-    CpuPanel, DISK_SECTION, Dashboard, GPU_SECTION, MemoryPanel, NETWORK_SECTION,
+    CpuPanel, DISK_SECTION, Dashboard, FAN_SECTION, GPU_SECTION, MemoryPanel, NETWORK_SECTION,
     TEMPERATURE_SECTION,
 };
 
@@ -316,6 +316,28 @@ impl<'a> DashboardUi<'a> {
                     height: SMALL_GRAPH_CARD_GEOMETRY.graph_height,
                 },
             ));
+        }
+        if dashboard.fan_count() != 0 {
+            left.push(section(FAN_SECTION));
+            for index in 0..dashboard.fan_count() {
+                let fan = dashboard
+                    .fan(index)
+                    .expect("dashboard fan count and lookup must agree");
+                left.push(small_graph_card(
+                    fan.name(),
+                    fan.value(),
+                    GraphSpec {
+                        values: fan.history().unwrap_or(&EMPTY_GRAPH_VALUES),
+                        min: 0.0,
+                        max: 1.0,
+                        auto_scale: true,
+                        line: Tone::Accent,
+                        fill_alpha: 0.10,
+                        capacity,
+                        height: SMALL_GRAPH_CARD_GEOMETRY.graph_height,
+                    },
+                ));
+            }
         }
 
         let mut right = vec![metric_card(MetricCardParams {

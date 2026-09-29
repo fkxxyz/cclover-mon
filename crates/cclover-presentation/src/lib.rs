@@ -1,12 +1,13 @@
 use std::collections::VecDeque;
 
 use cclover_core::model::{
-    Collection, DiskSnapshot, GpuSnapshot, MemorySnapshot, MonitorState, NetworkDirectionHistory,
-    NetworkSnapshot, ProcessCpuUsage, ProcessDiskIo, ProcessMemoryUsage, ProcessNetworkIo,
-    TemperatureSnapshot,
+    Collection, DiskSnapshot, FanSnapshot, GpuSnapshot, MemorySnapshot, MonitorState,
+    NetworkDirectionHistory, NetworkSnapshot, ProcessCpuUsage, ProcessDiskIo, ProcessMemoryUsage,
+    ProcessNetworkIo, TemperatureSnapshot,
 };
 
 pub const TEMPERATURE_SECTION: &str = "TEMPERATURE";
+pub const FAN_SECTION: &str = "FAN";
 pub const GPU_SECTION: &str = "GPU";
 pub const DISK_SECTION: &str = "DISK I/O";
 pub const NETWORK_SECTION: &str = "NETWORK";
@@ -62,6 +63,18 @@ impl<'a> Dashboard<'a> {
         Some(TemperaturePanel {
             value,
             history: self.state.history.temperatures.get(&value.id),
+        })
+    }
+
+    pub fn fan_count(self) -> usize {
+        self.state.snapshot.fans.value().map_or(0, Vec::len)
+    }
+
+    pub fn fan(self, index: usize) -> Option<FanPanel<'a>> {
+        let value = self.state.snapshot.fans.value()?.get(index)?;
+        Some(FanPanel {
+            value,
+            history: self.state.history.fans.get(&value.id),
         })
     }
 
@@ -319,6 +332,26 @@ impl<'a> TemperaturePanel<'a> {
 
 fn short_temperature_name(name: &str) -> &str {
     short_gpu_name(name)
+}
+
+#[derive(Clone, Copy)]
+pub struct FanPanel<'a> {
+    value: &'a FanSnapshot,
+    history: Option<&'a VecDeque<f64>>,
+}
+
+impl<'a> FanPanel<'a> {
+    pub fn name(self) -> &'a str {
+        &self.value.name
+    }
+
+    pub fn value(self) -> String {
+        format!("{} RPM", self.value.rpm)
+    }
+
+    pub fn history(self) -> Option<&'a VecDeque<f64>> {
+        self.history
+    }
 }
 
 fn short_gpu_name(name: &str) -> &str {

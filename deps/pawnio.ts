@@ -46,6 +46,11 @@ export const PAWNIO = {
         name: "IntelMSR.bin",
         sha256: "d6ed85d65ab17a22f813ef98207d6d537155ee2ded5976a21cb48413c9b92e5f",
       },
+      lpcIo: {
+        name: "LpcIO.bin",
+        sha256: "b3896a1cab0d808fca31fe2ebcae045d59dac690da87b17c858bb8da357eb45e",
+        targets: ["x86_64"],
+      },
     },
   },
 } as const;

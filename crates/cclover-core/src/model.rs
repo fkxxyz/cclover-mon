@@ -93,6 +93,19 @@ impl GpuId {
     }
 }
 
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct FanId(String);
+
+impl FanId {
+    pub fn from_opaque_key(key: impl Into<String>) -> Self {
+        Self(key.into())
+    }
+
+    pub fn as_opaque_key(&self) -> &str {
+        &self.0
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct NetworkSnapshot {
     pub id: NetworkId,
@@ -113,6 +126,13 @@ pub struct TemperatureSnapshot {
     pub id: String,
     pub name: String,
     pub celsius: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FanSnapshot {
+    pub id: FanId,
+    pub name: String,
+    pub rpm: u64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -179,6 +199,7 @@ pub struct SystemSnapshot {
     pub process_disk_io: Collection<Vec<ProcessDiskIo>>,
     pub process_network_io: Collection<Vec<ProcessNetworkIo>>,
     pub temperatures: Collection<Vec<TemperatureSnapshot>>,
+    pub fans: Collection<Vec<FanSnapshot>>,
     pub gpus: Collection<Vec<GpuSnapshot>>,
 }
 
@@ -199,6 +220,7 @@ pub struct MonitorHistory {
     pub networks: BTreeMap<NetworkId, NetworkDirectionHistory>,
     pub disks: BTreeMap<DiskId, VecDeque<f64>>,
     pub temperatures: BTreeMap<String, VecDeque<f64>>,
+    pub fans: BTreeMap<FanId, VecDeque<f64>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -351,6 +373,7 @@ pub struct RawSnapshot {
     pub process_disk_io: Collection<Vec<ProcessDiskIoCounter>>,
     pub process_network_io: Collection<Vec<ProcessNetworkIoCounter>>,
     pub temperatures: Collection<Vec<TemperatureSnapshot>>,
+    pub fans: Collection<Vec<FanSnapshot>>,
     pub gpus: Collection<Vec<GpuSnapshot>>,
 }
 
@@ -372,6 +395,7 @@ impl RawSnapshot {
             process_disk_io: Collection::unavailable(reason),
             process_network_io: Collection::unavailable(reason),
             temperatures: Collection::unavailable(reason),
+            fans: Collection::unavailable(reason),
             gpus: Collection::unavailable(reason),
         }
     }

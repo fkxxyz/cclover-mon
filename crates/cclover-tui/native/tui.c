@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "native_tui.h"
+
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -13,28 +15,6 @@
 #include <termios.h>
 #include <unistd.h>
 #endif
-
-typedef struct {
-    const uint8_t *ptr;
-    size_t len;
-} CcloverText;
-
-typedef struct {
-    CcloverText title;
-    const CcloverText *rows;
-    size_t row_count;
-    const uint64_t *history;
-    size_t history_count;
-} CcloverPanel;
-
-typedef struct {
-    CcloverPanel cpu;
-    CcloverPanel memory;
-    CcloverPanel gpu;
-    CcloverPanel temperatures;
-    CcloverPanel disks;
-    CcloverPanel networks;
-} CcloverTuiFrame;
 
 typedef struct {
 #ifdef _WIN32
@@ -269,6 +249,10 @@ int cclover_tui_draw(CcloverTui *ui, const CcloverTuiFrame *frame) {
     unsigned temp_h = y < height ? (height - y < 5 ? height - y : 5) : 0;
     if (temp_h >= 2) draw_panel(&frame->temperatures, 0, y, width, temp_h, 0);
     y += temp_h;
+
+    unsigned fan_h = frame->fans.row_count != 0 && y < height ? (height - y < 5 ? height - y : 5) : 0;
+    if (fan_h >= 2) draw_panel(&frame->fans, 0, y, width, fan_h, 0);
+    y += fan_h;
 
     if (y < height) {
         unsigned io_h = height - y;

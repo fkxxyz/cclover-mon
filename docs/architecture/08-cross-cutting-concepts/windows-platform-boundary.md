@@ -27,7 +27,7 @@ Prefer direct structured native APIs that expose the required counters without s
 | processes | one `NtQuerySystemInformation(SystemProcessInformation)` snapshot for identity, CPU counters, and working set |
 | network interfaces | IP Helper `GetIfTable2`; `InterfaceGuid` is the stable network identity source |
 | physical disks | `CreateFile(\\.\\PhysicalDriveN)` plus `DeviceIoControl(IOCTL_DISK_PERFORMANCE)`; storage properties provide stable identity where available |
-| temperatures | PawnIO-backed Intel package temperature through the pinned signed `IntelMSR` module; additional CPU/Super-I/O and storage sources may join as peers |
+| hardware telemetry | coordinated CPU/Super-I/O/EC discovery and sampling through structured native interfaces or pinned signed PawnIO modules; typed temperature/fan projections share source topology and runtime ownership |
 | GPUs | dynamically loaded NVIDIA NVML and AMD ADL from installed display drivers |
 | per-process disk/network attribution | future ETW/WFP-class work; PawnIO is not the attribution mechanism |
 
@@ -35,9 +35,11 @@ Do not introduce PDH for these basic collectors where the direct structured sour
 
 ## PawnIO runtime
 
-Installed PawnIO driver state belongs to Windows and may be shared across processes. A cclover-mon process owns only its session, loaded Pawn modules, and collector-local state. The temperature collector acquires one long-lived runtime/session and reuses it across samples; sampling never installs, starts, stops, removes, or unloads the machine-level driver.
+Installed PawnIO driver state belongs to Windows and may be shared across processes. A cclover-mon process owns only its session, loaded Pawn modules, and hardware-telemetry source state. The hardware-telemetry runtime acquires long-lived sessions/modules and reuses them across temperature, fan, and future hardware-sensor projections; sampling never installs, starts, stops, removes, or unloads the machine-level driver.
 
 The runtime talks directly to the documented buffered device IO-control interface rather than shipping `PawnIOLib.dll`. Only signed modules used by implemented collectors are embedded. PawnIO handles, module blobs, IOCTL identifiers, and NTSTATUS details remain platform-private. Privileged provisioning is outside sampling and is governed by [ADR 009](../09-architecture-decisions/009-windows-pawnio-provisioning.md).
+
+Super-I/O and EC compatibility knowledge may be ported from the pinned reviewed LibreHardwareMonitor upstream according to [ADR 010](../09-architecture-decisions/010-windows-hardware-telemetry-upstream.md). LibreHardwareMonitor is not loaded or shipped at runtime. Chip-family register behavior stays separate from manufacturer/model-specific channel naming; improving a channel label must not change sensor identity.
 
 ## Vendor GPU runtime
 
@@ -45,7 +47,7 @@ NVIDIA loads driver-installed `nvml.dll`, enumerates devices once, and derives G
 
 ## Capability and identity semantics
 
-Unimplemented Windows capabilities remain explicit typed unavailability. Per-process disk/network attribution and unimplemented temperature source families must not appear as successful empty observations or fabricated zeros.
+Unimplemented Windows capabilities remain explicit typed unavailability. Per-process disk/network attribution and unimplemented hardware-sensor source families must not appear as successful empty observations or fabricated zeros. Zero fan RPM is valid data only when the source actually reports zero.
 
 Process identity is PID plus process creation time. Network interface index and `PhysicalDriveN` are locators rather than durable identities. Disk observations that must fall back to `PhysicalDriveN` are degraded because that locator is session-local rather than reboot-stable.
 

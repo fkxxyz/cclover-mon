@@ -68,6 +68,16 @@ fn configure_windows_resources() {
     );
 
     if resource_arch == "x86_64" {
+        let lpc_io = target.join("modules/LpcIO.bin");
+        assert!(
+            lpc_io.is_file(),
+            "prepared PawnIO LpcIO module is missing; run `bun prepare-windows-deps.ts`"
+        );
+        println!(
+            "cargo:rustc-env=CCLOVER_PAWNIO_LPC_IO_BIN={}",
+            lpc_io.display()
+        );
+
         for file in ["PawnIO.inf", "PawnIO.sys", "PawnIO.cat"] {
             let path = target.join("driver").join(file);
             assert!(

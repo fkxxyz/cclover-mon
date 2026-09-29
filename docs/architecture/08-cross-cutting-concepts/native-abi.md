@@ -1,5 +1,5 @@
 ---
-summary: "Defines mechanically verified native ABI contracts for desktop scenes and BPF map records."
+summary: "Defines mechanically verified native ABI contracts for desktop scenes, terminal frames, and BPF map records."
 viewpoint: static
 concerns:
   - architecture-coherence
@@ -25,6 +25,10 @@ Layout-sensitive cross-language contracts have one authority and mechanical veri
 The Rust-to-C desktop ABI has one declarative schema authority in `cclover-desktop`. Rust `#[repr(C)]` records/constants and the C `native_scene.h` consumed by Linux and Windows hosts are generated from that schema during the build. Command kinds, flags, field order, pointer types, and callback signatures are not maintained as independent hand-written mirrors.
 
 Font realization is native-host responsibility; layout policy remains in `cclover-ui`. Native hosts measure text with the font they actually realize and expose only text extents through the generated callback contract. `cclover-ui` converts those measurements into shared geometry.
+
+## TUI ABI
+
+The Rust-to-C terminal-frame ABI has one declarative schema authority in `cclover-tui/src/native_abi_spec.rs`. Rust `#[repr(C)]` records and the C `native_tui.h` consumed by `native/tui.c` are generated from that schema during the build; field order and pointer types are not maintained as hand-written mirrors.
 
 ## BPF map ABI
 

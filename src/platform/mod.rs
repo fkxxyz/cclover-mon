@@ -67,6 +67,7 @@ define_probe_kinds! {
     Disk => { name: "disk", aliases: ["disks"], follow_up: false },
     DiskAttribution => { name: "disk-attribution", aliases: [], follow_up: true },
     Temperatures => { name: "temperatures", aliases: ["temperature"], follow_up: false },
+    Fans => { name: "fans", aliases: ["fan"], follow_up: false },
     Gpu => { name: "gpu", aliases: ["gpu-memory", "vram"], follow_up: false },
 }
 
@@ -113,5 +114,6 @@ mod tests {
         assert_eq!("networks".parse(), Ok(ProbeKind::Network));
         assert_eq!("disks".parse(), Ok(ProbeKind::Disk));
         assert_eq!("temperature".parse(), Ok(ProbeKind::Temperatures));
+        assert_eq!("fan".parse(), Ok(ProbeKind::Fans));
     }
 }

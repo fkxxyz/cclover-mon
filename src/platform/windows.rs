@@ -4,13 +4,13 @@ mod disk;
 mod gpu;
 mod gpu_adl;
 mod gpu_nvml;
+mod hardware;
 mod memory;
 mod native;
 mod network;
 mod pawnio;
 mod process;
 mod provision;
-mod temperature;
 
 use std::time::Instant;
 
@@ -30,14 +30,14 @@ pub fn prepare_machine_capability() {
 
 pub struct Backend {
     gpus: gpu::Collector,
-    temperatures: temperature::Collector,
+    hardware: hardware::Collector,
 }
 
 impl Backend {
     pub fn new() -> Self {
         Self {
             gpus: gpu::Collector::new(),
-            temperatures: temperature::Collector::new(),
+            hardware: hardware::Collector::new(),
         }
     }
 
@@ -68,7 +68,10 @@ impl Backend {
             ProbeKind::Processes => ProbeSample::Processes(process::collect(notes)),
             ProbeKind::Network => ProbeSample::Network(network::collect(notes)),
             ProbeKind::Disk => ProbeSample::Disk(disk::collect(notes)),
-            ProbeKind::Temperatures => ProbeSample::Temperatures(self.temperatures.collect(notes)),
+            ProbeKind::Temperatures => {
+                ProbeSample::Temperatures(self.hardware.collect(notes).temperatures)
+            }
+            ProbeKind::Fans => ProbeSample::Fans(self.hardware.collect(notes).fans),
             ProbeKind::Gpu => ProbeSample::Gpu(self.gpus.collect(notes)),
             ProbeKind::NetworkAttribution | ProbeKind::DiskAttribution => {
                 ProbeSample::Unsupported(kind)
@@ -86,6 +89,7 @@ impl Default for Backend {
 impl CoreCollector for Backend {
     fn collect(&mut self) -> RawSnapshot {
         let collected_at = Instant::now();
+        let hardware = devlog::timed("collector.hardware", || self.hardware.collect(None));
         RawSnapshot {
             collected_at,
             cpu: devlog::timed("collector.cpu", || cpu::collect(None)),
@@ -95,9 +99,8 @@ impl CoreCollector for Backend {
             disks: devlog::timed("collector.disk", || disk::collect(None)),
             process_disk_io: Collection::unavailable(CollectionUnavailable::Unsupported),
             process_network_io: Collection::unavailable(CollectionUnavailable::Unsupported),
-            temperatures: devlog::timed("collector.temperatures", || {
-                self.temperatures.collect(None)
-            }),
+            temperatures: hardware.temperatures,
+            fans: hardware.fans,
             gpus: devlog::timed("collector.gpu", || self.gpus.collect(None)),
         }
     }

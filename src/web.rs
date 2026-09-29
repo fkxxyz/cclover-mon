@@ -322,6 +322,7 @@ fn handle_connection(
         "/api/v1/disks" => write_api_slice(&mut stream, &hub, ApiV1Slice::Disks),
         "/api/v1/networks" => write_api_slice(&mut stream, &hub, ApiV1Slice::Networks),
         "/api/v1/temperatures" => write_api_slice(&mut stream, &hub, ApiV1Slice::Temperatures),
+        "/api/v1/fans" => write_api_slice(&mut stream, &hub, ApiV1Slice::Fans),
         "/api/v1/gpus" => write_api_slice(&mut stream, &hub, ApiV1Slice::Gpus),
         "/api/v1/gpu-memory" => write_api_slice(&mut stream, &hub, ApiV1Slice::GpuMemoryLegacy),
         "/api/v1/processes" => write_api_slice(&mut stream, &hub, ApiV1Slice::Processes),
@@ -338,6 +339,7 @@ fn handle_connection(
         "/api/v1/history/temperatures" => {
             write_api_slice(&mut stream, &hub, ApiV1Slice::HistoryTemperatures)
         }
+        "/api/v1/history/fans" => write_api_slice(&mut stream, &hub, ApiV1Slice::HistoryFans),
         "/events" => stream_events(stream, hub, shutdown),
         _ => write_response(
             &mut stream,
@@ -581,6 +583,7 @@ mod tests {
             "/api/v1/disks",
             "/api/v1/networks",
             "/api/v1/temperatures",
+            "/api/v1/fans",
             "/api/v1/gpus",
             "/api/v1/gpu-memory",
             "/api/v1/processes",
@@ -591,6 +594,7 @@ mod tests {
             "/api/v1/history/disks",
             "/api/v1/history/networks",
             "/api/v1/history/temperatures",
+            "/api/v1/history/fans",
         ] {
             let _ = response_json(server.local_addr(), path);
         }

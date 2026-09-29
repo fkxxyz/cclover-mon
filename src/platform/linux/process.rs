@@ -1,8 +1,11 @@
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs;
 use std::io::Read;
 use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::FileExt;
 use std::path::Path;
+use std::sync::Arc;
 #[cfg(any(feature = "ebpf-io", test))]
 use std::sync::OnceLock;
 
@@ -19,14 +22,27 @@ const PROC_STAT_FIRST_FIELD_AFTER_COMM: usize = 3;
 
 pub(super) struct Collector {
     page_size: u64,
-    stat_buffer: String,
+    stat_buffer: [u8; 4096],
+    stat_fallback: String,
+    stat_files: HashMap<u32, CachedStat>,
+    generation: u64,
+}
+
+struct CachedStat {
+    file: fs::File,
+    proc_inode: u64,
+    generation: u64,
+    name: Option<Arc<str>>,
 }
 
 impl Collector {
     pub(super) fn new() -> Self {
         Self {
             page_size: native::page_size().unwrap_or(4096),
-            stat_buffer: String::with_capacity(512),
+            stat_buffer: [0; 4096],
+            stat_fallback: String::with_capacity(4096),
+            stat_files: HashMap::new(),
+            generation: 0,
         }
     }
 
@@ -43,7 +59,7 @@ impl Collector {
         mut notes: Option<&mut Vec<String>>,
     ) -> Collection<Vec<ProcessCounter>> {
         let mut processes = Vec::new();
-        let entries = match fs::read_dir(proc_root) {
+        let entries = match native::numeric_directory_entries(proc_root) {
             Ok(entries) => entries,
             Err(error) => {
                 report_issue(&mut notes, || {
@@ -55,28 +71,97 @@ impl Collector {
         let mut unreadable = 0_u64;
         let mut malformed = 0_u64;
         let mut stat_path_buffer = Vec::with_capacity(64);
-        for entry in entries.flatten() {
-            let file_name = entry.file_name();
-            let file_name = file_name.as_os_str().as_bytes();
-            let Some(pid) = parse_pid(file_name) else {
-                continue;
+        self.generation = self.generation.wrapping_add(1);
+        let generation = self.generation;
+        for (pid, proc_inode) in entries {
+            let stat_path = process_stat_path(&mut stat_path_buffer, proc_root, pid);
+            if self
+                .stat_files
+                .get(&pid)
+                .is_some_and(|cached| cached.proc_inode != proc_inode)
+            {
+                self.stat_files.remove(&pid);
+            }
+            if let std::collections::hash_map::Entry::Vacant(entry) = self.stat_files.entry(pid) {
+                let Ok(file) = fs::File::open(stat_path) else {
+                    unreadable += 1;
+                    continue;
+                };
+                entry.insert(CachedStat {
+                    file,
+                    proc_inode,
+                    generation,
+                    name: None,
+                });
+            }
+            let read_result = self
+                .stat_files
+                .get_mut(&pid)
+                .map(|cached| {
+                    cached.generation = generation;
+                    cached.file.read_at(&mut self.stat_buffer, 0)
+                })
+                .expect("process stat cache entry must exist");
+            let read_result = match read_result {
+                Ok(bytes) => Ok(bytes),
+                Err(_) => {
+                    self.stat_files.remove(&pid);
+                    match fs::File::open(stat_path) {
+                        Ok(file) => {
+                            let result = file.read_at(&mut self.stat_buffer, 0);
+                            self.stat_files.insert(
+                                pid,
+                                CachedStat {
+                                    file,
+                                    proc_inode,
+                                    generation,
+                                    name: None,
+                                },
+                            );
+                            result
+                        }
+                        Err(error) => Err(error),
+                    }
+                }
+            };
+            let text = match read_result {
+                Ok(bytes) if bytes < self.stat_buffer.len() => {
+                    std::str::from_utf8(&self.stat_buffer[..bytes]).ok()
+                }
+                Ok(_) => {
+                    self.stat_fallback.clear();
+                    self.stat_files.get_mut(&pid).and_then(|cached| {
+                        cached
+                            .file
+                            .read_to_string(&mut self.stat_fallback)
+                            .ok()
+                            .map(|_| self.stat_fallback.as_str())
+                    })
+                }
+                Err(_) => None,
             };
 
-            let stat_path = process_stat_path(&mut stat_path_buffer, proc_root, file_name);
-            self.stat_buffer.clear();
-            let read_result = fs::File::open(stat_path)
-                .and_then(|mut file| file.read_to_string(&mut self.stat_buffer));
-
-            if read_result.is_err() {
+            let Some(text) = text else {
                 unreadable += 1;
                 continue;
-            }
-            if let Some(process) = parse_stat(pid, &self.stat_buffer, self.page_size) {
+            };
+            let cached_name = self
+                .stat_files
+                .get(&pid)
+                .and_then(|cached| cached.name.as_ref());
+            if let Some(process) =
+                parse_stat_with_cached_name(pid, text, self.page_size, cached_name)
+            {
+                if let Some(cached) = self.stat_files.get_mut(&pid) {
+                    cached.name = Some(Arc::clone(&process.name));
+                }
                 processes.push(process);
             } else {
                 malformed += 1;
             }
         }
+        self.stat_files
+            .retain(|_, cached| cached.generation == generation);
         if unreadable > 0 {
             probe_note(&mut notes, || {
                 format!(
@@ -97,67 +182,110 @@ impl Collector {
     }
 }
 
-fn process_stat_path<'a>(buffer: &'a mut Vec<u8>, proc_root: &Path, pid_name: &[u8]) -> &'a Path {
+fn process_stat_path<'a>(buffer: &'a mut Vec<u8>, proc_root: &Path, pid: u32) -> &'a Path {
     buffer.clear();
     buffer.extend_from_slice(proc_root.as_os_str().as_bytes());
     if !buffer.ends_with(b"/") {
         buffer.push(b'/');
     }
-    buffer.extend_from_slice(pid_name);
+    append_u32_decimal(buffer, pid);
     buffer.extend_from_slice(b"/stat");
     Path::new(OsStr::from_bytes(buffer))
 }
 
-fn parse_pid(bytes: &[u8]) -> Option<u32> {
-    if bytes.is_empty() {
-        return None;
+fn append_u32_decimal(buffer: &mut Vec<u8>, mut value: u32) {
+    let start = buffer.len();
+    if value == 0 {
+        buffer.push(b'0');
+        return;
     }
-
-    let mut pid = 0_u32;
-    for byte in bytes {
-        if !byte.is_ascii_digit() {
-            return None;
-        }
-        pid = pid.checked_mul(10)?.checked_add(u32::from(*byte - b'0'))?;
+    while value > 0 {
+        buffer.push(b'0' + (value % 10) as u8);
+        value /= 10;
     }
-    Some(pid)
+    buffer[start..].reverse();
 }
 
+#[cfg(test)]
 fn parse_stat(pid: u32, text: &str, page_size: u64) -> Option<ProcessCounter> {
+    parse_stat_with_cached_name(pid, text, page_size, None)
+}
+
+fn parse_stat_with_cached_name(
+    pid: u32,
+    text: &str,
+    page_size: u64,
+    cached_name: Option<&Arc<str>>,
+) -> Option<ProcessCounter> {
     let left = text.find('(')?;
     let right = text.rfind(')')?;
     if right <= left {
         return None;
     }
     let (user, system, starttime, rss_pages) = parse_stat_counters(&text[right + 1..])?;
+    let name = &text[left + 1..right];
     Some(ProcessCounter {
         process: ProcessInstanceId {
             pid,
             birth_marker: starttime,
         },
-        name: text[left + 1..right].to_owned(),
+        name: cached_name
+            .filter(|cached| cached.as_ref() == name)
+            .map(Arc::clone)
+            .unwrap_or_else(|| Arc::from(name)),
         cpu_time_units: user.saturating_add(system),
         rss_bytes: rss_pages.saturating_mul(page_size),
     })
 }
 
 fn parse_stat_counters(tail: &str) -> Option<(u64, u64, u64, u64)> {
-    let mut fields = tail.split_ascii_whitespace();
-    let user = fields
-        .nth(PROC_STAT_UTIME_FIELD - PROC_STAT_FIRST_FIELD_AFTER_COMM)?
-        .parse::<u64>()
-        .ok()?;
-    let system = fields.next()?.parse::<u64>().ok()?;
-    let starttime = fields
-        .nth(PROC_STAT_STARTTIME_FIELD - PROC_STAT_STIME_FIELD - 1)?
-        .parse::<u64>()
-        .ok()?;
-    let rss_pages = fields
-        .nth(PROC_STAT_RSS_FIELD - PROC_STAT_STARTTIME_FIELD - 1)?
-        .parse::<u64>()
-        .ok()?;
+    let bytes = tail.as_bytes();
+    let mut cursor = 0_usize;
+    let mut field = PROC_STAT_FIRST_FIELD_AFTER_COMM;
+    let mut user = None;
+    let mut system = None;
+    let mut starttime = None;
+    let mut rss_pages = None;
 
-    Some((user, system, starttime, rss_pages))
+    while field <= PROC_STAT_RSS_FIELD {
+        while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+            cursor += 1;
+        }
+        let start = cursor;
+        while cursor < bytes.len() && !bytes[cursor].is_ascii_whitespace() {
+            cursor += 1;
+        }
+        if start == cursor {
+            return None;
+        }
+
+        match field {
+            PROC_STAT_UTIME_FIELD => user = parse_u64_decimal(&bytes[start..cursor]),
+            PROC_STAT_STIME_FIELD => system = parse_u64_decimal(&bytes[start..cursor]),
+            PROC_STAT_STARTTIME_FIELD => starttime = parse_u64_decimal(&bytes[start..cursor]),
+            PROC_STAT_RSS_FIELD => rss_pages = parse_u64_decimal(&bytes[start..cursor]),
+            _ => {}
+        }
+        field += 1;
+    }
+
+    Some((user?, system?, starttime?, rss_pages?))
+}
+
+fn parse_u64_decimal(bytes: &[u8]) -> Option<u64> {
+    if bytes.is_empty() {
+        return None;
+    }
+    let mut value = 0_u64;
+    for byte in bytes {
+        if !byte.is_ascii_digit() {
+            return None;
+        }
+        value = value
+            .checked_mul(10)?
+            .checked_add(u64::from(*byte - b'0'))?;
+    }
+    Some(value)
 }
 
 #[cfg(any(feature = "ebpf-io", test))]
@@ -182,28 +310,21 @@ mod tests {
         let text =
             "42 (name with space) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22";
         let process = parse_stat(42, text, 4096).unwrap();
-        assert_eq!(process.name, "name with space");
+        assert_eq!(process.name.as_ref(), "name with space");
         assert_eq!(process.cpu_time_units, 23);
         assert_eq!(process.process.pid, 42);
         assert_eq!(process.process.birth_marker, 19);
     }
 
     #[test]
-    fn parses_only_numeric_proc_entries_as_pids() {
-        assert_eq!(parse_pid(b"42"), Some(42));
-        assert_eq!(parse_pid(b"self"), None);
-        assert_eq!(parse_pid(b""), None);
-    }
-
-    #[test]
     fn builds_process_stat_path_in_reused_buffer() {
         let mut buffer = Vec::new();
         assert_eq!(
-            process_stat_path(&mut buffer, Path::new("/proc"), b"42"),
+            process_stat_path(&mut buffer, Path::new("/proc"), 42),
             Path::new("/proc/42/stat")
         );
         assert_eq!(
-            process_stat_path(&mut buffer, Path::new("/proc"), b"7"),
+            process_stat_path(&mut buffer, Path::new("/proc"), 7),
             Path::new("/proc/7/stat")
         );
     }
@@ -226,7 +347,51 @@ mod tests {
 
         assert_eq!(processes.len(), 1);
         assert_eq!(processes[0].process.pid, 42);
-        assert_eq!(processes[0].name, "fixture process");
+        assert_eq!(processes[0].name.as_ref(), "fixture process");
+    }
+
+    #[test]
+    fn reopens_cached_stat_when_pid_directory_identity_changes() {
+        let fixture = Fixture::new("process-pid-reuse");
+        fixture.write(
+            "42/stat",
+            "42 (old process) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22",
+        );
+        let old_inode = native::numeric_directory_entries(fixture.path())
+            .unwrap()
+            .into_iter()
+            .find(|(pid, _)| *pid == 42)
+            .unwrap()
+            .1;
+
+        let mut collector = Collector::new();
+        let first = collector.collect_from(fixture.path(), None);
+        let first = first.value().unwrap();
+        assert_eq!(first[0].name.as_ref(), "old process");
+
+        fs::remove_dir_all(fixture.path().join("42")).unwrap();
+        fixture.dir("43");
+        fixture.write(
+            "42/stat",
+            "42 (new process) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 99 20 21 22",
+        );
+        let new_inode = native::numeric_directory_entries(fixture.path())
+            .unwrap()
+            .into_iter()
+            .find(|(pid, _)| *pid == 42)
+            .unwrap()
+            .1;
+        assert_ne!(old_inode, new_inode, "fixture must model a new proc inode");
+
+        let second = collector.collect_from(fixture.path(), None);
+        let second = second.value().unwrap();
+        let process = second
+            .iter()
+            .find(|process| process.process.pid == 42)
+            .unwrap();
+        assert_eq!(process.name.as_ref(), "new process");
+        assert_ne!(process.process.birth_marker, first[0].process.birth_marker);
+        assert_eq!(collector.stat_files.get(&42).unwrap().proc_inode, new_inode);
     }
 
     #[test]

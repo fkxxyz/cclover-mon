@@ -145,6 +145,78 @@ fn native_text_layout_uses_realized_renderer_metrics() {
 }
 
 #[test]
+fn linux_incremental_rendering_preserves_steady_state_fast_path() {
+    let source = include_str!("../crates/cclover-desktop/native/linux_host.c");
+
+    let wayland_run = source
+        .split_once("int cclover_linux_wayland_run")
+        .expect("Linux host must provide a Wayland lifecycle")
+        .1;
+    let frame_poll = wayland_run
+        .split_once("if (status & CCLOVER_POLL_FRAME) {")
+        .expect("Wayland host must react to new frames")
+        .1
+        .split_once("if (host.configured && host.dirty) {")
+        .expect("Wayland host must separate scene production from drawing")
+        .0;
+    assert_eq!(
+        frame_poll
+            .matches("cclover_scene(&host.host, &scene);")
+            .count(),
+        1,
+        "one POLL_FRAME must lower exactly one NativeScene"
+    );
+
+    let static_layer = source
+        .split_once("static int wayland_static_layer_ensure")
+        .expect("Wayland host must own a static render layer")
+        .1
+        .split_once("static int wayland_buffer_create")
+        .expect("static-layer helper must stay separate from buffer creation")
+        .0;
+    assert!(
+        static_layer.contains("layer->hash == hash") && static_layer.contains("return 0;"),
+        "unchanged static content must reuse the existing static layer"
+    );
+
+    let acquire = source
+        .split_once("static int wayland_buffer_acquire")
+        .expect("Wayland host must own reusable buffers")
+        .1
+        .split_once("static uint64_t wayland_dynamic_command_hash")
+        .expect("buffer acquisition must stay separate from damage tracking")
+        .0;
+    let reuse = acquire
+        .find("host->previous_buffer && !host->previous_buffer->busy")
+        .expect("buffer acquisition must try the released previous buffer first");
+    let create = acquire
+        .find("wayland_buffer_create(host, owned, scene, scale)")
+        .expect("buffer acquisition must retain a creation fallback");
+    assert!(
+        reuse < create,
+        "stable-size steady state must reuse a released Wayland buffer before creating one"
+    );
+
+    let draw = source
+        .split_once("static int wayland_draw")
+        .expect("Wayland host must own incremental drawing")
+        .1
+        .split_once("int cclover_linux_wayland_run")
+        .expect("draw helper must stay separate from the host lifecycle")
+        .0;
+    for required in [
+        "current[i].hash != host->previous_dynamic[i].hash",
+        "wayland_add_dirty(dirty, &dirty_count, rect)",
+        "cclover_draw_scene(&host->host, owned->cr, scene, 0, CCLOVER_DRAW_DYNAMIC, dirty, dirty_count)",
+    ] {
+        assert!(
+            draw.contains(required),
+            "dynamic-only updates must remain damage-tracked rather than forcing a full redraw: {required}"
+        );
+    }
+}
+
+#[test]
 fn linux_desktop_surface_preserves_panel_window_policy() {
     let source = include_str!("../crates/cclover-desktop/native/linux_host.c");
 

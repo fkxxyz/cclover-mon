@@ -47,7 +47,7 @@ pub struct ProcessNetworkIoSnapshot {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProcessSnapshot {
     pub id: ProcessInstanceId,
-    pub name: Option<String>,
+    pub name: Option<Arc<str>>,
     pub cpu_percent: Option<f64>,
     pub memory_bytes: Option<u64>,
     pub disk_io: Vec<ProcessDiskIoSnapshot>,
@@ -170,7 +170,7 @@ pub struct ProcessNetworkIoCounter {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProcessDiskIo {
     pub process: ProcessInstanceId,
-    pub name: Option<String>,
+    pub name: Option<Arc<str>>,
     pub disk_id: DiskId,
     pub device: String,
     pub read_bytes_per_sec: f64,
@@ -180,7 +180,7 @@ pub struct ProcessDiskIo {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProcessNetworkIo {
     pub process: ProcessInstanceId,
-    pub name: Option<String>,
+    pub name: Option<Arc<str>>,
     pub network_id: NetworkId,
     pub interface: String,
     pub rx_bytes_per_sec: f64,
@@ -240,7 +240,7 @@ pub struct CpuCounter {
 #[derive(Clone, Debug)]
 pub struct ProcessCounter {
     pub process: ProcessInstanceId,
-    pub name: String,
+    pub name: Arc<str>,
     pub cpu_time_units: u64,
     pub rss_bytes: u64,
 }

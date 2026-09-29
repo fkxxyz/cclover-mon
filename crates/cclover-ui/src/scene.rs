@@ -30,12 +30,14 @@ pub enum Primitive {
         rect: Rect,
         color: Rgba,
         radius: f32,
+        static_content: bool,
     },
     StrokeRect {
         rect: Rect,
         color: Rgba,
         width: f32,
         radius: f32,
+        static_content: bool,
     },
     Text {
         rect: Rect,
@@ -45,11 +47,13 @@ pub enum Primitive {
         bold: bool,
         align: TextAlign,
         clip: bool,
+        static_content: bool,
     },
     Polyline {
         points: Vec<Point>,
         color: Rgba,
         width: f32,
+        static_content: bool,
     },
     Polygon {
         points: Vec<Point>,
@@ -78,12 +82,14 @@ impl NativeScene {
             rect: panel,
             color: Tone::Background.rgba(),
             radius: 16.0,
+            static_content: true,
         });
         primitives.push(Primitive::StrokeRect {
             rect: panel,
             color: Tone::Border.rgba(),
             width: 1.0,
             radius: 16.0,
+            static_content: true,
         });
         let available = PANEL_WIDTH - PANEL_GEOMETRY.padding * 2 - PANEL_GEOMETRY.column_spacing;
         let column_width = available as f32 / 2.0;
@@ -122,6 +128,7 @@ fn lower_column(
                 bold: label.weight == TextWeight::Bold,
                 align: TextAlign::Start,
                 clip: label.clip,
+                static_content: true,
             }),
             Block::Card(card) => lower_card(card, x, y, width, text, out),
         }
@@ -147,12 +154,14 @@ fn lower_card(
         rect,
         color: Tone::Card.rgba(),
         radius: 12.0,
+        static_content: true,
     });
     out.push(Primitive::StrokeRect {
         rect,
         color: Tone::Border.rgba(),
         width: 1.0,
         radius: 12.0,
+        static_content: true,
     });
     let p = card.padding as f32;
     lower_stack(
@@ -189,6 +198,7 @@ fn lower_stack(
                     },
                     color: Tone::Border.rgba(),
                     radius: 3.0,
+                    static_content: true,
                 });
                 out.push(Primitive::FillRect {
                     rect: Rect {
@@ -199,6 +209,7 @@ fn lower_stack(
                     },
                     color: progress.tone.rgba(),
                     radius: 3.0,
+                    static_content: false,
                 });
             }
             Element::Stack(nested) => lower_stack(nested, x, child_y, width, text, out),
@@ -219,21 +230,23 @@ fn lower_row(
         return;
     }
     let gaps = row.gap as f32 * row.cells.len().saturating_sub(1) as f32;
-    let fixed = row
+    let measured_widths = row
         .cells
         .iter()
-        .filter(|cell| !cell.grow)
-        .map(|cell| text.width(&cell.text, cell.size, cell.weight))
-        .sum::<f32>();
+        .map(|cell| {
+            if cell.grow {
+                None
+            } else {
+                Some(text.width(&cell.text, cell.size, cell.weight))
+            }
+        })
+        .collect::<Vec<_>>();
+    let fixed = measured_widths.iter().flatten().copied().sum::<f32>();
     let growers = row.cells.iter().filter(|cell| cell.grow).count();
     let flexible = (width - gaps - fixed).max(0.0) / growers.max(1) as f32;
     let mut cell_x = x;
-    for cell in &row.cells {
-        let cell_width = if cell.grow {
-            flexible
-        } else {
-            text.width(&cell.text, cell.size, cell.weight)
-        };
+    for (cell, measured_width) in row.cells.iter().zip(measured_widths) {
+        let cell_width = measured_width.unwrap_or(flexible);
         if !cell.text.is_empty() {
             out.push(Primitive::Text {
                 rect: Rect {
@@ -252,6 +265,7 @@ fn lower_row(
                     TextAlign::End
                 },
                 clip: cell.clip,
+                static_content: cell.static_content,
             });
         }
         cell_x += cell_width + row.gap as f32;
@@ -270,6 +284,7 @@ fn lower_graph(graph: &GraphSpec<'_>, x: f32, y: f32, width: f32, out: &mut Vec<
         color: Tone::Border.rgba(),
         width: 1.0,
         radius: 0.0,
+        static_content: true,
     });
     for guide in 1..4 {
         let gy = y + (height * guide as f32 / 4.0).round() + 0.5;
@@ -283,6 +298,7 @@ fn lower_graph(graph: &GraphSpec<'_>, x: f32, y: f32, width: f32, out: &mut Vec<
             ],
             color: Tone::Guide.rgba(),
             width: 1.0,
+            static_content: true,
         });
     }
     if graph.values.len() < 2 || graph.capacity < 2 {
@@ -319,6 +335,7 @@ fn lower_graph(graph: &GraphSpec<'_>, x: f32, y: f32, width: f32, out: &mut Vec<
         points: line,
         color: graph.line.rgba(),
         width: 1.5,
+        static_content: false,
     });
 }
 
@@ -350,6 +367,8 @@ mod tests {
 
     #[test]
     fn native_row_uses_renderer_measurement_for_natural_width_cells() {
+        use std::cell::Cell;
+
         struct FixedMeasurer;
 
         impl NativeTextMeasurer for FixedMeasurer {
@@ -367,6 +386,7 @@ mod tests {
                     weight: TextWeight::Regular,
                     grow: true,
                     clip: false,
+                    static_content: false,
                 },
                 crate::TextCell {
                     text: "fixed".into(),
@@ -375,6 +395,7 @@ mod tests {
                     weight: TextWeight::Bold,
                     grow: false,
                     clip: false,
+                    static_content: false,
                 },
             ],
             height: 16,
@@ -394,5 +415,19 @@ mod tests {
         assert_eq!(text_rects[0].width, 58.5);
         assert_eq!(text_rects[1].x, 72.5);
         assert_eq!(text_rects[1].width, 37.5);
+
+        struct CountingMeasurer(Cell<usize>);
+
+        impl NativeTextMeasurer for CountingMeasurer {
+            fn width(&self, _text: &str, _size: u32, _weight: TextWeight) -> f32 {
+                self.0.set(self.0.get() + 1);
+                37.5
+            }
+        }
+
+        let measurer = CountingMeasurer(Cell::new(0));
+        let mut primitives = Vec::new();
+        lower_row(&row, 10.0, 20.0, 100.0, &measurer, &mut primitives);
+        assert_eq!(measurer.0.get(), 1);
     }
 }

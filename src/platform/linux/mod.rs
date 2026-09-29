@@ -38,6 +38,7 @@ pub struct Backend {
     fans: fan::Collector,
     nvidia: nvidia::Collector,
     ebpf_io: ebpf_io::Collector,
+    active_processes: HashSet<crate::core::model::ProcessInstanceId>,
 }
 
 impl Backend {
@@ -48,6 +49,7 @@ impl Backend {
             fans: fan::Collector::new(),
             nvidia: nvidia::Collector::new(),
             ebpf_io: ebpf_io::Collector::new(),
+            active_processes: HashSet::new(),
         }
     }
 
@@ -195,25 +197,24 @@ impl CoreCollector for Backend {
         let cpu = devlog::timed("collector.cpu", || cpu::collect(None));
         let memory = devlog::timed("collector.memory", || memory::collect(None));
         let processes = devlog::timed("collector.processes", || self.processes.collect(None));
-        let active_processes = match &processes {
-            Collection::Available(processes) => Some(
-                processes
-                    .iter()
-                    .map(|process| process.process)
-                    .collect::<HashSet<_>>(),
-            ),
-            Collection::Degraded(_) | Collection::Unavailable(_) => None,
+        self.active_processes.clear();
+        let active_processes = if let Collection::Available(processes) = &processes {
+            self.active_processes
+                .extend(processes.iter().map(|process| process.process));
+            Some(&self.active_processes)
+        } else {
+            None
         };
         let networks = devlog::timed("collector.network", || network::collect(None));
         let disks = devlog::timed("collector.disk", || disk::collect(None));
         let process_disk_io = devlog::timed("collector.disk-attribution", || {
             self.ebpf_io
-                .collect_disk(active_processes.as_ref(), None)
+                .collect_disk(active_processes, None)
                 .map(|result| result.rows)
         });
         let process_network_io = devlog::timed("collector.network-attribution", || {
             self.ebpf_io
-                .collect_network(active_processes.as_ref(), None)
+                .collect_network(active_processes, None)
                 .map(|result| result.rows)
         });
         let (gpus, temperatures) = self.collect_gpu_temperatures(None);

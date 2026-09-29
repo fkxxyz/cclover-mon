@@ -516,7 +516,7 @@ impl From<&ProcessDiskIo> for ApiV1ProcessDiskIo {
         Self {
             pid: value.process.pid,
             birth_marker: value.process.birth_marker,
-            name: value.name.clone(),
+            name: value.name.as_deref().map(str::to_owned),
             disk_id: value.disk_id.as_opaque_key().to_owned(),
             device: value.device.clone(),
             read_bytes_per_sec: value.read_bytes_per_sec,
@@ -530,7 +530,7 @@ impl From<&ProcessNetworkIo> for ApiV1ProcessNetworkIo {
         Self {
             pid: value.process.pid,
             birth_marker: value.process.birth_marker,
-            name: value.name.clone(),
+            name: value.name.as_deref().map(str::to_owned),
             network_id: value.network_id.as_opaque_key().to_owned(),
             interface: value.interface.clone(),
             rx_bytes_per_sec: value.rx_bytes_per_sec,
@@ -680,7 +680,7 @@ mod tests {
                 pid: 42,
                 birth_marker: 7,
             },
-            name: Some("worker".to_owned()),
+            name: Some("worker".into()),
             disk_id: crate::core::model::DiskId::from_opaque_key("disk-a"),
             device: "nvme0n1".to_owned(),
             read_bytes_per_sec: 1.0,

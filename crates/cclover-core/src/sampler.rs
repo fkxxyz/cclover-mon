@@ -157,7 +157,7 @@ fn derive_cpu(
     previous: Option<&RawSnapshot>,
     current: &RawSnapshot,
     current_processes: &[ProcessCounter],
-) -> (Collection<f64>, Collection<HashMap<ProcessInstanceId, f64>>) {
+) -> (Collection<f64>, Collection<Vec<f64>>) {
     let process_status = combine_status(&current.cpu, &current.processes, ()).status();
     let Some(new) = current.cpu.value() else {
         let reason = match current.cpu.status() {
@@ -166,17 +166,14 @@ fn derive_cpu(
         };
         return (
             Collection::Unavailable(reason),
-            collection_from_status(process_status, HashMap::new()),
+            collection_from_status(process_status, Vec::new()),
         );
     };
 
     let Some((previous, old)) =
         previous.and_then(|snapshot| snapshot.cpu.value().map(|counter| (snapshot, counter)))
     else {
-        let values = current_processes
-            .iter()
-            .map(|process| (process.process, 0.0))
-            .collect();
+        let values = vec![0.0; current_processes.len()];
         return (
             map_status(&current.cpu, 0.0),
             collection_from_status(process_status, values),
@@ -185,10 +182,7 @@ fn derive_cpu(
 
     let total = new.total_time_units.saturating_sub(old.total_time_units);
     if total == 0 {
-        let values = current_processes
-            .iter()
-            .map(|process| (process.process, 0.0))
-            .collect();
+        let values = vec![0.0; current_processes.len()];
         return (
             map_status(&current.cpu, 0.0),
             collection_from_status(process_status, values),
@@ -211,7 +205,7 @@ fn derive_cpu(
             let delta = old_processes.get(&process.process).map_or(0, |old| {
                 process.cpu_time_units.saturating_sub(old.cpu_time_units)
             });
-            (process.process, delta as f64 * scale)
+            delta as f64 * scale
         })
         .collect();
 
@@ -303,19 +297,19 @@ fn derive_process_domain(
     previous: Option<&RawSnapshot>,
     current: &RawSnapshot,
     current_processes: &[ProcessCounter],
-    process_cpu: &Collection<HashMap<ProcessInstanceId, f64>>,
+    process_cpu: &Collection<Vec<f64>>,
     dt: f64,
 ) -> ProcessDomainSnapshot {
     let mut by_id = BTreeMap::new();
     let cpu_values = process_cpu.value();
 
-    for process in current_processes {
+    for (index, process) in current_processes.iter().enumerate() {
         by_id.insert(
             process.process,
             ProcessSnapshot {
                 id: process.process,
                 name: Some(process.name.clone()),
-                cpu_percent: cpu_values.and_then(|values| values.get(&process.process).copied()),
+                cpu_percent: cpu_values.and_then(|values| values.get(index).copied()),
                 memory_bytes: Some(process.rss_bytes),
                 disk_io: Vec::new(),
                 network_io: Vec::new(),
@@ -463,7 +457,7 @@ fn top_cpu(processes: &ProcessDomainSnapshot) -> Vec<ProcessCpuUsage> {
         .into_iter()
         .filter_map(|(process, percent)| {
             Some(ProcessCpuUsage {
-                name: process.name.clone()?,
+                name: process.name.as_deref()?.to_owned(),
                 percent,
             })
         })
@@ -483,7 +477,7 @@ fn top_memory(processes: &ProcessDomainSnapshot) -> Vec<ProcessMemoryUsage> {
         .into_iter()
         .filter_map(|(process, bytes)| {
             Some(ProcessMemoryUsage {
-                name: process.name.clone()?,
+                name: process.name.as_deref()?.to_owned(),
                 bytes,
             })
         })
@@ -873,7 +867,7 @@ mod tests {
         let processes: Vec<_> = (0..12)
             .map(|index| ProcessCounter {
                 process: process_id(index, 1),
-                name: format!("p{index}"),
+                name: format!("p{index}").into(),
                 cpu_time_units: 0,
                 rss_bytes: u64::from(index),
             })
@@ -897,7 +891,7 @@ mod tests {
         let previous_processes: Vec<_> = (0..12)
             .map(|index| ProcessCounter {
                 process: process_id(index, 1),
-                name: format!("p{index}"),
+                name: format!("p{index}").into(),
                 cpu_time_units: 100,
                 rss_bytes: 0,
             })
@@ -1173,7 +1167,7 @@ mod tests {
         let processes = (1..=5)
             .map(|pid| ProcessCounter {
                 process: process_id(pid, 1),
-                name: format!("p{pid}"),
+                name: format!("p{pid}").into(),
                 cpu_time_units: 0,
                 rss_bytes: u64::from(pid),
             })

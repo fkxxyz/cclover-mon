@@ -20,17 +20,50 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 #include <wayland-client.h>
 
 #define CCLOVER_MARGIN 16
+#define CCLOVER_TEXT_MEASURE_CACHE_SIZE 1024
+
+static double cclover_profile_cpu_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1000000.0;
+}
+
+typedef struct {
+    uint64_t hash;
+    uint8_t *text;
+    size_t text_len;
+    uint32_t size;
+    uint32_t flags;
+    float width;
+} CcloverTextMeasureCacheEntry;
+
+typedef struct {
+    uint32_t size;
+    uint32_t bold;
+    cairo_font_extents_t extents;
+    int valid;
+} CcloverFontMetricsCacheEntry;
 
 typedef struct {
     void *context;
     const CcloverCallbacks *callbacks;
     cairo_surface_t *measure_surface;
     cairo_t *measure_cr;
+    CcloverTextMeasureCacheEntry measure_cache[CCLOVER_TEXT_MEASURE_CACHE_SIZE];
+    CcloverFontMetricsCacheEntry font_metrics[32];
 } CcloverHost;
+
+typedef struct {
+    float x1;
+    float y1;
+    float x2;
+    float y2;
+} CcloverBounds;
 
 static void cclover_source_argb(cairo_t *cr, uint32_t argb) {
     double a = ((argb >> 24) & 0xff) / 255.0;
@@ -66,11 +99,14 @@ static char *cclover_text_copy(const uint8_t *bytes, size_t len, char stack[512]
     return text;
 }
 
-static void cclover_select_font(cairo_t *cr, uint32_t size, int bold) {
+static void cclover_configure_context(cairo_t *cr) {
     cairo_font_options_t *font_options = cairo_font_options_create();
     cairo_font_options_set_hint_metrics(font_options, CAIRO_HINT_METRICS_OFF);
     cairo_set_font_options(cr, font_options);
     cairo_font_options_destroy(font_options);
+}
+
+static void cclover_select_font(cairo_t *cr, uint32_t size, int bold) {
     cairo_select_font_face(cr, "Inconsolata", CAIRO_FONT_SLANT_NORMAL,
                            bold ? CAIRO_FONT_WEIGHT_BOLD : CAIRO_FONT_WEIGHT_NORMAL);
     cairo_set_font_size(cr, size);
@@ -81,66 +117,199 @@ static int cclover_measure_init(CcloverHost *host) {
     if (cairo_surface_status(host->measure_surface) != CAIRO_STATUS_SUCCESS) return -1;
     host->measure_cr = cairo_create(host->measure_surface);
     if (cairo_status(host->measure_cr) != CAIRO_STATUS_SUCCESS) return -1;
+    cclover_configure_context(host->measure_cr);
     return 0;
 }
 
 static void cclover_measure_destroy(CcloverHost *host) {
+    size_t i;
+    for (i = 0; i < CCLOVER_TEXT_MEASURE_CACHE_SIZE; ++i) {
+        free(host->measure_cache[i].text);
+        host->measure_cache[i].text = NULL;
+    }
     if (host->measure_cr) cairo_destroy(host->measure_cr);
     if (host->measure_surface) cairo_surface_destroy(host->measure_surface);
     host->measure_cr = NULL;
     host->measure_surface = NULL;
 }
 
+static uint64_t cclover_measure_hash(const uint8_t *bytes, size_t len,
+                                     uint32_t size, uint32_t flags) {
+    uint64_t hash = UINT64_C(1469598103934665603);
+    size_t i;
+    for (i = 0; i < len; ++i) {
+        hash ^= bytes[i];
+        hash *= UINT64_C(1099511628211);
+    }
+    hash ^= size;
+    hash *= UINT64_C(1099511628211);
+    hash ^= flags;
+    hash *= UINT64_C(1099511628211);
+    return hash;
+}
+
 static float cclover_measure_text(void *context, const uint8_t *bytes, size_t len,
                                   uint32_t size, uint32_t flags) {
     CcloverHost *host = context;
+    uint64_t hash = cclover_measure_hash(bytes, len, size, flags);
+    CcloverTextMeasureCacheEntry *cached =
+        &host->measure_cache[hash % CCLOVER_TEXT_MEASURE_CACHE_SIZE];
     char stack[512];
-    char *text = cclover_text_copy(bytes, len, stack);
+    char *text;
     cairo_text_extents_t ext;
+    if (cached->text && cached->hash == hash && cached->text_len == len &&
+        cached->size == size && cached->flags == flags &&
+        memcmp(cached->text, bytes, len) == 0)
+        return cached->width;
+    text = cclover_text_copy(bytes, len, stack);
     if (!text) return 0.0f;
     cclover_select_font(host->measure_cr, size, (flags & CCLOVER_TEXT_BOLD) != 0);
     cairo_text_extents(host->measure_cr, text, &ext);
+    if (len > 0) {
+        uint8_t *copy = malloc(len);
+        if (copy) {
+            memcpy(copy, bytes, len);
+            free(cached->text);
+            cached->hash = hash;
+            cached->text = copy;
+            cached->text_len = len;
+            cached->size = size;
+            cached->flags = flags;
+            cached->width = (float)ext.x_advance;
+        }
+    }
     if (text != stack) free(text);
     return (float)ext.x_advance;
 }
 
-static void cclover_draw_text(cairo_t *cr, const CcloverCommand *cmd) {
+
+static void cclover_font_extents(CcloverHost *host, cairo_t *cr, uint32_t size,
+                                 uint32_t bold, cairo_font_extents_t *extents) {
+    CcloverFontMetricsCacheEntry *cached =
+        &host->font_metrics[(size * 2u + bold) % 32u];
+    if (cached->valid && cached->size == size && cached->bold == bold) {
+        *extents = cached->extents;
+        return;
+    }
+    cairo_font_extents(cr, extents);
+    cached->size = size;
+    cached->bold = bold;
+    cached->extents = *extents;
+    cached->valid = 1;
+}
+
+static void cclover_draw_text(CcloverHost *host, cairo_t *cr, const CcloverCommand *cmd,
+                              uint32_t *font_size, uint32_t *font_bold, int *font_valid) {
     char stack[512];
     char *text = cclover_text_copy(cmd->text, cmd->text_len, stack);
-    cairo_text_extents_t ext;
     cairo_font_extents_t font;
+    uint32_t bold;
+    int clipped;
     double x, y;
     if (!text) return;
 
-    cairo_save(cr);
-    if (cmd->flags & CCLOVER_TEXT_CLIP) {
+    bold = (cmd->flags & CCLOVER_TEXT_BOLD) != 0;
+    if (!*font_valid || *font_size != cmd->text_size || *font_bold != bold) {
+        cclover_select_font(cr, cmd->text_size, bold);
+        *font_size = cmd->text_size;
+        *font_bold = bold;
+        *font_valid = 1;
+    }
+    clipped = (cmd->flags & CCLOVER_TEXT_CLIP) != 0;
+    if (clipped) {
+        cairo_save(cr);
         cairo_rectangle(cr, cmd->x, cmd->y, cmd->width, cmd->height);
         cairo_clip(cr);
     }
-    cclover_select_font(cr, cmd->text_size, (cmd->flags & CCLOVER_TEXT_BOLD) != 0);
-    cairo_text_extents(cr, text, &ext);
-    cairo_font_extents(cr, &font);
+    cclover_font_extents(host, cr, cmd->text_size, bold, &font);
+    /* NativeScene gives end-aligned cells their measured natural width, so the
+       rect's left edge is already the final text origin. */
     x = cmd->x;
-    if (cmd->flags & CCLOVER_TEXT_END)
-        x = cmd->x + cmd->width - ext.x_advance;
     y = cmd->y + (cmd->height - (font.ascent + font.descent)) / 2.0 + font.ascent;
     cclover_source_argb(cr, cmd->color);
     cairo_move_to(cr, x, y);
     cairo_show_text(cr, text);
-    cairo_restore(cr);
+    if (clipped) cairo_restore(cr);
     if (text != stack) free(text);
 }
 
-static void cclover_draw_scene(cairo_t *cr, const CcloverScene *scene) {
+#define CCLOVER_DRAW_ALL 0
+#define CCLOVER_DRAW_STATIC 1
+#define CCLOVER_DRAW_DYNAMIC 2
+
+static int cclover_draw_command(int mode, const CcloverCommand *cmd) {
+    int is_static = (cmd->flags & CCLOVER_STATIC_CONTENT) != 0;
+    return mode == CCLOVER_DRAW_ALL ||
+           (mode == CCLOVER_DRAW_STATIC && is_static) ||
+           (mode == CCLOVER_DRAW_DYNAMIC && !is_static);
+}
+
+static CcloverBounds cclover_command_bounds(const CcloverScene *scene,
+                                            const CcloverCommand *cmd) {
+    CcloverBounds bounds = { cmd->x, cmd->y,
+                             cmd->x + cmd->width, cmd->y + cmd->height };
+    float expand = 1.0f;
+    size_t point;
+    if ((cmd->kind == CCLOVER_CMD_POLYLINE || cmd->kind == CCLOVER_CMD_POLYGON) &&
+        cmd->point_count > 0 && cmd->point_offset + cmd->point_count <= scene->point_count) {
+        const CcloverPoint *first = &scene->points[cmd->point_offset];
+        bounds.x1 = bounds.x2 = first->x;
+        bounds.y1 = bounds.y2 = first->y;
+        for (point = 1; point < cmd->point_count; ++point) {
+            const CcloverPoint *p = &scene->points[cmd->point_offset + point];
+            bounds.x1 = fminf(bounds.x1, p->x);
+            bounds.y1 = fminf(bounds.y1, p->y);
+            bounds.x2 = fmaxf(bounds.x2, p->x);
+            bounds.y2 = fmaxf(bounds.y2, p->y);
+        }
+        expand = cmd->kind == CCLOVER_CMD_POLYLINE ? cmd->stroke_width + 1.0f : 1.0f;
+    } else if (cmd->kind == CCLOVER_CMD_TEXT) {
+        expand = (cmd->flags & CCLOVER_TEXT_CLIP) ? 0.0f : 3.0f;
+    } else if (cmd->kind == CCLOVER_CMD_STROKE_RECT) {
+        expand = cmd->stroke_width + 1.0f;
+    }
+    bounds.x1 -= expand;
+    bounds.y1 -= expand;
+    bounds.x2 += expand;
+    bounds.y2 += expand;
+    return bounds;
+}
+
+static int cclover_bounds_touch(CcloverBounds a, CcloverBounds b) {
+    return a.x1 <= b.x2 && a.x2 >= b.x1 && a.y1 <= b.y2 && a.y2 >= b.y1;
+}
+
+static int cclover_command_damaged(const CcloverScene *scene, const CcloverCommand *cmd,
+                                   const CcloverBounds *damage, size_t damage_count) {
+    CcloverBounds bounds;
+    size_t i;
+    if (!damage) return 1;
+    bounds = cclover_command_bounds(scene, cmd);
+    for (i = 0; i < damage_count; ++i) {
+        if (cclover_bounds_touch(bounds, damage[i])) return 1;
+    }
+    return 0;
+}
+
+static void cclover_draw_scene(CcloverHost *host, cairo_t *cr, const CcloverScene *scene,
+                               int clear, int mode, const CcloverBounds *damage,
+                               size_t damage_count) {
     size_t i, j;
+    uint32_t font_size = 0;
+    uint32_t font_bold = 0;
+    int font_valid = 0;
     cairo_save(cr);
-    cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
-    cairo_set_source_rgba(cr, 0, 0, 0, 0);
-    cairo_paint(cr);
+    if (clear) {
+        cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+        cairo_set_source_rgba(cr, 0, 0, 0, 0);
+        cairo_paint(cr);
+    }
     cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
 
     for (i = 0; i < scene->command_count; ++i) {
         const CcloverCommand *cmd = &scene->commands[i];
+        if (!cclover_draw_command(mode, cmd)) continue;
+        if (!cclover_command_damaged(scene, cmd, damage, damage_count)) continue;
         if (cmd->kind == CCLOVER_CMD_FILL_RECT) {
             cclover_round_rect(cr, cmd);
             cclover_source_argb(cr, cmd->color);
@@ -151,7 +320,7 @@ static void cclover_draw_scene(cairo_t *cr, const CcloverScene *scene) {
             cairo_set_line_width(cr, cmd->stroke_width);
             cairo_stroke(cr);
         } else if (cmd->kind == CCLOVER_CMD_TEXT) {
-            cclover_draw_text(cr, cmd);
+            cclover_draw_text(host, cr, cmd, &font_size, &font_bold, &font_valid);
         } else if ((cmd->kind == CCLOVER_CMD_POLYLINE ||
                     cmd->kind == CCLOVER_CMD_POLYGON) &&
                    cmd->point_count > 0 &&
@@ -256,7 +425,7 @@ static void x11_policy(Display *display, Window window) {
 }
 
 int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks) {
-    CcloverHost host = { context, callbacks, NULL, NULL };
+    CcloverHost host = { .context = context, .callbacks = callbacks };
     CcloverScene scene;
     Display *display = XOpenDisplay(NULL);
     Window window;
@@ -310,6 +479,7 @@ int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks) {
 
     surface = cairo_xlib_surface_create(display, window, visual, width, height);
     cr = cairo_create(surface);
+    cclover_configure_context(cr);
     fd = ConnectionNumber(display);
 
     while (running) {
@@ -334,8 +504,7 @@ int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks) {
         }
         if (!running) break;
         if (dirty) {
-            cclover_scene(&host, &scene);
-            cclover_draw_scene(cr, &scene);
+            cclover_draw_scene(&host, cr, &scene, 1, CCLOVER_DRAW_ALL, NULL, 0);
             cairo_surface_flush(surface);
             XFlush(display);
             dirty = 0;
@@ -355,6 +524,8 @@ int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks) {
 /* ---------------- Wayland host ---------------- */
 
 #define CCLOVER_MAX_OUTPUTS 16
+#define CCLOVER_WAYLAND_BUFFER_COUNT 2
+#define CCLOVER_MAX_DYNAMIC_COMMANDS 512
 
 typedef struct WaylandHost WaylandHost;
 
@@ -379,7 +550,32 @@ typedef struct WaylandBuffer {
     struct wl_buffer *buffer;
     void *data;
     size_t size;
+    cairo_surface_t *image;
+    cairo_t *cr;
+    uint32_t width;
+    uint32_t height;
+    int32_t scale;
+    int busy;
 } WaylandBuffer;
+
+typedef struct {
+    void *data;
+    size_t size;
+    cairo_surface_t *image;
+    cairo_t *cr;
+    uint32_t width;
+    uint32_t height;
+    int32_t scale;
+    uint64_t hash;
+} WaylandStaticLayer;
+
+typedef struct {
+    uint64_t hash;
+    float x1;
+    float y1;
+    float x2;
+    float y2;
+} WaylandDynamicCommandState;
 
 struct WaylandHost {
     CcloverHost host;
@@ -392,6 +588,12 @@ struct WaylandHost {
     int32_t scale;
     uint32_t width;
     uint32_t height;
+    WaylandBuffer buffers[CCLOVER_WAYLAND_BUFFER_COUNT];
+    WaylandBuffer *previous_buffer;
+    WaylandStaticLayer static_layer;
+    WaylandDynamicCommandState previous_dynamic[CCLOVER_MAX_DYNAMIC_COMMANDS];
+    size_t previous_dynamic_count;
+    int previous_dynamic_valid;
 };
 
 static void wayland_update_scale(WaylandHost *host) {
@@ -549,9 +751,8 @@ static const struct zwlr_layer_surface_v1_listener layer_listener = {
 
 static void buffer_release(void *data, struct wl_buffer *buffer) {
     WaylandBuffer *owned = data;
-    wl_buffer_destroy(buffer);
-    munmap(owned->data, owned->size);
-    free(owned);
+    (void)buffer;
+    owned->busy = 0;
 }
 
 static const struct wl_buffer_listener buffer_listener = { buffer_release };
@@ -571,49 +772,405 @@ static int create_shm_file(size_t size) {
     return fd;
 }
 
-static int wayland_draw(WaylandHost *host, const CcloverScene *scene) {
-    int32_t scale = host->scale > 0 ? host->scale : 1;
+static void wayland_buffer_destroy(WaylandBuffer *owned) {
+    if (owned->cr) cairo_destroy(owned->cr);
+    if (owned->image) cairo_surface_destroy(owned->image);
+    if (owned->buffer) wl_buffer_destroy(owned->buffer);
+    if (owned->data && owned->data != MAP_FAILED) munmap(owned->data, owned->size);
+    memset(owned, 0, sizeof(*owned));
+}
+
+static uint64_t hash_bytes(uint64_t hash, const void *data, size_t size) {
+    const uint8_t *bytes = data;
+    size_t i;
+    for (i = 0; i < size; ++i) {
+        hash ^= bytes[i];
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash;
+}
+
+static uint64_t wayland_static_hash(const CcloverScene *scene) {
+    uint64_t hash = UINT64_C(1469598103934665603);
+    size_t i;
+    hash = hash_bytes(hash, &scene->width, sizeof(scene->width));
+    hash = hash_bytes(hash, &scene->height, sizeof(scene->height));
+    for (i = 0; i < scene->command_count; ++i) {
+        const CcloverCommand *cmd = &scene->commands[i];
+        size_t point;
+        if (!(cmd->flags & CCLOVER_STATIC_CONTENT)) continue;
+
+        hash = hash_bytes(hash, &cmd->kind, sizeof(cmd->kind));
+        hash = hash_bytes(hash, &cmd->color, sizeof(cmd->color));
+        hash = hash_bytes(hash, &cmd->flags, sizeof(cmd->flags));
+
+        if (cmd->kind == CCLOVER_CMD_TEXT) {
+            hash = hash_bytes(hash, &cmd->x, sizeof(cmd->x));
+            hash = hash_bytes(hash, &cmd->y, sizeof(cmd->y));
+            hash = hash_bytes(hash, &cmd->height, sizeof(cmd->height));
+            if (cmd->flags & (CCLOVER_TEXT_CLIP | CCLOVER_TEXT_END))
+                hash = hash_bytes(hash, &cmd->width, sizeof(cmd->width));
+            hash = hash_bytes(hash, &cmd->text_size, sizeof(cmd->text_size));
+            hash = hash_bytes(hash, &cmd->text_len, sizeof(cmd->text_len));
+            if (cmd->text && cmd->text_len)
+                hash = hash_bytes(hash, cmd->text, cmd->text_len);
+        } else if (cmd->kind == CCLOVER_CMD_FILL_RECT ||
+                   cmd->kind == CCLOVER_CMD_STROKE_RECT) {
+            hash = hash_bytes(hash, &cmd->x, sizeof(cmd->x));
+            hash = hash_bytes(hash, &cmd->y, sizeof(cmd->y));
+            hash = hash_bytes(hash, &cmd->width, sizeof(cmd->width));
+            hash = hash_bytes(hash, &cmd->height, sizeof(cmd->height));
+            hash = hash_bytes(hash, &cmd->radius, sizeof(cmd->radius));
+            if (cmd->kind == CCLOVER_CMD_STROKE_RECT)
+                hash = hash_bytes(hash, &cmd->stroke_width, sizeof(cmd->stroke_width));
+        } else if (cmd->kind == CCLOVER_CMD_POLYLINE ||
+                   cmd->kind == CCLOVER_CMD_POLYGON) {
+            hash = hash_bytes(hash, &cmd->stroke_width, sizeof(cmd->stroke_width));
+            hash = hash_bytes(hash, &cmd->point_count, sizeof(cmd->point_count));
+            for (point = 0; point < cmd->point_count; ++point) {
+                size_t index = cmd->point_offset + point;
+                if (index < scene->point_count)
+                    hash = hash_bytes(hash, &scene->points[index], sizeof(scene->points[index]));
+            }
+        }
+    }
+    return hash;
+}
+
+static void wayland_static_layer_destroy(WaylandStaticLayer *layer) {
+    if (layer->cr) cairo_destroy(layer->cr);
+    if (layer->image) cairo_surface_destroy(layer->image);
+    free(layer->data);
+    memset(layer, 0, sizeof(*layer));
+}
+
+static int wayland_static_layer_ensure(WaylandHost *host, const CcloverScene *scene,
+                                       int32_t scale, int *rebuilt) {
+    WaylandStaticLayer *layer = &host->static_layer;
+    uint64_t hash = wayland_static_hash(scene);
+    *rebuilt = 0;
+    uint32_t buffer_width = scene->width * (uint32_t)scale;
+    uint32_t buffer_height = scene->height * (uint32_t)scale;
+    int stride = (int)buffer_width * 4;
+    size_t size = (size_t)stride * buffer_height;
+    if (layer->data && layer->width == scene->width && layer->height == scene->height &&
+        layer->scale == scale && layer->hash == hash)
+        return 0;
+
+    wayland_static_layer_destroy(layer);
+    layer->data = calloc(1, size);
+    if (!layer->data) return -1;
+    layer->size = size;
+    layer->width = scene->width;
+    layer->height = scene->height;
+    layer->scale = scale;
+    layer->hash = hash;
+    layer->image = cairo_image_surface_create_for_data(
+        layer->data, CAIRO_FORMAT_ARGB32, buffer_width, buffer_height, stride);
+    if (cairo_surface_status(layer->image) != CAIRO_STATUS_SUCCESS) {
+        wayland_static_layer_destroy(layer);
+        return -1;
+    }
+    layer->cr = cairo_create(layer->image);
+    if (cairo_status(layer->cr) != CAIRO_STATUS_SUCCESS) {
+        wayland_static_layer_destroy(layer);
+        return -1;
+    }
+    cclover_configure_context(layer->cr);
+    cairo_scale(layer->cr, scale, scale);
+    cclover_draw_scene(&host->host, layer->cr, scene, 0, CCLOVER_DRAW_STATIC, NULL, 0);
+    cairo_surface_flush(layer->image);
+    *rebuilt = 1;
+    return 0;
+}
+
+static int wayland_buffer_create(WaylandHost *host, WaylandBuffer *owned,
+                                 const CcloverScene *scene, int32_t scale) {
     uint32_t buffer_width = scene->width * (uint32_t)scale;
     uint32_t buffer_height = scene->height * (uint32_t)scale;
     int stride = (int)buffer_width * 4;
     size_t size = (size_t)stride * buffer_height;
     int fd = create_shm_file(size);
     struct wl_shm_pool *pool;
-    WaylandBuffer *owned;
-    cairo_surface_t *image;
-    cairo_t *cr;
     if (fd < 0) return -1;
-    owned = calloc(1, sizeof(*owned));
-    if (!owned) { close(fd); return -1; }
+
     owned->size = size;
+    owned->width = scene->width;
+    owned->height = scene->height;
+    owned->scale = scale;
     owned->data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (owned->data == MAP_FAILED) { free(owned); close(fd); return -1; }
+    if (owned->data == MAP_FAILED) {
+        owned->data = NULL;
+        close(fd);
+        wayland_buffer_destroy(owned);
+        return -1;
+    }
+
     pool = wl_shm_create_pool(host->globals.shm, fd, (int)size);
     owned->buffer = wl_shm_pool_create_buffer(pool, 0, buffer_width, buffer_height,
                                               stride, WL_SHM_FORMAT_ARGB8888);
     wl_shm_pool_destroy(pool);
     close(fd);
     if (!owned->buffer) {
-        munmap(owned->data, owned->size);
-        free(owned);
+        wayland_buffer_destroy(owned);
         return -1;
     }
-    wl_buffer_add_listener(owned->buffer, &buffer_listener, owned);
 
-    image = cairo_image_surface_create_for_data(owned->data, CAIRO_FORMAT_ARGB32,
-                                                buffer_width, buffer_height, stride);
-    cr = cairo_create(image);
-    cairo_scale(cr, scale, scale);
-    cclover_draw_scene(cr, scene);
-    cairo_destroy(cr);
-    cairo_surface_flush(image);
-    cairo_surface_destroy(image);
+    owned->image = cairo_image_surface_create_for_data(
+        owned->data, CAIRO_FORMAT_ARGB32, buffer_width, buffer_height, stride);
+    if (cairo_surface_status(owned->image) != CAIRO_STATUS_SUCCESS) {
+        wayland_buffer_destroy(owned);
+        return -1;
+    }
+    owned->cr = cairo_create(owned->image);
+    if (cairo_status(owned->cr) != CAIRO_STATUS_SUCCESS) {
+        wayland_buffer_destroy(owned);
+        return -1;
+    }
+    cclover_configure_context(owned->cr);
+    cairo_scale(owned->cr, scale, scale);
+    wl_buffer_add_listener(owned->buffer, &buffer_listener, owned);
+    return 0;
+}
+
+static int wayland_buffer_acquire(WaylandHost *host, const CcloverScene *scene,
+                                  int32_t scale, WaylandBuffer **out) {
+    size_t i;
+    if (host->previous_buffer && !host->previous_buffer->busy &&
+        host->previous_buffer->buffer &&
+        host->previous_buffer->width == scene->width &&
+        host->previous_buffer->height == scene->height &&
+        host->previous_buffer->scale == scale) {
+        *out = host->previous_buffer;
+        return 0;
+    }
+    for (i = 0; i < CCLOVER_WAYLAND_BUFFER_COUNT; ++i) {
+        WaylandBuffer *owned = &host->buffers[i];
+        if (owned->busy) continue;
+        if (owned->buffer &&
+            (owned->width != scene->width || owned->height != scene->height ||
+             owned->scale != scale)) {
+            wayland_buffer_destroy(owned);
+        }
+        if (!owned->buffer && wayland_buffer_create(host, owned, scene, scale) < 0)
+            return -1;
+        *out = owned;
+        return 0;
+    }
+    return 1;
+}
+
+static uint64_t wayland_dynamic_command_hash(const CcloverScene *scene,
+                                             const CcloverCommand *cmd) {
+    uint64_t hash = UINT64_C(1469598103934665603);
+    size_t point;
+    hash = hash_bytes(hash, &cmd->kind, sizeof(cmd->kind));
+    hash = hash_bytes(hash, &cmd->x, sizeof(cmd->x));
+    hash = hash_bytes(hash, &cmd->y, sizeof(cmd->y));
+    hash = hash_bytes(hash, &cmd->width, sizeof(cmd->width));
+    hash = hash_bytes(hash, &cmd->height, sizeof(cmd->height));
+    hash = hash_bytes(hash, &cmd->color, sizeof(cmd->color));
+    hash = hash_bytes(hash, &cmd->radius, sizeof(cmd->radius));
+    hash = hash_bytes(hash, &cmd->stroke_width, sizeof(cmd->stroke_width));
+    hash = hash_bytes(hash, &cmd->text_size, sizeof(cmd->text_size));
+    hash = hash_bytes(hash, &cmd->flags, sizeof(cmd->flags));
+    hash = hash_bytes(hash, &cmd->text_len, sizeof(cmd->text_len));
+    if (cmd->text && cmd->text_len)
+        hash = hash_bytes(hash, cmd->text, cmd->text_len);
+    hash = hash_bytes(hash, &cmd->point_count, sizeof(cmd->point_count));
+    for (point = 0; point < cmd->point_count; ++point) {
+        size_t index = cmd->point_offset + point;
+        if (index < scene->point_count)
+            hash = hash_bytes(hash, &scene->points[index], sizeof(scene->points[index]));
+    }
+    return hash;
+}
+
+static CcloverBounds wayland_command_bounds(const CcloverScene *scene,
+                                            const CcloverCommand *cmd) {
+    return cclover_command_bounds(scene, cmd);
+}
+
+static size_t wayland_dynamic_state(const CcloverScene *scene,
+                                    WaylandDynamicCommandState *out,
+                                    size_t capacity) {
+    size_t i, count = 0;
+    for (i = 0; i < scene->command_count; ++i) {
+        const CcloverCommand *cmd = &scene->commands[i];
+        CcloverBounds bounds;
+        if (cmd->flags & CCLOVER_STATIC_CONTENT) continue;
+        if (count >= capacity) return capacity + 1;
+        bounds = wayland_command_bounds(scene, cmd);
+        out[count].hash = wayland_dynamic_command_hash(scene, cmd);
+        out[count].x1 = bounds.x1;
+        out[count].y1 = bounds.y1;
+        out[count].x2 = bounds.x2;
+        out[count].y2 = bounds.y2;
+        ++count;
+    }
+    return count;
+}
+
+static void wayland_restore_rect(WaylandHost *host, WaylandBuffer *owned,
+                                 CcloverBounds rect, int32_t scale) {
+    int buffer_width = (int)(host->width * (uint32_t)scale);
+    int buffer_height = (int)(host->height * (uint32_t)scale);
+    int x1 = (int)floorf(rect.x1 * scale);
+    int y1 = (int)floorf(rect.y1 * scale);
+    int x2 = (int)ceilf(rect.x2 * scale);
+    int y2 = (int)ceilf(rect.y2 * scale);
+    int stride = buffer_width * 4;
+    int y;
+    if (x1 < 0) x1 = 0;
+    if (y1 < 0) y1 = 0;
+    if (x2 > buffer_width) x2 = buffer_width;
+    if (y2 > buffer_height) y2 = buffer_height;
+    if (x2 <= x1 || y2 <= y1) return;
+    for (y = y1; y < y2; ++y) {
+        memcpy((uint8_t *)owned->data + (size_t)y * stride + (size_t)x1 * 4,
+               (uint8_t *)host->static_layer.data + (size_t)y * stride + (size_t)x1 * 4,
+               (size_t)(x2 - x1) * 4);
+    }
+    cairo_surface_mark_dirty_rectangle(owned->image, x1, y1, x2 - x1, y2 - y1);
+}
+
+static int wayland_rects_touch(CcloverBounds a, CcloverBounds b) {
+    return cclover_bounds_touch(a, b);
+}
+
+static void wayland_add_dirty(CcloverBounds *rects, size_t *count,
+                              CcloverBounds rect) {
+    size_t i = 0;
+    while (i < *count) {
+        if (!wayland_rects_touch(rects[i], rect)) {
+            ++i;
+            continue;
+        }
+        rect.x1 = fminf(rect.x1, rects[i].x1);
+        rect.y1 = fminf(rect.y1, rects[i].y1);
+        rect.x2 = fmaxf(rect.x2, rects[i].x2);
+        rect.y2 = fmaxf(rect.y2, rects[i].y2);
+        rects[i] = rects[--(*count)];
+        i = 0;
+    }
+    if (*count < CCLOVER_MAX_DYNAMIC_COMMANDS)
+        rects[(*count)++] = rect;
+}
+
+static int wayland_draw(WaylandHost *host, const CcloverScene *scene) {
+    WaylandDynamicCommandState current[CCLOVER_MAX_DYNAMIC_COMMANDS];
+    CcloverBounds dirty[CCLOVER_MAX_DYNAMIC_COMMANDS];
+    int32_t scale = host->scale > 0 ? host->scale : 1;
+    int profiling = getenv("CCLOVER_RENDER_PROFILE") != NULL;
+    double profile_started = profiling ? cclover_profile_cpu_ms() : 0.0;
+    double profile_dynamic = 0.0;
+    double profile_static = 0.0;
+    double profile_raster = 0.0;
+    size_t current_count = wayland_dynamic_state(scene, current, CCLOVER_MAX_DYNAMIC_COMMANDS);
+    if (profiling) profile_dynamic = cclover_profile_cpu_ms();
+    size_t dirty_count = 0;
+    size_t i;
+    int full_redraw = 0;
+    int static_rebuilt = 0;
+    WaylandBuffer *owned;
+    int acquired;
+
+    if (wayland_static_layer_ensure(host, scene, scale, &static_rebuilt) < 0) return -1;
+    if (profiling) profile_static = cclover_profile_cpu_ms();
+    if (current_count > CCLOVER_MAX_DYNAMIC_COMMANDS || static_rebuilt ||
+        !host->previous_dynamic_valid || current_count != host->previous_dynamic_count) {
+        full_redraw = 1;
+    } else {
+        for (i = 0; i < current_count; ++i) {
+            if (current[i].hash != host->previous_dynamic[i].hash) {
+                CcloverBounds rect = {
+                    fminf(current[i].x1, host->previous_dynamic[i].x1),
+                    fminf(current[i].y1, host->previous_dynamic[i].y1),
+                    fmaxf(current[i].x2, host->previous_dynamic[i].x2),
+                    fmaxf(current[i].y2, host->previous_dynamic[i].y2),
+                };
+                wayland_add_dirty(dirty, &dirty_count, rect);
+            }
+        }
+    }
+
+    acquired = wayland_buffer_acquire(host, scene, scale, &owned);
+    if (acquired != 0) return acquired;
+    cairo_surface_flush(owned->image);
+
+    if (full_redraw) {
+        memcpy(owned->data, host->static_layer.data, owned->size);
+        cairo_surface_mark_dirty(owned->image);
+        dirty[0] = (CcloverBounds){ 0.0f, 0.0f, (float)scene->width, (float)scene->height };
+        dirty_count = 1;
+    } else {
+        if (owned != host->previous_buffer) {
+            if (host->previous_buffer && host->previous_buffer->size == owned->size) {
+                memcpy(owned->data, host->previous_buffer->data, owned->size);
+                cairo_surface_mark_dirty(owned->image);
+            } else {
+                memcpy(owned->data, host->static_layer.data, owned->size);
+                cairo_surface_mark_dirty(owned->image);
+                full_redraw = 1;
+                dirty[0] = (CcloverBounds){ 0.0f, 0.0f,
+                                            (float)scene->width, (float)scene->height };
+                dirty_count = 1;
+            }
+        }
+        if (!full_redraw) {
+            for (i = 0; i < dirty_count; ++i)
+                wayland_restore_rect(host, owned, dirty[i], scale);
+        }
+    }
+    if (dirty_count > 0) {
+        cairo_save(owned->cr);
+        for (i = 0; i < dirty_count; ++i) {
+            cairo_rectangle(owned->cr, dirty[i].x1, dirty[i].y1,
+                            dirty[i].x2 - dirty[i].x1, dirty[i].y2 - dirty[i].y1);
+        }
+        cairo_clip(owned->cr);
+        cclover_draw_scene(&host->host, owned->cr, scene, 0, CCLOVER_DRAW_DYNAMIC, dirty, dirty_count);
+        cairo_restore(owned->cr);
+        cairo_surface_flush(owned->image);
+    }
+    if (profiling) profile_raster = cclover_profile_cpu_ms();
+    if (current_count <= CCLOVER_MAX_DYNAMIC_COMMANDS) {
+        memcpy(host->previous_dynamic, current, current_count * sizeof(current[0]));
+        host->previous_dynamic_count = current_count;
+        host->previous_dynamic_valid = 1;
+    } else {
+        host->previous_dynamic_valid = 0;
+    }
+
+    if (dirty_count == 0) {
+        return 0;
+    }
 
     wl_surface_set_buffer_scale(host->surface, scale);
     wl_surface_attach(host->surface, owned->buffer, 0, 0);
-    wl_surface_damage(host->surface, 0, 0, (int)scene->width, (int)scene->height);
+    for (i = 0; i < dirty_count; ++i) {
+        int x = (int)floorf(dirty[i].x1);
+        int y = (int)floorf(dirty[i].y1);
+        int width = (int)ceilf(dirty[i].x2) - x;
+        int height = (int)ceilf(dirty[i].y2) - y;
+        wl_surface_damage(host->surface, x, y, width, height);
+    }
+    owned->busy = 1;
     wl_surface_commit(host->surface);
     wl_display_flush(host->globals.display);
+    host->previous_buffer = owned;
+    if (profiling) {
+        double dirty_area = 0.0;
+        for (i = 0; i < dirty_count; ++i)
+            dirty_area += (dirty[i].x2 - dirty[i].x1) * (dirty[i].y2 - dirty[i].y1);
+        fprintf(stderr,
+                "drawparts dynamic=%.3f static=%.3f raster=%.3f submit=%.3fms dirty=%zu area=%.0f\n",
+                profile_dynamic - profile_started,
+                profile_static - profile_dynamic,
+                profile_raster - profile_static,
+                cclover_profile_cpu_ms() - profile_raster,
+                dirty_count, dirty_area);
+    }
     return 0;
 }
 
@@ -685,7 +1242,12 @@ int cclover_linux_wayland_run(void *context, const CcloverCallbacks *callbacks) 
         uint32_t status = callbacks->poll(context);
         if (status & CCLOVER_POLL_QUIT) break;
         if (status & CCLOVER_POLL_FRAME) {
+            int profiling = getenv("CCLOVER_RENDER_PROFILE") != NULL;
+            double profile_started = profiling ? cclover_profile_cpu_ms() : 0.0;
             cclover_scene(&host.host, &scene);
+            if (profiling)
+                fprintf(stderr, "scene cpu=%.3fms\n",
+                        cclover_profile_cpu_ms() - profile_started);
             if (scene.width != host.width || scene.height != host.height) {
                 host.width = scene.width;
                 host.height = scene.height;
@@ -696,12 +1258,18 @@ int cclover_linux_wayland_run(void *context, const CcloverCallbacks *callbacks) 
             host.dirty = 1;
         }
         if (host.configured && host.dirty) {
-            cclover_scene(&host.host, &scene);
-            if (wayland_draw(&host, &scene) < 0) {
+            int draw_result;
+            int profiling = getenv("CCLOVER_RENDER_PROFILE") != NULL;
+            double profile_started = profiling ? cclover_profile_cpu_ms() : 0.0;
+            draw_result = wayland_draw(&host, &scene);
+            if (profiling)
+                fprintf(stderr, "draw cpu=%.3fms\n",
+                        cclover_profile_cpu_ms() - profile_started);
+            if (draw_result < 0) {
                 host.closed = 1;
                 break;
             }
-            host.dirty = 0;
+            if (draw_result == 0) host.dirty = 0;
         }
 
         wl_display_flush(host.globals.display);
@@ -714,6 +1282,10 @@ int cclover_linux_wayland_run(void *context, const CcloverCallbacks *callbacks) 
 
     if (host.layer_surface) zwlr_layer_surface_v1_destroy(host.layer_surface);
     if (host.surface) wl_surface_destroy(host.surface);
+    wl_display_roundtrip(host.globals.display);
+    for (i = 0; i < CCLOVER_WAYLAND_BUFFER_COUNT; ++i)
+        wayland_buffer_destroy(&host.buffers[i]);
+    wayland_static_layer_destroy(&host.static_layer);
     for (i = 0; i < host.globals.output_count; ++i) {
         if (host.globals.outputs[i].output)
             wl_output_destroy(host.globals.outputs[i].output);

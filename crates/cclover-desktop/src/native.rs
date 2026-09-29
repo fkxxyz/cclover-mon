@@ -160,28 +160,32 @@ impl FrameStorage {
             text_size: 0,
             flags: 0,
         };
-        match primitive {
+        let static_content = match primitive {
             Primitive::FillRect {
                 rect,
                 color,
                 radius,
+                static_content,
             } => {
                 command.kind = COMMAND_FILL_RECT;
                 set_rect(&mut command, rect);
                 command.color = argb(color);
                 command.radius = radius;
+                static_content
             }
             Primitive::StrokeRect {
                 rect,
                 color,
                 width,
                 radius,
+                static_content,
             } => {
                 command.kind = COMMAND_STROKE_RECT;
                 set_rect(&mut command, rect);
                 command.color = argb(color);
                 command.stroke_width = width;
                 command.radius = radius;
+                static_content
             }
             Primitive::Text {
                 rect,
@@ -191,6 +195,7 @@ impl FrameStorage {
                 bold,
                 align,
                 clip,
+                static_content,
             } => {
                 command.kind = COMMAND_TEXT;
                 set_rect(&mut command, rect);
@@ -203,22 +208,29 @@ impl FrameStorage {
                 command.text = text.as_ptr();
                 command.text_len = text.len();
                 self.text.push(text);
+                static_content
             }
             Primitive::Polyline {
                 points,
                 color,
                 width,
+                static_content,
             } => {
                 command.kind = COMMAND_POLYLINE;
                 command.color = argb(color);
                 command.stroke_width = width;
                 append_points(self, &mut command, points);
+                static_content
             }
             Primitive::Polygon { points, color } => {
                 command.kind = COMMAND_POLYGON;
                 command.color = argb(color);
                 append_points(self, &mut command, points);
+                false
             }
+        };
+        if static_content {
+            command.flags |= FLAG_STATIC_CONTENT;
         }
         self.commands.push(command);
     }

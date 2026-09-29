@@ -15,7 +15,7 @@ pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Collection<Vec<Pro
                             pid,
                             birth_marker: process.create_time,
                         },
-                        name: process.name,
+                        name: process.name.into(),
                         cpu_time_units: process.user_time.saturating_add(process.kernel_time),
                         rss_bytes: process.working_set as u64,
                     })

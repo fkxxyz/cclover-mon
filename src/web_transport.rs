@@ -402,7 +402,7 @@ impl From<&ProcessDiskIo> for WebProcessDiskIo {
         Self {
             pid: value.process.pid,
             birth_marker: value.process.birth_marker,
-            name: value.name.clone(),
+            name: value.name.as_deref().map(str::to_owned),
             disk_id: value.disk_id.as_opaque_key().to_owned(),
             device: value.device.clone(),
             read_bytes_per_sec: value.read_bytes_per_sec,
@@ -418,7 +418,7 @@ impl From<WebProcessDiskIo> for ProcessDiskIo {
                 pid: value.pid,
                 birth_marker: value.birth_marker,
             },
-            name: value.name,
+            name: value.name.map(Into::into),
             disk_id: DiskId::from_opaque_key(value.disk_id),
             device: value.device,
             read_bytes_per_sec: value.read_bytes_per_sec,
@@ -432,7 +432,7 @@ impl From<&ProcessNetworkIo> for WebProcessNetworkIo {
         Self {
             pid: value.process.pid,
             birth_marker: value.process.birth_marker,
-            name: value.name.clone(),
+            name: value.name.as_deref().map(str::to_owned),
             network_id: value.network_id.as_opaque_key().to_owned(),
             interface: value.interface.clone(),
             rx_bytes_per_sec: value.rx_bytes_per_sec,
@@ -448,7 +448,7 @@ impl From<WebProcessNetworkIo> for ProcessNetworkIo {
                 pid: value.pid,
                 birth_marker: value.birth_marker,
             },
-            name: value.name,
+            name: value.name.map(Into::into),
             network_id: NetworkId::from_opaque_key(value.network_id),
             interface: value.interface,
             rx_bytes_per_sec: value.rx_bytes_per_sec,
@@ -654,7 +654,7 @@ mod tests {
         };
         state.snapshot.process_disk_io = Collection::available(vec![ProcessDiskIo {
             process,
-            name: Some("worker".to_owned()),
+            name: Some("worker".into()),
             disk_id: DiskId::from_opaque_key("disk-a"),
             device: "nvme0n1".to_owned(),
             read_bytes_per_sec: 1.0,
@@ -662,7 +662,7 @@ mod tests {
         }]);
         state.snapshot.process_network_io = Collection::available(vec![ProcessNetworkIo {
             process,
-            name: Some("worker".to_owned()),
+            name: Some("worker".into()),
             network_id: NetworkId::from_opaque_key("network-a"),
             interface: "eth0".to_owned(),
             rx_bytes_per_sec: 3.0,

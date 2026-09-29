@@ -115,6 +115,7 @@ pub struct TextCell<'a> {
     pub weight: TextWeight,
     pub grow: bool,
     pub clip: bool,
+    pub static_content: bool,
 }
 
 impl<'a> TextCell<'a> {
@@ -126,6 +127,7 @@ impl<'a> TextCell<'a> {
             weight: TextWeight::Regular,
             grow: false,
             clip: false,
+            static_content: false,
         }
     }
 
@@ -137,6 +139,7 @@ impl<'a> TextCell<'a> {
             weight: TextWeight::Regular,
             grow: false,
             clip: false,
+            static_content: false,
         }
     }
 
@@ -152,6 +155,11 @@ impl<'a> TextCell<'a> {
 
     fn clip(mut self) -> Self {
         self.clip = true;
+        self
+    }
+
+    fn static_content(mut self) -> Self {
+        self.static_content = true;
         self
     }
 }
@@ -563,6 +571,7 @@ fn metric_card<'a>(params: MetricCardParams<'a>) -> Block<'a> {
                 cells: vec![
                     TextCell::borrowed(secondary_label, 11, Tone::Muted)
                         .bold()
+                        .static_content()
                         .grow(),
                     TextCell::owned(secondary_value, 11, Tone::Muted),
                 ],
@@ -603,6 +612,7 @@ fn gpu_card<'a>(gpu: cclover_presentation::GpuPanel<'a>, capacity: usize) -> Blo
                 cells: vec![
                     TextCell::borrowed(gpu.name(), 13, Tone::Foreground)
                         .bold()
+                        .static_content()
                         .grow()
                         .clip(),
                 ],
@@ -657,7 +667,10 @@ fn gpu_card<'a>(gpu: cclover_presentation::GpuPanel<'a>, capacity: usize) -> Blo
 fn metric_row<'a>(label: &'static str, value: String, height: u32) -> Element<'a> {
     Element::Row(TextRow {
         cells: vec![
-            TextCell::borrowed(label, 10, Tone::Muted).bold().grow(),
+            TextCell::borrowed(label, 10, Tone::Muted)
+                .bold()
+                .static_content()
+                .grow(),
             TextCell::owned(value, 12, Tone::Foreground),
         ],
         height,
@@ -668,7 +681,10 @@ fn metric_row<'a>(label: &'static str, value: String, height: u32) -> Element<'a
 fn status_row<'a>(label: &'static str, value: String) -> Element<'a> {
     Element::Row(TextRow {
         cells: vec![
-            TextCell::borrowed(label, 10, Tone::Muted).bold().grow(),
+            TextCell::borrowed(label, 10, Tone::Muted)
+                .bold()
+                .static_content()
+                .grow(),
             TextCell::owned(value, 11, Tone::Muted),
         ],
         height: GPU_CARD_GEOMETRY.status_row_height,
@@ -758,6 +774,7 @@ fn network_card<'a>(network: cclover_presentation::NetworkPanel<'a>, capacity: u
                 cells: vec![
                     TextCell::borrowed(network.name(), 13, Tone::Foreground)
                         .bold()
+                        .static_content()
                         .grow()
                         .clip(),
                 ],
@@ -796,7 +813,7 @@ fn network_card<'a>(network: cclover_presentation::NetworkPanel<'a>, capacity: u
 fn value_row<'a>(label: &'static str, value: String, tone: Tone) -> Element<'a> {
     Element::Row(TextRow {
         cells: vec![
-            TextCell::borrowed(label, 13, tone),
+            TextCell::borrowed(label, 13, tone).static_content(),
             TextCell::owned(String::new(), 1, tone).grow(),
             TextCell::owned(value, 11, tone).bold(),
         ],
@@ -816,7 +833,7 @@ fn io_process_rows<'a>(
     let mut children = Vec::new();
     if let Some(value) = unavailable {
         children.push(Element::Row(TextRow {
-            cells: vec![TextCell::borrowed(value, 10, Tone::Muted)],
+            cells: vec![TextCell::borrowed(value, 10, Tone::Muted).static_content()],
             height: IO_PROCESS_GEOMETRY.row_height,
             gap: 0,
         }));

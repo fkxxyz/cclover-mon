@@ -3,11 +3,15 @@
 use std::ffi::CStr;
 use std::mem;
 
-use libc::{RTLD_LOCAL, RTLD_NOW, c_char, c_uint, c_void};
+use libc::{RTLD_LOCAL, RTLD_NOW, c_char, c_int, c_uint, c_void};
 
 const NVML_SUCCESS: c_uint = 0;
 const NVML_TEMPERATURE_GPU: c_uint = 0;
 const NVML_CLOCK_GRAPHICS: c_uint = 0;
+const NVML_TOTAL_POWER_SAMPLES: c_uint = 0;
+const NVML_VALUE_TYPE_UNSIGNED_INT: c_uint = 1;
+const NVML_FI_DEV_POWER_AVERAGE: c_uint = 185;
+const NVML_FI_DEV_POWER_INSTANT: c_uint = 186;
 const NVML_DEVICE_UUID_BUFFER_SIZE: usize = 96;
 const NVML_DEVICE_NAME_BUFFER_SIZE: usize = 256;
 
@@ -22,6 +26,16 @@ type NvmlDeviceGetMemoryInfo = unsafe extern "C" fn(*mut c_void, *mut NvmlMemory
 type NvmlDeviceGetUtilizationRates =
     unsafe extern "C" fn(*mut c_void, *mut NvmlUtilization) -> c_uint;
 type NvmlDeviceGetPowerUsage = unsafe extern "C" fn(*mut c_void, *mut c_uint) -> c_uint;
+type NvmlDeviceGetSamples = unsafe extern "C" fn(
+    *mut c_void,
+    c_uint,
+    libc::c_ulonglong,
+    *mut c_uint,
+    *mut c_uint,
+    *mut NvmlSample,
+) -> c_uint;
+type NvmlDeviceGetFieldValues =
+    unsafe extern "C" fn(*mut c_void, c_int, *mut NvmlFieldValue) -> c_uint;
 type NvmlDeviceGetClockInfo = unsafe extern "C" fn(*mut c_void, c_uint, *mut c_uint) -> c_uint;
 type NvmlDeviceGetFanSpeed = unsafe extern "C" fn(*mut c_void, *mut c_uint) -> c_uint;
 
@@ -38,6 +52,34 @@ pub(super) struct NvmlUtilization {
     pub(super) memory: c_uint,
 }
 
+#[repr(C)]
+union NvmlValue {
+    d_val: f64,
+    ui_val: c_uint,
+    ul_val: libc::c_ulong,
+    ull_val: libc::c_ulonglong,
+    sll_val: libc::c_longlong,
+    si_val: libc::c_int,
+    us_val: libc::c_ushort,
+}
+
+#[repr(C)]
+struct NvmlFieldValue {
+    field_id: c_uint,
+    scope_id: c_uint,
+    timestamp: libc::c_longlong,
+    latency_usec: libc::c_longlong,
+    value_type: c_uint,
+    nvml_return: c_uint,
+    value: NvmlValue,
+}
+
+#[repr(C)]
+struct NvmlSample {
+    timestamp: libc::c_ulonglong,
+    sample_value: NvmlValue,
+}
+
 pub(super) struct Session {
     library: Library,
     shutdown: NvmlShutdown,
@@ -45,6 +87,8 @@ pub(super) struct Session {
     get_memory_info: NvmlDeviceGetMemoryInfo,
     get_utilization_rates: NvmlDeviceGetUtilizationRates,
     get_power_usage: NvmlDeviceGetPowerUsage,
+    get_samples: Option<NvmlDeviceGetSamples>,
+    get_field_values: Option<NvmlDeviceGetFieldValues>,
     get_clock_info: NvmlDeviceGetClockInfo,
     get_fan_speed: NvmlDeviceGetFanSpeed,
     devices: Vec<Device>,
@@ -84,6 +128,10 @@ impl Session {
             library.function(b"nvmlDeviceGetUtilizationRates\0")?;
         let get_power_usage: NvmlDeviceGetPowerUsage =
             library.function(b"nvmlDeviceGetPowerUsage\0")?;
+        let get_samples: Option<NvmlDeviceGetSamples> =
+            library.function(b"nvmlDeviceGetSamples\0").ok();
+        let get_field_values: Option<NvmlDeviceGetFieldValues> =
+            library.function(b"nvmlDeviceGetFieldValues\0").ok();
         let get_clock_info: NvmlDeviceGetClockInfo =
             library.function(b"nvmlDeviceGetClockInfo\0")?;
         let get_fan_speed: NvmlDeviceGetFanSpeed = library.function(b"nvmlDeviceGetFanSpeed\0")?;
@@ -143,6 +191,8 @@ impl Session {
                 get_memory_info,
                 get_utilization_rates,
                 get_power_usage,
+                get_samples,
+                get_field_values,
                 get_clock_info,
                 get_fan_speed,
                 devices,
@@ -206,6 +256,59 @@ impl Session {
     }
 
     pub(super) fn power_milliwatts(&self, index: usize) -> Result<u32, u32> {
+        let device = self.devices.get(index).ok_or(u32::MAX)?;
+        if let Some(get_samples) = self.get_samples {
+            let mut value_type = 0_u32;
+            let mut sample_count = 1_u32;
+            let mut sample = NvmlSample {
+                timestamp: 0,
+                sample_value: NvmlValue { ull_val: 0 },
+            };
+            // SAFETY: get_samples was resolved with the exact NVML ABI signature. The handle
+            // belongs to this live session, the output pointers are writable, and sample_count
+            // advertises the one-entry sample buffer supplied here.
+            let status = unsafe {
+                get_samples(
+                    device.handle as *mut c_void,
+                    NVML_TOTAL_POWER_SAMPLES,
+                    0,
+                    &mut value_type,
+                    &mut sample_count,
+                    &mut sample,
+                )
+            };
+            if status == NVML_SUCCESS
+                && sample_count > 0
+                && value_type == NVML_VALUE_TYPE_UNSIGNED_INT
+            {
+                // SAFETY: NVML reports this sample as NVML_VALUE_TYPE_UNSIGNED_INT.
+                return Ok(unsafe { sample.sample_value.ui_val });
+            }
+        }
+        if let Some(get_field_values) = self.get_field_values {
+            for field_id in [NVML_FI_DEV_POWER_AVERAGE, NVML_FI_DEV_POWER_INSTANT] {
+                let mut field = NvmlFieldValue {
+                    field_id,
+                    scope_id: 0,
+                    timestamp: 0,
+                    latency_usec: 0,
+                    value_type: 0,
+                    nvml_return: u32::MAX,
+                    value: NvmlValue { ull_val: 0 },
+                };
+                // SAFETY: get_field_values was resolved with the exact NVML ABI signature. The
+                // handle belongs to this live session and field points to one writable entry.
+                let status =
+                    unsafe { get_field_values(device.handle as *mut c_void, 1, &mut field) };
+                if status == NVML_SUCCESS
+                    && field.nvml_return == NVML_SUCCESS
+                    && field.value_type == NVML_VALUE_TYPE_UNSIGNED_INT
+                {
+                    // SAFETY: NVML reports this field as NVML_VALUE_TYPE_UNSIGNED_INT.
+                    return Ok(unsafe { field.value.ui_val });
+                }
+            }
+        }
         self.read_uint(index, self.get_power_usage)
     }
 

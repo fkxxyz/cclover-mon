@@ -53,7 +53,7 @@ presentation/UI as one GPU card per device
 
 Source absence does not synthesize zero values. Missing GPU fields remain `None`; readable fields on the same device stay available. Generic temperature collection runs independently for non-GPU sensors and GPU families not represented by the GPU collector.
 
-Windows hardware telemetry performs stable discovery outside the sampling hot path. Each cycle reads each known CPU/Super-I/O/EC source once and projects the resulting observation into metric-specific temperature and fan collections. Those projections do not reopen PawnIO, rediscover the same chip, or independently serialize the same bus. A source failure may trigger bounded reinitialization without rebuilding unrelated collectors.
+Windows hardware telemetry performs stable discovery outside the sampling hot path. Each cycle reads each known CPU/Super-I/O/EC source once and projects the resulting observation into metric-specific temperature and fan collections. Those projections do not reopen PawnIO, rediscover the same chip, or independently serialize the same bus. Each independent source keeps its own lifecycle; a source transport/session failure enters bounded retry for that source without resetting unrelated sources, while per-observation validation failures and transient bus contention do not discard an otherwise live source session.
 
 Event-driven native collectors may accumulate state continuously between sampling deadlines. For Linux eBPF I/O attribution, kernel programs update bounded BPF maps when I/O occurs and the sampling cycle reads already-aggregated counters. Sampling remains coordinated even when native observation itself is event-driven rather than initiated by the deadline.
 
@@ -74,6 +74,6 @@ MonitorState ───────── dump
 UI ─────────────────── screenshot
 ```
 
-`probe` bypasses core derivation only to inspect one production collector directly; it does not duplicate collector logic. `--raw` exposes source counters only in this diagnostic path. `dump` uses normal sampling semantics. Because CPU, network, disk, and process CPU rates depend on deltas, it may perform the required initial sample and sampling interval before printing the derived state.
+`probe` bypasses core derivation only to inspect one production collector directly; it does not duplicate collector logic. A targeted Windows hardware probe initializes and samples only the source required by that metric rather than executing the complete production hardware batch. `--raw` exposes source counters only in this diagnostic path. `dump` uses normal sampling semantics. Because CPU, network, disk, and process CPU rates depend on deltas, it may perform the required initial sample and sampling interval before printing the derived state.
 
 The normal sampling loop records an overrun when collection plus derivation exceeds the configured sampling interval. This is diagnostic evidence; scheduling semantics remain unchanged.

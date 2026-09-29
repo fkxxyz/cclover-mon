@@ -69,9 +69,9 @@ impl Backend {
             ProbeKind::Network => ProbeSample::Network(network::collect(notes)),
             ProbeKind::Disk => ProbeSample::Disk(disk::collect(notes)),
             ProbeKind::Temperatures => {
-                ProbeSample::Temperatures(self.hardware.collect(notes).temperatures)
+                ProbeSample::Temperatures(self.hardware.collect_temperatures(notes))
             }
-            ProbeKind::Fans => ProbeSample::Fans(self.hardware.collect(notes).fans),
+            ProbeKind::Fans => ProbeSample::Fans(self.hardware.collect_fans(notes)),
             ProbeKind::Gpu => ProbeSample::Gpu(self.gpus.collect(notes)),
             ProbeKind::NetworkAttribution | ProbeKind::DiskAttribution => {
                 ProbeSample::Unsupported(kind)

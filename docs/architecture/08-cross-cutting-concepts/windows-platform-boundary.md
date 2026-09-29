@@ -35,9 +35,11 @@ Do not introduce PDH for these basic collectors where the direct structured sour
 
 ## PawnIO runtime
 
-Installed PawnIO driver state belongs to Windows and may be shared across processes. A cclover-mon process owns only its session, loaded Pawn modules, and hardware-telemetry source state. The hardware-telemetry runtime acquires long-lived sessions/modules and reuses them across temperature, fan, and future hardware-sensor projections; sampling never installs, starts, stops, removes, or unloads the machine-level driver.
+Installed PawnIO driver state belongs to Windows and may be shared across processes. A cclover-mon process owns only its session, loaded Pawn modules, and hardware-telemetry source state. The hardware-telemetry runtime acquires long-lived sessions/modules and reuses them across temperature, fan, and future hardware-sensor projections; sampling never installs, starts, stops, removes, or unloads the machine-level driver. Each independently failing hardware source owns its own initialization, bounded retry, stable-unavailability, and session-recovery state. Failure or recovery of one source does not reset unrelated source state.
 
 The runtime talks directly to the documented buffered device IO-control interface rather than shipping `PawnIOLib.dll`. Only signed modules used by implemented collectors are embedded. PawnIO handles, module blobs, IOCTL identifiers, and NTSTATUS details remain platform-private. Privileged provisioning is outside sampling and is governed by [ADR 009](../09-architecture-decisions/009-windows-pawnio-provisioning.md).
+
+Diagnostic probes activate only the hardware source required by the requested metric. A temperature probe must not initialize or sample Super-I/O merely because normal production sampling composes temperature and fan observations into one hardware batch, and the inverse applies to fan probes.
 
 Super-I/O and EC compatibility knowledge may be ported from the pinned reviewed LibreHardwareMonitor upstream according to [ADR 010](../09-architecture-decisions/010-windows-hardware-telemetry-upstream.md). LibreHardwareMonitor is not loaded or shipped at runtime. Chip-family register behavior stays separate from manufacturer/model-specific channel naming; improving a channel label must not change sensor identity.
 

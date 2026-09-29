@@ -19,6 +19,11 @@ pub(super) struct Collector {
     devices: Option<Vec<Device>>,
 }
 
+pub(super) enum CollectOutcome {
+    Observation(Collection<Vec<FanSnapshot>>),
+    SourceFailed(io::Error),
+}
+
 enum Device {
     Fintek(fintek::Reader),
     Ite(ite::Reader),
@@ -35,13 +40,15 @@ impl Collector {
         &mut self,
         session: &Session,
         mut notes: Option<&mut Vec<String>>,
-    ) -> Collection<Vec<FanSnapshot>> {
+    ) -> CollectOutcome {
         let access = Access::new(session);
         let _guard = match Access::lock_isa_bus() {
             Ok(guard) => guard,
             Err(error) => {
                 report_issue(&mut notes, || format!("Super-I/O bus unavailable: {error}"));
-                return Collection::unavailable(CollectionUnavailable::Unavailable);
+                return CollectOutcome::Observation(Collection::unavailable(
+                    CollectionUnavailable::Unavailable,
+                ));
             }
         };
 
@@ -52,7 +59,13 @@ impl Collector {
                     report_issue(&mut notes, || {
                         format!("Super-I/O discovery failed: {error}")
                     });
-                    return Collection::unavailable(CollectionUnavailable::Unavailable);
+                    return if source_transport_failed(&error) {
+                        CollectOutcome::SourceFailed(error)
+                    } else {
+                        CollectOutcome::Observation(Collection::unavailable(
+                            CollectionUnavailable::Unavailable,
+                        ))
+                    };
                 }
             }
         }
@@ -63,6 +76,12 @@ impl Collector {
             match device.read_fans(&access) {
                 Ok(values) => append_fans(&mut fans, device.descriptor(), values),
                 Err(error) => {
+                    if source_transport_failed(&error) {
+                        report_issue(&mut notes, || {
+                            format!("PawnIO Super-I/O session failed: {error}")
+                        });
+                        return CollectOutcome::SourceFailed(error);
+                    }
                     degraded = true;
                     let descriptor = device.descriptor();
                     report_issue(&mut notes, || {
@@ -73,11 +92,15 @@ impl Collector {
         }
 
         if degraded {
-            Collection::degraded(fans)
+            CollectOutcome::Observation(Collection::degraded(fans))
         } else {
-            Collection::available(fans)
+            CollectOutcome::Observation(Collection::available(fans))
         }
     }
+}
+
+fn source_transport_failed(error: &io::Error) -> bool {
+    error.raw_os_error().is_some()
 }
 
 fn discover_devices(

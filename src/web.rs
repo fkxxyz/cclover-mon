@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use crate::core::model::MonitorState;
 #[cfg(feature = "http")]
-use crate::web_transport::WebApiSlice;
+use crate::web_api::{ApiV1Slice, ApiV1State};
 use crate::web_transport::WebMonitorState;
 
 pub const DEFAULT_HTTP_BIND: SocketAddr =
@@ -71,62 +71,88 @@ pub struct StateHub {
 }
 
 struct HubState {
-    latest: Arc<WebMonitorState>,
-    latest_json: Arc<str>,
+    latest_transport_json: Arc<str>,
+    #[cfg(feature = "http")]
+    latest_api_v1: Arc<ApiV1State>,
+    #[cfg(feature = "http")]
+    latest_api_v1_json: Arc<str>,
     subscribers: Vec<SyncSender<Arc<str>>>,
 }
 
 impl StateHub {
     #[cfg(any(feature = "http", test))]
     fn new() -> Self {
-        let latest = Arc::new(WebMonitorState::from(&MonitorState::default()));
-        let latest_json: Arc<str> = serde_json::to_string(latest.as_ref())
-            .expect("default monitor state must serialize")
+        let default_state = MonitorState::default();
+        let latest_transport = Arc::new(WebMonitorState::from(&default_state));
+        let latest_transport_json: Arc<str> = serde_json::to_string(latest_transport.as_ref())
+            .expect("default browser transport state must serialize")
+            .into();
+        #[cfg(feature = "http")]
+        let latest_api_v1 = Arc::new(ApiV1State::from(&default_state));
+        #[cfg(feature = "http")]
+        let latest_api_v1_json: Arc<str> = serde_json::to_string(latest_api_v1.as_ref())
+            .expect("default API v1 state must serialize")
             .into();
         Self {
             inner: Arc::new(Mutex::new(HubState {
-                latest,
-                latest_json,
+                latest_transport_json,
+                #[cfg(feature = "http")]
+                latest_api_v1,
+                #[cfg(feature = "http")]
+                latest_api_v1_json,
                 subscribers: Vec::new(),
             })),
         }
     }
 
     pub fn publish(&self, state: &MonitorState) {
-        let latest = Arc::new(WebMonitorState::from(state));
-        let Ok(serialized) = serde_json::to_string(latest.as_ref()) else {
-            eprintln!("cclover-mon: failed to serialize monitor state for HTTP clients");
+        let latest_transport = Arc::new(WebMonitorState::from(state));
+        let Ok(transport_json) = serde_json::to_string(latest_transport.as_ref()) else {
+            eprintln!("cclover-mon: failed to serialize browser transport state");
             return;
         };
-        let serialized: Arc<str> = serialized.into();
+        #[cfg(feature = "http")]
+        let latest_api_v1 = Arc::new(ApiV1State::from(state));
+        #[cfg(feature = "http")]
+        let Ok(api_v1_json) = serde_json::to_string(latest_api_v1.as_ref()) else {
+            eprintln!("cclover-mon: failed to serialize API v1 state");
+            return;
+        };
+        let transport_json: Arc<str> = transport_json.into();
+        #[cfg(feature = "http")]
+        let api_v1_json: Arc<str> = api_v1_json.into();
         let mut inner = self.inner.lock().expect("HTTP state hub lock poisoned");
-        inner.latest = latest;
-        inner.latest_json = Arc::clone(&serialized);
-        inner.subscribers.retain(
-            |subscriber| match subscriber.try_send(Arc::clone(&serialized)) {
+        inner.latest_transport_json = Arc::clone(&transport_json);
+        #[cfg(feature = "http")]
+        {
+            inner.latest_api_v1 = latest_api_v1;
+            inner.latest_api_v1_json = api_v1_json;
+        }
+        inner.subscribers.retain(|subscriber| {
+            match subscriber.try_send(Arc::clone(&transport_json)) {
                 Ok(()) | Err(TrySendError::Full(_)) => true,
                 Err(TrySendError::Disconnected(_)) => false,
-            },
-        );
+            }
+        });
     }
 
     #[cfg(feature = "http")]
-    fn latest(&self) -> Arc<WebMonitorState> {
+    fn latest_api_v1(&self) -> Arc<ApiV1State> {
         let inner = self.inner.lock().expect("HTTP state hub lock poisoned");
-        Arc::clone(&inner.latest)
+        Arc::clone(&inner.latest_api_v1)
     }
 
     #[cfg(feature = "http")]
-    fn latest_json(&self) -> Arc<str> {
+    fn latest_api_v1_json(&self) -> Arc<str> {
         let inner = self.inner.lock().expect("HTTP state hub lock poisoned");
-        Arc::clone(&inner.latest_json)
+        Arc::clone(&inner.latest_api_v1_json)
     }
 
     #[cfg(any(feature = "http", test))]
     fn subscribe(&self) -> (Arc<str>, Receiver<Arc<str>>) {
         let (sender, receiver) = mpsc::sync_channel(1);
         let mut inner = self.inner.lock().expect("HTTP state hub lock poisoned");
-        let latest = Arc::clone(&inner.latest_json);
+        let latest = Arc::clone(&inner.latest_transport_json);
         inner.subscribers.push(sender);
         (latest, receiver)
     }
@@ -284,27 +310,27 @@ fn handle_connection(
         "/cclover_mon_web_bg.wasm" => {
             write_response(&mut stream, 200, "application/wasm", WEB_WASM)
         }
-        "/api/v1/state" => write_json_response(&mut stream, hub.latest_json().as_bytes()),
-        "/api/v1/cpu" => write_api_slice(&mut stream, &hub, WebApiSlice::Cpu),
-        "/api/v1/memory" => write_api_slice(&mut stream, &hub, WebApiSlice::Memory),
-        "/api/v1/disks" => write_api_slice(&mut stream, &hub, WebApiSlice::Disks),
-        "/api/v1/networks" => write_api_slice(&mut stream, &hub, WebApiSlice::Networks),
-        "/api/v1/temperatures" => write_api_slice(&mut stream, &hub, WebApiSlice::Temperatures),
-        "/api/v1/gpus" | "/api/v1/gpu-memory" => {
-            write_api_slice(&mut stream, &hub, WebApiSlice::Gpus)
+        "/api/v1/state" => write_json_response(&mut stream, hub.latest_api_v1_json().as_bytes()),
+        "/api/v1/cpu" => write_api_slice(&mut stream, &hub, ApiV1Slice::Cpu),
+        "/api/v1/memory" => write_api_slice(&mut stream, &hub, ApiV1Slice::Memory),
+        "/api/v1/disks" => write_api_slice(&mut stream, &hub, ApiV1Slice::Disks),
+        "/api/v1/networks" => write_api_slice(&mut stream, &hub, ApiV1Slice::Networks),
+        "/api/v1/temperatures" => write_api_slice(&mut stream, &hub, ApiV1Slice::Temperatures),
+        "/api/v1/gpus" => write_api_slice(&mut stream, &hub, ApiV1Slice::Gpus),
+        "/api/v1/gpu-memory" => write_api_slice(&mut stream, &hub, ApiV1Slice::GpuMemoryLegacy),
+        "/api/v1/processes" => write_api_slice(&mut stream, &hub, ApiV1Slice::Processes),
+        "/api/v1/history/cpu" => write_api_slice(&mut stream, &hub, ApiV1Slice::HistoryCpu),
+        "/api/v1/history/memory" => write_api_slice(&mut stream, &hub, ApiV1Slice::HistoryMemory),
+        "/api/v1/history/gpus" => write_api_slice(&mut stream, &hub, ApiV1Slice::HistoryGpus),
+        "/api/v1/history/gpu-memory" => {
+            write_api_slice(&mut stream, &hub, ApiV1Slice::HistoryGpuMemoryLegacy)
         }
-        "/api/v1/processes" => write_api_slice(&mut stream, &hub, WebApiSlice::Processes),
-        "/api/v1/history/cpu" => write_api_slice(&mut stream, &hub, WebApiSlice::HistoryCpu),
-        "/api/v1/history/memory" => write_api_slice(&mut stream, &hub, WebApiSlice::HistoryMemory),
-        "/api/v1/history/gpus" | "/api/v1/history/gpu-memory" => {
-            write_api_slice(&mut stream, &hub, WebApiSlice::HistoryGpus)
-        }
-        "/api/v1/history/disks" => write_api_slice(&mut stream, &hub, WebApiSlice::HistoryDisks),
+        "/api/v1/history/disks" => write_api_slice(&mut stream, &hub, ApiV1Slice::HistoryDisks),
         "/api/v1/history/networks" => {
-            write_api_slice(&mut stream, &hub, WebApiSlice::HistoryNetworks)
+            write_api_slice(&mut stream, &hub, ApiV1Slice::HistoryNetworks)
         }
         "/api/v1/history/temperatures" => {
-            write_api_slice(&mut stream, &hub, WebApiSlice::HistoryTemperatures)
+            write_api_slice(&mut stream, &hub, ApiV1Slice::HistoryTemperatures)
         }
         "/events" => stream_events(stream, hub, shutdown),
         _ => write_response(
@@ -317,8 +343,8 @@ fn handle_connection(
 }
 
 #[cfg(feature = "http")]
-fn write_api_slice(stream: &mut TcpStream, hub: &StateHub, slice: WebApiSlice) -> io::Result<()> {
-    match hub.latest().serialize_api_slice(slice) {
+fn write_api_slice(stream: &mut TcpStream, hub: &StateHub, slice: ApiV1Slice) -> io::Result<()> {
+    match hub.latest_api_v1().serialize_slice(slice) {
         Ok(body) => write_json_response(stream, body.as_bytes()),
         Err(error) => {
             eprintln!("cclover-mon: failed to serialize HTTP API response: {error}");
@@ -450,6 +476,8 @@ fn wake_address(address: SocketAddr) -> SocketAddr {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "http")]
+    use crate::core::model::{Collection, GpuId, GpuSnapshot};
 
     #[cfg(feature = "http")]
     #[test]
@@ -510,7 +538,7 @@ mod tests {
 
     #[cfg(feature = "http")]
     #[test]
-    fn state_api_serves_latest_web_transport_state() {
+    fn state_api_serves_latest_api_v1_projection() {
         let server = HttpServer::start(HttpConfig {
             bind: "127.0.0.1:0".parse().unwrap(),
         })
@@ -522,13 +550,10 @@ mod tests {
         };
         server.state_hub().publish(&state);
 
-        let response = get(server.local_addr(), "/api/v1/state");
-        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
-        assert!(response.contains("Content-Type: application/json\r\n"));
-        let (_, body) = response.split_once("\r\n\r\n").unwrap();
-        let state: WebMonitorState = serde_json::from_str(body).unwrap();
-        let state = MonitorState::from(state);
-        assert_eq!(state.history_capacity, 42);
+        let state = response_json(server.local_addr(), "/api/v1/state");
+        assert_eq!(state["history_capacity"], 42);
+        assert!(state.get("snapshot").is_some());
+        assert!(state.get("history").is_some());
     }
 
     #[cfg(feature = "http")]
@@ -579,6 +604,65 @@ mod tests {
         assert_eq!(history["history_capacity"], 42);
         assert!(history.get("cpu").is_some());
         assert!(history.get("memory_used").is_none());
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn legacy_gpu_memory_routes_preserve_payload_not_only_url() {
+        let server = HttpServer::start(HttpConfig {
+            bind: "127.0.0.1:0".parse().unwrap(),
+        })
+        .unwrap();
+        let gpu_id = GpuId::from_opaque_key("gpu-a");
+        let mut state = MonitorState {
+            history_capacity: 120,
+            ..MonitorState::default()
+        };
+        state.snapshot.gpus = Collection::available(vec![GpuSnapshot {
+            id: gpu_id.clone(),
+            name: "GPU A".to_owned(),
+            utilization_percent: Some(42.0),
+            memory_used_bytes: Some(4),
+            memory_total_bytes: Some(8),
+            temperature_celsius: Some(63.0),
+            power_watts: None,
+            core_clock_mhz: None,
+            fan_percent: None,
+            fan_rpm: None,
+        }]);
+        state
+            .history
+            .gpu_memory_used
+            .insert(gpu_id, std::collections::VecDeque::from([2.0, 4.0]));
+        server.state_hub().publish(&state);
+
+        let gpus = response_json(server.local_addr(), "/api/v1/gpus");
+        let legacy = response_json(server.local_addr(), "/api/v1/gpu-memory");
+        let legacy_history = response_json(server.local_addr(), "/api/v1/history/gpu-memory");
+
+        assert!(gpus.get("gpus").is_some());
+        assert!(gpus.get("gpu_memory").is_none());
+        assert_eq!(
+            legacy,
+            serde_json::json!({
+                "gpu_memory": {
+                    "status": "available",
+                    "value": [{
+                        "id": "gpu-a",
+                        "name": "GPU A",
+                        "used_bytes": 4,
+                        "total_bytes": 8
+                    }]
+                }
+            })
+        );
+        assert_eq!(
+            legacy_history,
+            serde_json::json!({
+                "history_capacity": 120,
+                "gpu_memory_used": {"gpu-a": [2.0, 4.0]}
+            })
+        );
     }
 
     #[cfg(feature = "http")]

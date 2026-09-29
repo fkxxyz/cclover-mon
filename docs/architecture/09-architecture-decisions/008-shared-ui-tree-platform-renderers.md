@@ -89,19 +89,19 @@ Changing a dashboard card should change the shared tree once. Renderer changes s
 Migration is incremental:
 
 1. Extract the renderer-neutral dashboard tree from the former shared Iced widget implementation.
-2. Make the existing Iced frontend a thin adapter over that tree during migration; after native desktop migration it remains only as the Web/WASM adapter.
+2. Keep the existing Iced frontend as a thin adapter over that tree while native desktop migration proceeds. This temporary stage is complete.
 3. Implement the Windows native desktop host/renderer against the same tree. This migration step is now implemented at source/build level: the Windows desktop path consumes `cclover-ui`/`NativeScene` through a narrow C ABI and uses Win32/GDI rather than Iced/winit/wgpu. Runtime validation on real supported Windows environments remains separate.
 4. Replace Linux desktop Iced hosting/rendering with native Wayland layer-shell/X11 hosting plus shared Cairo drawing. Implemented; both paths consume `NativeScene` and were smoke-tested against the local Wayland and XWayland sessions.
-5. Replace or retain the browser adapter independently; Web must continue to consume shared UI authority rather than recreate dashboard semantics.
-6. Remove Iced/winit/wgpu from native desktop dependencies. Implemented for both Windows and Linux; Iced remains only in the Web/WASM adapter.
+5. Replace the remaining browser Iced adapter independently while continuing to consume shared UI authority rather than recreating dashboard semantics. Implemented with a browser-native DOM/CSS/SVG adapter in `cclover-web-ui`.
+6. Remove Iced/winit/wgpu from the dependency graph. Implemented: native renderers are platform-native and Web uses `web-sys`/`wasm-bindgen` directly.
 
-The remaining Iced adapter is Web/WASM-only and does not make Iced the dashboard authority.
+No renderer now depends on Iced, winit, wgpu, or another general-purpose cross-platform GUI framework.
 
 ## Consequences
 
 - UI consistency is enforced above renderer implementations instead of by sharing one graphics framework.
 - Native desktop compatibility failures are isolated to small platform renderers/hosts.
-- Web can use browser-native rendering without duplicating dashboard semantics.
+- Web uses browser-native DOM/CSS/SVG without duplicating dashboard semantics.
 - New platform renderers implement a small stable element vocabulary instead of every monitor card independently.
 - Exact glyph metrics may differ by native font stack; structure, values, geometry policy, colors, graph semantics, and ordering remain shared.
 - The shared UI tree must stay application-specific and small; turning it into a generic toolkit would recreate the abstraction cost this decision removes.

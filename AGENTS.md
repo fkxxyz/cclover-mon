@@ -6,7 +6,7 @@
 
 ## Architecture
 
-**Primary stack**: Rust 2024 and Cargo. `cclover-ui` owns the graphical dashboard definition. Native desktop rendering uses Win32/GDI on Windows and Wayland/X11 + Cairo on Linux. Iced 0.14 remains only in the Web/WASM renderer adapter.
+**Primary stack**: Rust 2024 and Cargo. `cclover-ui` owns the graphical dashboard definition. Native desktop rendering uses Win32/GDI on Windows and Wayland/X11 + Cairo on Linux. Web/WASM rendering uses browser-native DOM/CSS/SVG through `web-sys`.
 
 **Runtime metric flow**:
 
@@ -38,7 +38,7 @@ Ownership rules:
 - `platform` owns OS-specific collection; the `cclover-desktop` package owns OS-specific native desktop hosting/integration. Platform collectors implement core-owned sampling contracts and return core-owned platform-neutral snapshots. `core` must not depend on either native boundary.
 - `presentation` derives renderer-neutral dashboard semantics from shared `MonitorState`; it does not depend on renderer libraries, terminal libraries, platform APIs, or app messages.
 - `cclover-ui` owns cross-renderer graphical dashboard structure, visual tokens, graph policy, and shared geometry. Renderers consume it and must not independently rebuild monitor cards.
-- `cclover-web-ui` is the Web/WASM Iced renderer adapter. Iced is not dashboard authority and must not be reintroduced into native desktop dependencies.
+- `cclover-web-ui` is the Web/WASM browser renderer adapter. It lowers the shared dashboard tree to DOM/CSS/SVG and must not reconstruct dashboard semantics.
 - Every `cargo xwin ...` invocation must include `XWIN_ARCH=x86,x86_64` on that exact command line. Do not rely on `export`, shell state, profile configuration, or a previous command. This applies to `build`, `check`, `test`, and any other cargo-xwin subcommand.
 - Native data stays typed and in-process. Do not introduce internal JSON or frontend/backend IPC for metric flow.
 - Prefer native collection over periodic subprocess polling. Linux sources should use `/proc`, `/sys`, netlink, ioctl, sockets, or D-Bus as appropriate.
@@ -62,8 +62,8 @@ src/platform/windows.rs    Windows backend; collector is currently a placeholder
 crates/cclover-presentation/src/lib.rs  renderer-neutral dashboard presentation model and formatting
 crates/cclover-tui/src/lib.rs           terminal frontend rendering and terminal lifecycle
 crates/cclover-ui/src/lib.rs            shared graphical dashboard tree, style tokens, geometry
-crates/cclover-web-ui/src/lib.rs       Web/WASM Iced renderer adapter
-crates/cclover-web-ui/src/graph.rs     Web graph primitive adapter
+crates/cclover-web-ui/src/lib.rs       Web/WASM browser renderer boundary
+crates/cclover-web-ui/src/browser.rs   DOM/CSS/SVG renderer adapter
 docs/architecture/         architecture Views and governance data
 archdoc.ts                 architecture documentation navigator and validator
 ```

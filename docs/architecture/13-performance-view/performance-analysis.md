@@ -50,7 +50,7 @@ cclover-mon perf headless [--duration <seconds> | --samples <count>]
 cclover-mon perf collector <name> [--duration <seconds> | --samples <count>]
 ```
 
-`perf headless` keeps the normal one-second sampling cadence and executes native collection, core derivation, Top-N aggregation, and bounded history updates. It does not initialize Iced, create a window, build presentation objects, or render.
+`perf headless` keeps the normal one-second sampling cadence and executes native collection, core derivation, Top-N aggregation, and bounded history updates. It does not initialize a graphical renderer, create a window, build presentation objects, or render.
 
 `perf collector <name>` executes the selected production collector at the normal one-second cadence and discards its result without formatting it. Collector names are the same controlled set accepted by `probe`: `cpu`, `memory`, `processes`, `network`, `network-attribution`, `disk`, `disk-attribution`, `temperatures`, and `gpu`. The attribution-specific names isolate userspace BPF-map sampling from the existing whole-interface and whole-device collectors.
 

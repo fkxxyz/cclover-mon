@@ -52,7 +52,7 @@ Native tray actions are translated into platform-neutral desktop commands. In pa
 - Native tray/menu identifiers remain platform-private. Application-visible lifecycle intent uses platform-neutral desktop commands such as `Quit`.
 - Tray registration failure degrades to running without a tray and does not disable monitoring or terminate the process.
 - Linux runtime protocol selection belongs to `cclover-desktop` rather than `main.rs` or the shared renderer UI.
-- Sampling remains independent from rendering; renderer-neutral presentation is derived from completed shared `MonitorState` values before Iced rendering.
-- Iced-specific layout and widgets are not contracts for non-desktop frontends.
-- `iced_layershell` 0.19.1 currently requires `winit-core` and `winit-common` 0.31.0-beta.2 for compatibility. Those versions remain pinned until the integration dependency supports a newer compatible release.
+- Sampling remains independent from rendering; renderer-neutral presentation is derived from completed shared `MonitorState` values before renderer realization.
+- Historical Iced-specific layout and widgets are not contracts for current frontends.
+- Historical only: `iced_layershell` required pinned winit-compatible versions during the former Iced desktop implementation. ADR 008 removed that dependency path.
 - Pure visual changes currently require rebuilding the Rust application; reloadable UI resources are not part of this implementation.

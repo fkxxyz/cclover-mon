@@ -175,6 +175,16 @@ pub struct GraphSpec<'a> {
     pub height: u32,
 }
 
+impl GraphSpec<'_> {
+    pub fn resolved_max(&self) -> f64 {
+        if self.auto_scale {
+            (self.values.iter().copied().fold(1024.0_f64, f64::max) * 1.12).max(self.min + 0.001)
+        } else {
+            self.max.max(self.min + 0.001)
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ProgressSpec {
     pub value: f32,

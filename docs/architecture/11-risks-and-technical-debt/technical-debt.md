@@ -21,8 +21,4 @@ Technical debt here means current structure that makes future reasonable change 
 
 Presence is the state: every document in `technical-debt/` represents debt that currently exists. Do not add `Status` fields or retain resolved debt documents. When a debt is resolved, remove its index entry and delete its document; Git history preserves the former problem and its resolution. Durable constraints or residual runtime uncertainty must first be moved to the appropriate architecture View or risk document.
 
-## P3
-
-| Debt | Why it matters |
-| --- | --- |
-| [Pinned Iced WebGL workaround](technical-debt/pinned-iced-webgl-workaround.md) | Browser Canvas correctness currently depends on a maintained fork of `iced_widget`. |
+No current architecture-level technical debt is recorded.

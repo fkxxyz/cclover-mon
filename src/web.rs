@@ -32,10 +32,6 @@ const INDEX_HTML: &str = r#"<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>cclover-mon</title>
-  <style>
-    html, body { margin: 0; padding: 0; overflow: hidden; background: #000; }
-    canvas { display: block; }
-  </style>
 </head>
 <body>
   <script type="module" src="/bootstrap.js"></script>

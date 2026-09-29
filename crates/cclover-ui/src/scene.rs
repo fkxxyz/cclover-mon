@@ -288,11 +288,7 @@ fn lower_graph(graph: &GraphSpec<'_>, x: f32, y: f32, width: f32, out: &mut Vec<
     if graph.values.len() < 2 || graph.capacity < 2 {
         return;
     }
-    let high = if graph.auto_scale {
-        (graph.values.iter().copied().fold(1024.0_f64, f64::max) * 1.12).max(graph.min + 0.001)
-    } else {
-        graph.max.max(graph.min + 0.001)
-    };
+    let high = graph.resolved_max();
     let span = (high - graph.min).max(0.001);
     let dx = width / (graph.capacity - 1) as f32;
     let x_offset = x + width - dx * (graph.values.len() - 1) as f32;

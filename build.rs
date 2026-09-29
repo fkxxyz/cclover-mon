@@ -67,6 +67,10 @@ fn build_web_bundle(out: &Path) {
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=Cargo.lock");
     println!("cargo:rerun-if-changed=src");
+    println!("cargo:rerun-if-changed=crates/cclover-core");
+    println!("cargo:rerun-if-changed=crates/cclover-presentation");
+    println!("cargo:rerun-if-changed=crates/cclover-ui");
+    println!("cargo:rerun-if-changed=crates/cclover-web-ui");
 
     let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest dir"));
     let web_target_dir = out.join("web-target");

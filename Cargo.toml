@@ -27,9 +27,8 @@ cclover-tui = { path = "crates/cclover-tui" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 cclover-web-ui = { path = "crates/cclover-web-ui" }
-iced = { version = "0.14.0", default-features = false, features = ["canvas", "crisp", "fira-sans", "webgl", "wgpu"] }
 wasm-bindgen = "=0.2.129"
-web-sys = { version = "=0.3.106", features = ["EventSource", "MessageEvent"] }
+web-sys = { version = "=0.3.106", features = ["console", "EventSource", "MessageEvent"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
@@ -49,8 +48,3 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_Threading",
     "Win32_System_WindowsProgramming",
 ] }
-
-# Iced 0.14 WebGL can corrupt multi-Canvas geometry and clipping across layers.
-# Pin only iced_widget until upstream fixes iced-rs/iced#2400.
-[patch.crates-io]
-iced_widget = { git = "https://github.com/fkxxyz/iced.git", rev = "0330c6ca303d2c2260cb69fa1b39e17080d62e6d" }

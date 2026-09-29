@@ -30,14 +30,36 @@ fn native_desktop_hosting_stays_in_desktop_crate() {
 }
 
 #[test]
-fn native_desktop_path_does_not_depend_on_iced() {
-    let manifest = include_str!("../crates/cclover-desktop/Cargo.toml");
-    for forbidden in ["iced", "winit", "wgpu", "cclover-web-ui"] {
+fn graphical_renderers_do_not_regain_cross_platform_gui_frameworks() {
+    for (name, manifest) in [
+        ("workspace root", include_str!("../Cargo.toml")),
+        (
+            "native desktop",
+            include_str!("../crates/cclover-desktop/Cargo.toml"),
+        ),
+        ("Web", include_str!("../crates/cclover-web-ui/Cargo.toml")),
+    ] {
+        for forbidden in ["iced", "winit", "wgpu"] {
+            assert!(
+                !manifest.contains(forbidden),
+                "{name} manifest must not pull cross-platform GUI framework dependency {forbidden} back in"
+            );
+        }
+    }
+
+    let lock = include_str!("../Cargo.lock");
+    for forbidden_package_prefix in ["iced", "winit", "wgpu"] {
         assert!(
-            !manifest.contains(forbidden),
-            "native desktop manifest must not pull renderer framework dependency {forbidden} back in"
+            !lock.contains(&format!("name = \"{forbidden_package_prefix}")),
+            "resolved dependency graph must not contain {forbidden_package_prefix} packages"
         );
     }
+
+    let desktop_manifest = include_str!("../crates/cclover-desktop/Cargo.toml");
+    assert!(
+        !desktop_manifest.contains("cclover-web-ui"),
+        "native desktop must not depend on the browser renderer"
+    );
 
     for (name, source) in [
         (

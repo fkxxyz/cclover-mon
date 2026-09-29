@@ -18,4 +18,4 @@ facets:
 | Platform backend | Linux- or Windows-specific implementation that converts native system data into shared model types. |
 | Native boundary | Cross-language/platform seam: C for thin native OS/API/protocol adapters when justified by dependency or interoperability cost; C++ only as a compatibility shim for C++-only dependencies. |
 | Sampling cycle | One coordinated collection pass followed by aggregation and history update. |
-| Shared UI | Presentation code maintained once across supported platforms. |
+| Shared UI | The renderer-neutral presentation semantics shared by all frontends plus the `cclover-ui` graphical dashboard definition shared by native and Web renderers. Terminal layout remains terminal-specific. |

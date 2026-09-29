@@ -23,7 +23,6 @@ facets:
 1. Minimize steady-state CPU, memory, wakeups, allocation, and data movement.
 2. Keep one shared metric model, renderer-neutral presentation semantics, and one shared graphical dashboard definition across native desktop and Web renderers.
 3. Add new metrics through native system interfaces without coupling them to presentation.
-4. Keep high-frequency UI iteration independent from recompiling system logic where the UI toolkit permits reloadable resources.
 
 ## Scope
 

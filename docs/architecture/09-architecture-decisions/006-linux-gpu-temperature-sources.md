@@ -28,7 +28,7 @@ Linux collection combines two peer native sources:
 Linux GPU metric
   ├── AMD amdgpu
   │     ├── DRM/sysfs: identity, utilization, VRAM, core clock
-  │     └── device hwmon: temperature, power, fan
+  │     └── device hwmon: power, fan
   └── NVIDIA adapter
         └── dynamically loaded NVML: identity + supported telemetry
              ↓
@@ -37,9 +37,9 @@ Linux GPU metric
 
 NVIDIA proprietary-driver telemetry uses NVML directly in-process. The adapter dynamically loads `libnvidia-ml.so.1`, initializes one session, enumerates devices once, retains reusable handles, and reads all supported fields from those handles. Production code does not invoke `nvidia-smi`.
 
-AMD collection is capability-based. DRM card discovery identifies `amdgpu` devices, derives `GpuId` from canonical device identity, then reads only native files actually present. Current sources are `gpu_busy_percent`, `mem_info_vram_used`, `mem_info_vram_total`, active `pp_dpm_sclk`, and device-associated hwmon temperature/power/fan files.
+AMD collection is capability-based. DRM card discovery identifies `amdgpu` devices, derives `GpuId` from canonical device identity, then reads only native files actually present. Current sources are `gpu_busy_percent`, `mem_info_vram_used`, `mem_info_vram_total`, active `pp_dpm_sclk`, and device-associated hwmon power/fan files; temperature arrives through generic hwmon reconciliation.
 
-GPU temperature belongs to the GPU snapshot so current value and bounded history use the same `GpuId` as utilization and VRAM. Generic temperature collection remains responsible for non-GPU sensors and GPU families not yet represented by the GPU collector; AMD `amdgpu` hwmon is excluded there to avoid duplicate presentation.
+GPU temperature belongs to the GPU snapshot so current value and bounded history use the same `GpuId` as utilization and VRAM. Generic hwmon discovery remains vendor-neutral and emits temperature observations with physical-device identity where available. At batch composition, temperatures matching an actually discovered GPU are consumed into that GPU snapshot when no vendor-provided GPU temperature already exists; unmatched sensors remain generic. This avoids duplicate presentation without embedding GPU-vendor ownership rules in generic hwmon discovery.
 
 ## Rationale
 

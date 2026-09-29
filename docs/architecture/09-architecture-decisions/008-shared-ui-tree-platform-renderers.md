@@ -27,13 +27,12 @@ The shared `cclover-ui` layer owns dashboard structure, element ordering, visibi
 MonitorState
     ↓
 cclover-presentation
-    ↓
-cclover-ui: shared dashboard tree + visual/layout authority
-    ├── native desktop renderer
-    │     ├── Windows native host/drawing
-    │     └── Linux native host/drawing
-    ├── Web renderer
-    └── terminal frontend (presentation semantics only)
+    ├── terminal frontend
+    └── cclover-ui: shared dashboard tree + visual/layout authority
+          ├── native desktop renderer
+          │     ├── Windows native host/drawing
+          │     └── Linux native host/drawing
+          └── Web renderer
 ```
 
 Native desktop rendering is platform-owned. Windows uses the Win32 window/message/tray stack and GDI drawing appropriate to the supported Windows range. Linux owns Wayland/X11 hosting and may share one software/native drawing implementation across those hosts. Native renderers execute shared UI elements and drawing primitives; they do not own dashboard semantics.
@@ -84,18 +83,9 @@ Web is not required to consume a desktop `Text(x, y)`/`Rect(x, y)` scene. Browse
 
 Changing a dashboard card should change the shared tree once. Renderer changes should be required only when introducing a genuinely new renderer-neutral element kind.
 
-## Migration
+## Migration Outcome
 
-Migration is incremental:
-
-1. Extract the renderer-neutral dashboard tree from the former shared Iced widget implementation.
-2. Keep the existing Iced frontend as a thin adapter over that tree while native desktop migration proceeds. This temporary stage is complete.
-3. Implement the Windows native desktop host/renderer against the same tree. This migration step is now implemented at source/build level: the Windows desktop path consumes `cclover-ui`/`NativeScene` through a narrow C ABI and uses Win32/GDI rather than Iced/winit/wgpu. Runtime validation on real supported Windows environments remains separate.
-4. Replace Linux desktop Iced hosting/rendering with native Wayland layer-shell/X11 hosting plus shared Cairo drawing. Implemented; both paths consume `NativeScene` and were smoke-tested against the local Wayland and XWayland sessions.
-5. Replace the remaining browser Iced adapter independently while continuing to consume shared UI authority rather than recreating dashboard semantics. Implemented with a browser-native DOM/CSS/SVG adapter in `cclover-web-ui`.
-6. Remove Iced/winit/wgpu from the dependency graph. Implemented: native renderers are platform-native and Web uses `web-sys`/`wasm-bindgen` directly.
-
-No renderer now depends on Iced, winit, wgpu, or another general-purpose cross-platform GUI framework.
+The migration is complete. Windows consumes `NativeScene` through a narrow C ABI and renders with Win32/GDI; Linux consumes the same scene through native Wayland/X11 hosting with Cairo; Web consumes the higher-level dashboard tree through browser-native DOM/CSS/SVG. Iced, winit, and wgpu are no longer renderer dependencies.
 
 ## Consequences
 

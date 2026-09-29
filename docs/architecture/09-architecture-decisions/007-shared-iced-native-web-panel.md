@@ -1,5 +1,5 @@
 ---
-summary: "Records the decision to reuse one Iced panel implementation across native desktop and browser/WASM delivery while keeping HTTP as an external transport boundary."
+summary: "Records the superseded shared-Iced native/Web rendering decision and the still-current transport rationale it introduced."
 viewpoint: decision
 concerns:
   - architecture-coherence
@@ -19,36 +19,22 @@ facets:
 
 ## Status
 
-Superseded by ADR 008. This document remains as historical rationale for the HTTP/SSE transport and the former shared-Iced rendering decision. Where rendering ownership conflicts, ADR 008 governs.
+Superseded for rendering ownership by [ADR 008](008-shared-ui-tree-platform-renderers.md). Its transport separation remains part of the current architecture and is defined by the active [Transport](../05-building-block-view/transport.md) View.
 
-## Decision
+## Historical Decision
 
-Use one Iced panel implementation for both native desktop rendering and the browser monitor page.
+The project used one Iced panel implementation for native desktop and browser/WASM rendering. The native process remained the single sampler. When HTTP monitoring was enabled, completed `MonitorState` values were projected into an internal browser schema published through SSE `/events`; the public `/api/v1/*` surface used a separate versioned projection from the same completed state.
 
-The native process remains the single sampling authority. When HTTP monitoring is enabled, each completed `MonitorState` is projected for the bundled browser into an explicit Web transport schema and published through Server-Sent Events (SSE) at `/events`. Browser clients deserialize that projection in a `wasm32-unknown-unknown` runtime and convert it back to panel-consumable state. The public `/api/v1/*` surface is projected independently from the same completed `MonitorState` into an API-owned v1 schema; `/api/v1/state` exposes the complete API projection while domain/history endpoints expose views over that same API authority.
+HTTP was opt-in and loopback-bound by default. The Web surface was read-only and deliberately separated browser transport from the public API contract.
 
-Do not create an HTML/CSS reimplementation of the dashboard. Native and Web runtimes may differ in lifecycle, transport, window/canvas hosting, and target-specific dependencies, but panel structure, Iced widgets, colors, graph drawing, spacing, and layout authority stay shared.
+## Rationale at the Time
 
-HTTP monitoring is opt-in. `--http` enables it; `--http-bind <ip:port>` selects the listener and defaults to `127.0.0.1:9847`. Binding to a non-loopback or unspecified address is an explicit user action. The initial Web interface is read-only and assumes any deliberately exposed LAN is trusted; it provides no authentication or remote-control API.
+A shared Iced renderer avoided duplicating visual structure across native and Web targets. SSE matched one-way, low-frequency state delivery and complete bounded projections kept reconnect behavior simple. Serialization remained confined to the network boundary; native rendering continued to use typed in-process state.
 
-## Rationale
+Keeping browser transport and public API schemas independent prevented bundled-client evolution from silently changing the externally versioned API. Both transports reused one native sampler and bounded state publication.
 
-A second browser-specific renderer would make every visual change a two-implementation maintenance task and would allow desktop/Web behavior to drift. Iced 0.14 can run on native targets and in the browser through WebAssembly, so the UI itself can remain one source of truth.
+## Supersession
 
-SSE matches the current one-way, one-Hertz state delivery requirement and is simpler than a bidirectional WebSocket protocol. Sending complete bounded Web-state projections keeps reconnect semantics trivial and avoids introducing a second incremental domain model.
+ADR 008 replaced the shared-Iced renderer with one renderer-neutral graphical dashboard tree, platform-native desktop renderers, and browser-native DOM/CSS/SVG realization. The historical patched-Iced dependency and WebGL rendering workaround are no longer part of the dependency graph.
 
-Serialization belongs only at the process/network boundary. Native desktop rendering continues to consume typed state directly in-process and does not route through JSON or HTTP. Browser transport and public API both use explicit exposure allowlists; adding a core-only field does not alter either wire payload unless the corresponding projection is deliberately updated.
-
-Browser transport and versioned public API do not share schema authority. `/events` is an internal protocol for the bundled Web client and may evolve with it. `/api/v1/*` is an externally versioned contract whose DTOs and compatibility policy are owned by the API boundary. All `/api/v1` state/domain/history endpoints remain views over one API-v1 projection rather than independent models, and both projections reuse the same native sampler and completed `MonitorState`.
-
-## Consequences
-
-- `ui` means shared Iced panel code, not desktop-only code.
-- Native desktop and Web/WASM targets compile the same `presentation` and `ui` modules.
-- Platform collectors, eBPF, tray integration, layer-shell, and native CLI code are excluded from the WASM target.
-- The native executable embeds the generated browser JavaScript/WASM assets and serves them itself; no Node.js, nginx, helper daemon, or second deployed executable is required.
-- HTTP clients never start collectors and never influence sampling cadence.
-- Per-client state buffering is bounded; slow clients may skip intermediate complete states instead of accumulating unbounded queues.
-- During this decision's active period, the shared Iced frontend required a narrowly patched `iced_widget` revision to avoid the Iced 0.14 WebGL multi-Canvas geometry/clipping defect tracked upstream as `iced-rs/iced#2400`. ADR 008 later replaced the remaining Web Iced adapter with browser-native DOM/CSS/SVG rendering, so that pin is no longer part of the dependency graph.
-- A future interactive Web surface requires a separate security and command-channel decision instead of silently extending the read-only SSE endpoint.
-- Exact font parity was not guaranteed by the former shared-Iced implementation; current renderer ownership and font behavior are defined by ADR 008 and the active architecture Views.
+Current rules for sampler ownership, browser/public projections, bounded client delivery, and external transport exposure are defined by [Transport](../05-building-block-view/transport.md). Current graphical ownership is defined by [Presentation and UI](../05-building-block-view/presentation-and-ui.md) and ADR 008.

@@ -4,6 +4,7 @@ pub mod core;
 pub mod presentation;
 #[cfg(all(not(target_arch = "wasm32"), feature = "http"))]
 pub(crate) mod web_api;
+#[cfg(feature = "http")]
 pub mod web_transport;
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -17,5 +18,5 @@ pub mod tui;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 pub mod web;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "http"))]
 pub mod web_client;

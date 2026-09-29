@@ -8,18 +8,20 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(feature = "http")]
 use std::sync::mpsc::RecvTimeoutError;
-#[cfg(any(feature = "http", test))]
-use std::sync::mpsc::{self, Receiver};
-use std::sync::mpsc::{SyncSender, TrySendError};
+#[cfg(feature = "http")]
+use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
+#[cfg(feature = "http")]
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "http")]
 use std::thread::{self, JoinHandle};
-#[cfg(any(feature = "http", test))]
+#[cfg(feature = "http")]
 use std::time::Duration;
 
+#[cfg(feature = "http")]
 use crate::core::model::MonitorState;
 #[cfg(feature = "http")]
 use crate::web_api::{ApiV1Slice, ApiV1State};
+#[cfg(feature = "http")]
 use crate::web_transport::WebMonitorState;
 
 pub const DEFAULT_HTTP_BIND: SocketAddr =
@@ -61,11 +63,13 @@ impl Default for HttpConfig {
     }
 }
 
+#[cfg(feature = "http")]
 #[derive(Clone)]
 pub struct StateHub {
     inner: Arc<Mutex<HubState>>,
 }
 
+#[cfg(feature = "http")]
 struct HubState {
     latest_transport_json: Arc<str>,
     #[cfg(feature = "http")]
@@ -75,8 +79,8 @@ struct HubState {
     subscribers: Vec<SyncSender<Arc<str>>>,
 }
 
+#[cfg(feature = "http")]
 impl StateHub {
-    #[cfg(any(feature = "http", test))]
     fn new() -> Self {
         let default_state = MonitorState::default();
         let latest_transport = Arc::new(WebMonitorState::from(&default_state));
@@ -132,19 +136,16 @@ impl StateHub {
         });
     }
 
-    #[cfg(feature = "http")]
     fn latest_api_v1(&self) -> Arc<ApiV1State> {
         let inner = self.inner.lock().expect("HTTP state hub lock poisoned");
         Arc::clone(&inner.latest_api_v1)
     }
 
-    #[cfg(feature = "http")]
     fn latest_api_v1_json(&self) -> Arc<str> {
         let inner = self.inner.lock().expect("HTTP state hub lock poisoned");
         Arc::clone(&inner.latest_api_v1_json)
     }
 
-    #[cfg(any(feature = "http", test))]
     fn subscribe(&self) -> (Arc<str>, Receiver<Arc<str>>) {
         let (sender, receiver) = mpsc::sync_channel(1);
         let mut inner = self.inner.lock().expect("HTTP state hub lock poisoned");
@@ -152,6 +153,15 @@ impl StateHub {
         inner.subscribers.push(sender);
         (latest, receiver)
     }
+}
+
+#[cfg(not(feature = "http"))]
+#[derive(Clone)]
+pub struct StateHub;
+
+#[cfg(not(feature = "http"))]
+impl StateHub {
+    pub fn publish(&self, _state: &crate::core::model::MonitorState) {}
 }
 
 #[cfg(not(feature = "http"))]
@@ -469,7 +479,7 @@ fn wake_address(address: SocketAddr) -> SocketAddr {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "http"))]
 mod tests {
     use super::*;
     #[cfg(feature = "http")]
@@ -492,6 +502,7 @@ mod tests {
         assert_eq!(wake_address(address), "127.0.0.1:9847".parse().unwrap());
     }
 
+    #[cfg(feature = "http")]
     #[test]
     fn state_hub_sends_latest_then_updates() {
         let hub = StateHub::new();

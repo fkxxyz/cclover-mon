@@ -1,6 +1,6 @@
 use std::env;
 use std::fs;
-#[cfg(feature = "ebpf-io")]
+#[cfg(any(feature = "http", feature = "ebpf-io"))]
 use std::path::Path;
 use std::path::PathBuf;
 #[cfg(any(feature = "http", feature = "ebpf-io"))]

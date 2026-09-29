@@ -10,14 +10,14 @@ members = ["crates/cclover-core", "crates/cclover-presentation", "crates/cclover
 
 [features]
 default = ["http", "ebpf-io"]
-http = ["dep:wasm-bindgen-cli-support"]
+http = ["dep:serde", "dep:serde_json", "dep:wasm-bindgen-cli-support"]
 ebpf-io = []
 
 [dependencies]
 cclover-core = { path = "crates/cclover-core" }
 cclover-presentation = { path = "crates/cclover-presentation" }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
 
 [build-dependencies]
 wasm-bindgen-cli-support = { version = "=0.2.129", optional = true }

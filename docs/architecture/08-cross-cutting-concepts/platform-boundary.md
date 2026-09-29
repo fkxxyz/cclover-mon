@@ -91,7 +91,7 @@ Windows monitor-surface creation, drawing, tray integration, and resize realizat
 
 The `NativeScene` Rust-to-C desktop ABI has one declarative schema authority in `cclover-desktop`. Rust `#[repr(C)]` constants/records and the C `native_scene.h` consumed by Linux/Windows hosts are generated from that same schema during the build. Do not maintain a checked-in hand-written mirror of command kinds, flags, field order, pointer types, or callback signatures; changing the ABI is incomplete unless both Rust and C compilation consume the generated contract successfully.
 
-Font selection is a renderer realization concern but font-role semantics belong to the shared UI definition. A renderer must provide a deterministic fallback when its preferred face is unavailable; shared dashboard code must not branch on installed platform fonts.
+Font selection and measurement are renderer realization concerns, but font-role semantics and layout policy belong to the shared UI definition. Native hosts realize the preferred face or deterministic fallback, measure natural-width text with that same realized font, and expose only the resulting extent through the generated native scene callback contract. `cclover-ui` consumes that extent to finalize geometry; native hosts do not independently position dashboard cells. Shared dashboard code must not branch on installed platform fonts or estimate native text width from preferred-font metrics.
 
 ## C++ interoperability
 

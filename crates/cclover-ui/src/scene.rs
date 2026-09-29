@@ -20,6 +20,10 @@ pub enum TextAlign {
     End,
 }
 
+pub trait NativeTextMeasurer {
+    fn width(&self, text: &str, size: u32, weight: TextWeight) -> f32;
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Primitive {
     FillRect {
@@ -61,7 +65,7 @@ pub struct NativeScene {
 }
 
 impl NativeScene {
-    pub fn from_dashboard(ui: &DashboardUi<'_>) -> Self {
+    pub fn from_dashboard(ui: &DashboardUi<'_>, text: &impl NativeTextMeasurer) -> Self {
         let height = ui.height();
         let mut primitives = Vec::new();
         let panel = Rect {
@@ -85,8 +89,8 @@ impl NativeScene {
         let column_width = available as f32 / 2.0;
         let left_x = PANEL_GEOMETRY.padding as f32;
         let right_x = left_x + column_width + PANEL_GEOMETRY.column_spacing as f32;
-        lower_column(&ui.left, left_x, column_width, &mut primitives);
-        lower_column(&ui.right, right_x, column_width, &mut primitives);
+        lower_column(&ui.left, left_x, column_width, text, &mut primitives);
+        lower_column(&ui.right, right_x, column_width, text, &mut primitives);
         Self {
             width: PANEL_WIDTH,
             height,
@@ -95,7 +99,13 @@ impl NativeScene {
     }
 }
 
-fn lower_column(blocks: &[Block<'_>], x: f32, width: f32, out: &mut Vec<Primitive>) {
+fn lower_column(
+    blocks: &[Block<'_>],
+    x: f32,
+    width: f32,
+    text: &impl NativeTextMeasurer,
+    out: &mut Vec<Primitive>,
+) {
     let mut y = PANEL_GEOMETRY.padding as f32;
     for block in blocks {
         match block {
@@ -113,13 +123,20 @@ fn lower_column(blocks: &[Block<'_>], x: f32, width: f32, out: &mut Vec<Primitiv
                 align: TextAlign::Start,
                 clip: label.clip,
             }),
-            Block::Card(card) => lower_card(card, x, y, width, out),
+            Block::Card(card) => lower_card(card, x, y, width, text, out),
         }
         y += block.height() as f32 + PANEL_GEOMETRY.column_spacing as f32;
     }
 }
 
-fn lower_card(card: &Card<'_>, x: f32, y: f32, width: f32, out: &mut Vec<Primitive>) {
+fn lower_card(
+    card: &Card<'_>,
+    x: f32,
+    y: f32,
+    width: f32,
+    text: &impl NativeTextMeasurer,
+    out: &mut Vec<Primitive>,
+) {
     let rect = Rect {
         x,
         y,
@@ -138,14 +155,28 @@ fn lower_card(card: &Card<'_>, x: f32, y: f32, width: f32, out: &mut Vec<Primiti
         radius: 12.0,
     });
     let p = card.padding as f32;
-    lower_stack(&card.content, x + p, y + p, (width - 2.0 * p).max(0.0), out);
+    lower_stack(
+        &card.content,
+        x + p,
+        y + p,
+        (width - 2.0 * p).max(0.0),
+        text,
+        out,
+    );
 }
 
-fn lower_stack(stack: &Stack<'_>, x: f32, y: f32, width: f32, out: &mut Vec<Primitive>) {
+fn lower_stack(
+    stack: &Stack<'_>,
+    x: f32,
+    y: f32,
+    width: f32,
+    text: &impl NativeTextMeasurer,
+    out: &mut Vec<Primitive>,
+) {
     let mut child_y = y;
     for child in &stack.children {
         match child {
-            Element::Row(row) => lower_row(row, x, child_y, width, out),
+            Element::Row(row) => lower_row(row, x, child_y, width, text, out),
             Element::Graph(graph) => lower_graph(graph, x, child_y, width, out),
             Element::Progress(progress) => {
                 let h = progress.height as f32;
@@ -170,13 +201,20 @@ fn lower_stack(stack: &Stack<'_>, x: f32, y: f32, width: f32, out: &mut Vec<Prim
                     radius: 3.0,
                 });
             }
-            Element::Stack(nested) => lower_stack(nested, x, child_y, width, out),
+            Element::Stack(nested) => lower_stack(nested, x, child_y, width, text, out),
         }
         child_y += child.height() as f32 + stack.gap as f32;
     }
 }
 
-fn lower_row(row: &TextRow<'_>, x: f32, y: f32, width: f32, out: &mut Vec<Primitive>) {
+fn lower_row(
+    row: &TextRow<'_>,
+    x: f32,
+    y: f32,
+    width: f32,
+    text: &impl NativeTextMeasurer,
+    out: &mut Vec<Primitive>,
+) {
     if row.cells.is_empty() {
         return;
     }
@@ -185,7 +223,7 @@ fn lower_row(row: &TextRow<'_>, x: f32, y: f32, width: f32, out: &mut Vec<Primit
         .cells
         .iter()
         .filter(|cell| !cell.grow)
-        .map(|cell| estimated_text_width(&cell.text, cell.size))
+        .map(|cell| text.width(&cell.text, cell.size, cell.weight))
         .sum::<f32>();
     let growers = row.cells.iter().filter(|cell| cell.grow).count();
     let flexible = (width - gaps - fixed).max(0.0) / growers.max(1) as f32;
@@ -194,7 +232,7 @@ fn lower_row(row: &TextRow<'_>, x: f32, y: f32, width: f32, out: &mut Vec<Primit
         let cell_width = if cell.grow {
             flexible
         } else {
-            estimated_text_width(&cell.text, cell.size)
+            text.width(&cell.text, cell.size, cell.weight)
         };
         if !cell.text.is_empty() {
             out.push(Primitive::Text {
@@ -218,14 +256,6 @@ fn lower_row(row: &TextRow<'_>, x: f32, y: f32, width: f32, out: &mut Vec<Primit
         }
         cell_x += cell_width + row.gap as f32;
     }
-}
-
-fn estimated_text_width(value: &str, size: u32) -> f32 {
-    // Inconsolata is a half-em monospace face. Keep the fractional advance:
-    // Iced lays text out in floating-point space, so 11px text is 5.5px per
-    // glyph rather than rounding every glyph to 6px and accumulating drift.
-    let advance = size as f32 * 0.5;
-    value.chars().count() as f32 * advance
 }
 
 fn lower_graph(graph: &GraphSpec<'_>, x: f32, y: f32, width: f32, out: &mut Vec<Primitive>) {
@@ -302,15 +332,71 @@ mod tests {
     use cclover_core::model::MonitorState;
     use cclover_presentation::Dashboard;
 
+    struct TestMeasurer;
+
+    impl NativeTextMeasurer for TestMeasurer {
+        fn width(&self, text: &str, size: u32, _weight: TextWeight) -> f32 {
+            text.chars().count() as f32 * size as f32 * 0.5
+        }
+    }
+
     #[test]
     fn native_scene_is_derived_from_shared_dashboard_tree() {
         let state = MonitorState::default();
         let ui = DashboardUi::new(Dashboard::new(&state));
-        let scene = NativeScene::from_dashboard(&ui);
+        let scene = NativeScene::from_dashboard(&ui, &TestMeasurer);
         assert_eq!(scene.width, PANEL_WIDTH);
         assert_eq!(scene.height, ui.height());
         assert!(scene.primitives.iter().any(
             |primitive| matches!(primitive, Primitive::Text { value, .. } if value == "MEMORY")
         ));
+    }
+
+    #[test]
+    fn native_row_uses_renderer_measurement_for_natural_width_cells() {
+        struct FixedMeasurer;
+
+        impl NativeTextMeasurer for FixedMeasurer {
+            fn width(&self, _text: &str, _size: u32, _weight: TextWeight) -> f32 {
+                37.5
+            }
+        }
+
+        let row = TextRow {
+            cells: vec![
+                crate::TextCell {
+                    text: "grow".into(),
+                    size: 11,
+                    tone: Tone::Foreground,
+                    weight: TextWeight::Regular,
+                    grow: true,
+                    clip: false,
+                },
+                crate::TextCell {
+                    text: "fixed".into(),
+                    size: 11,
+                    tone: Tone::Foreground,
+                    weight: TextWeight::Bold,
+                    grow: false,
+                    clip: false,
+                },
+            ],
+            height: 16,
+            gap: 4,
+        };
+        let mut primitives = Vec::new();
+        lower_row(&row, 10.0, 20.0, 100.0, &FixedMeasurer, &mut primitives);
+
+        let text_rects = primitives
+            .iter()
+            .filter_map(|primitive| match primitive {
+                Primitive::Text { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(text_rects.len(), 2);
+        assert_eq!(text_rects[0].width, 58.5);
+        assert_eq!(text_rects[1].x, 72.5);
+        assert_eq!(text_rects[1].width, 37.5);
     }
 }

@@ -17,6 +17,7 @@ typedef struct {
     const CcloverCallbacks *callbacks;
     NOTIFYICONDATAW tray;
     HFONT fonts[32][2];
+    HDC measure_dc;
     UINT taskbar_created;
 } CcloverHost;
 
@@ -47,6 +48,47 @@ static HFONT cclover_font(CcloverHost *host, HDC dc, uint32_t size, int bold) {
         CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, L"Inconsolata");
     host->fonts[slot][bold ? 1 : 0] = cached;
     return cached;
+}
+
+static float cclover_measure_text(void *context, const uint8_t *text, size_t text_len,
+                                  uint32_t size, uint32_t flags) {
+    CcloverHost *host = context;
+    wchar_t stack_text[256];
+    wchar_t *wide = stack_text;
+    SIZE extent = {0, 0};
+    int wide_len = MultiByteToWideChar(CP_UTF8, 0, (LPCCH)text, (int)text_len, NULL, 0);
+    HFONT font;
+    HGDIOBJ old;
+    if (wide_len <= 0) return 0.0f;
+    if (wide_len > (int)(sizeof(stack_text) / sizeof(stack_text[0]))) {
+        wide = (wchar_t *)HeapAlloc(GetProcessHeap(), 0,
+                                    (size_t)wide_len * sizeof(wchar_t));
+        if (!wide) return 0.0f;
+    }
+    MultiByteToWideChar(CP_UTF8, 0, (LPCCH)text, (int)text_len, wide, wide_len);
+    font = cclover_font(host, host->measure_dc, size,
+                        (flags & CCLOVER_TEXT_BOLD) != 0);
+    old = SelectObject(host->measure_dc, font);
+    GetTextExtentPoint32W(host->measure_dc, wide, wide_len, &extent);
+    SelectObject(host->measure_dc, old);
+    if (wide != stack_text) HeapFree(GetProcessHeap(), 0, wide);
+    return (float)extent.cx;
+}
+
+static void cclover_release_resources(CcloverHost *host) {
+    unsigned i, j;
+    for (i = 0; i < 32; ++i) {
+        for (j = 0; j < 2; ++j) {
+            if (host->fonts[i][j]) {
+                DeleteObject(host->fonts[i][j]);
+                host->fonts[i][j] = NULL;
+            }
+        }
+    }
+    if (host->measure_dc) {
+        DeleteDC(host->measure_dc);
+        host->measure_dc = NULL;
+    }
 }
 
 static void cclover_draw_rect(HDC dc, const CcloverCommand *cmd, int fill) {
@@ -150,7 +192,7 @@ static void cclover_draw_scene(CcloverHost *host, HDC dc, const CcloverScene *sc
 
 static void cclover_scene(CcloverHost *host, CcloverScene *scene) {
     ZeroMemory(scene, sizeof(*scene));
-    host->callbacks->scene(host->context, scene);
+    host->callbacks->scene(host->context, host, cclover_measure_text, scene);
 }
 
 static void cclover_place(HWND hwnd, uint32_t width, uint32_t height) {
@@ -274,14 +316,9 @@ static LRESULT CALLBACK cclover_wndproc(HWND hwnd, UINT message, WPARAM wparam, 
         if (lparam == WM_RBUTTONUP || lparam == WM_CONTEXTMENU) cclover_tray_menu(hwnd);
         return 0;
     case WM_DESTROY: {
-        unsigned i, j;
         KillTimer(hwnd, CCLOVER_TIMER_ID);
         Shell_NotifyIconW(NIM_DELETE, &host->tray);
-        for (i = 0; i < 32; ++i) {
-            for (j = 0; j < 2; ++j) {
-                if (host->fonts[i][j]) DeleteObject(host->fonts[i][j]);
-            }
-        }
+        cclover_release_resources(host);
         PostQuitMessage(0);
         return 0;
     }
@@ -303,6 +340,8 @@ int cclover_win32_run(void *context, const CcloverCallbacks *callbacks) {
     ZeroMemory(&host, sizeof(host));
     host.context = context;
     host.callbacks = callbacks;
+    host.measure_dc = CreateCompatibleDC(NULL);
+    if (!host.measure_dc) return (int)GetLastError();
     host.taskbar_created = RegisterWindowMessageW(L"TaskbarCreated");
     cclover_scene(&host, &scene);
     shell = GetShellWindow();
@@ -313,15 +352,22 @@ int cclover_win32_run(void *context, const CcloverCallbacks *callbacks) {
     window_class.hInstance = instance;
     window_class.hCursor = LoadCursorW(NULL, IDC_ARROW);
     window_class.lpszClassName = CLASS_NAME;
-    if (!RegisterClassExW(&window_class) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
-        return (int)GetLastError();
+    if (!RegisterClassExW(&window_class) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+        int error = (int)GetLastError();
+        cclover_release_resources(&host);
+        return error;
+    }
 
     hwnd = CreateWindowExW(
         WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED | WS_EX_TRANSPARENT,
         CLASS_NAME, L"cclover-mon", WS_POPUP,
         0, 0, (int)scene.width, (int)scene.height,
         shell, NULL, instance, &host);
-    if (!hwnd) return (int)GetLastError();
+    if (!hwnd) {
+        int error = (int)GetLastError();
+        cclover_release_resources(&host);
+        return error;
+    }
 
     if (!SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)) {
         int error = (int)GetLastError();

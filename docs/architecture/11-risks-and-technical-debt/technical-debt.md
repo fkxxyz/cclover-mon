@@ -25,12 +25,6 @@ Technical debt here means current structure that makes future reasonable change 
 | --- | --- | --- |
 | [Architecture enforcement](technical-debt/architecture-enforcement.md) | Active | Important dependency and validation rules rely too heavily on developer memory and manual execution. |
 
-## P2
-
-| Debt | Status | Why it matters |
-| --- | --- | --- |
-| [Native text metrics contract](technical-debt/native-text-metrics-contract.md) | Active | Native absolute text geometry still assumes preferred-font metrics before Cairo/GDI realize or substitute the actual face. |
-
 ## P3
 
 | Debt | Status | Why it matters |

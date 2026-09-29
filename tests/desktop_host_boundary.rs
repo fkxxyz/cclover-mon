@@ -80,6 +80,46 @@ fn native_scene_abi_has_one_declarative_authority() {
 }
 
 #[test]
+fn native_text_layout_uses_realized_renderer_metrics() {
+    let scene = include_str!("../crates/cclover-ui/src/scene.rs");
+    let linux = include_str!("../crates/cclover-desktop/native/linux_host.c");
+    let windows = include_str!("../crates/cclover-desktop/native/windows_host.c");
+
+    assert!(scene.contains("NativeTextMeasurer"));
+    assert!(scene.contains("text.width(&cell.text, cell.size, cell.weight)"));
+    assert!(
+        !scene.contains("estimated_text_width"),
+        "native scene lowering must not regain guessed font metrics"
+    );
+
+    for (name, source, realization, measurement) in [
+        (
+            "Linux",
+            linux,
+            "cclover_select_font",
+            "cairo_text_extents(host->measure_cr",
+        ),
+        (
+            "Windows",
+            windows,
+            "cclover_font(host",
+            "GetTextExtentPoint32W(host->measure_dc",
+        ),
+    ] {
+        assert!(
+            source.contains(realization) && source.contains(measurement),
+            "{name} native host must measure through its realized drawing font"
+        );
+        assert!(
+            source.contains(
+                "host->callbacks->scene(host->context, host, cclover_measure_text, scene)"
+            ),
+            "{name} native host must supply measurement to shared scene lowering"
+        );
+    }
+}
+
+#[test]
 fn windows_desktop_surface_preserves_panel_window_policy() {
     let source = include_str!("../crates/cclover-desktop/native/windows_host.c");
 

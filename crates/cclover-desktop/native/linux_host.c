@@ -28,6 +28,8 @@
 typedef struct {
     void *context;
     const CcloverCallbacks *callbacks;
+    cairo_surface_t *measure_surface;
+    cairo_t *measure_cr;
 } CcloverHost;
 
 static void cclover_source_argb(cairo_t *cr, uint32_t argb) {
@@ -53,39 +55,69 @@ static void cclover_round_rect(cairo_t *cr, const CcloverCommand *cmd) {
     cairo_close_path(cr);
 }
 
-static char *cclover_text_copy(const CcloverCommand *cmd, char stack[512]) {
+static char *cclover_text_copy(const uint8_t *bytes, size_t len, char stack[512]) {
     char *text = stack;
-    if (cmd->text_len + 1 > 512) {
-        text = malloc(cmd->text_len + 1);
+    if (len + 1 > 512) {
+        text = malloc(len + 1);
         if (!text) return NULL;
     }
-    memcpy(text, cmd->text, cmd->text_len);
-    text[cmd->text_len] = '\0';
+    memcpy(text, bytes, len);
+    text[len] = '\0';
     return text;
+}
+
+static void cclover_select_font(cairo_t *cr, uint32_t size, int bold) {
+    cairo_font_options_t *font_options = cairo_font_options_create();
+    cairo_font_options_set_hint_metrics(font_options, CAIRO_HINT_METRICS_OFF);
+    cairo_set_font_options(cr, font_options);
+    cairo_font_options_destroy(font_options);
+    cairo_select_font_face(cr, "Inconsolata", CAIRO_FONT_SLANT_NORMAL,
+                           bold ? CAIRO_FONT_WEIGHT_BOLD : CAIRO_FONT_WEIGHT_NORMAL);
+    cairo_set_font_size(cr, size);
+}
+
+static int cclover_measure_init(CcloverHost *host) {
+    host->measure_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
+    if (cairo_surface_status(host->measure_surface) != CAIRO_STATUS_SUCCESS) return -1;
+    host->measure_cr = cairo_create(host->measure_surface);
+    if (cairo_status(host->measure_cr) != CAIRO_STATUS_SUCCESS) return -1;
+    return 0;
+}
+
+static void cclover_measure_destroy(CcloverHost *host) {
+    if (host->measure_cr) cairo_destroy(host->measure_cr);
+    if (host->measure_surface) cairo_surface_destroy(host->measure_surface);
+    host->measure_cr = NULL;
+    host->measure_surface = NULL;
+}
+
+static float cclover_measure_text(void *context, const uint8_t *bytes, size_t len,
+                                  uint32_t size, uint32_t flags) {
+    CcloverHost *host = context;
+    char stack[512];
+    char *text = cclover_text_copy(bytes, len, stack);
+    cairo_text_extents_t ext;
+    if (!text) return 0.0f;
+    cclover_select_font(host->measure_cr, size, (flags & CCLOVER_TEXT_BOLD) != 0);
+    cairo_text_extents(host->measure_cr, text, &ext);
+    if (text != stack) free(text);
+    return (float)ext.x_advance;
 }
 
 static void cclover_draw_text(cairo_t *cr, const CcloverCommand *cmd) {
     char stack[512];
-    char *text = cclover_text_copy(cmd, stack);
+    char *text = cclover_text_copy(cmd->text, cmd->text_len, stack);
     cairo_text_extents_t ext;
     cairo_font_extents_t font;
     double x, y;
     if (!text) return;
 
     cairo_save(cr);
-    cairo_font_options_t *font_options = cairo_font_options_create();
-    cairo_font_options_set_hint_metrics(font_options, CAIRO_HINT_METRICS_OFF);
-    cairo_set_font_options(cr, font_options);
-    cairo_font_options_destroy(font_options);
     if (cmd->flags & CCLOVER_TEXT_CLIP) {
         cairo_rectangle(cr, cmd->x, cmd->y, cmd->width, cmd->height);
         cairo_clip(cr);
     }
-    cairo_select_font_face(cr, "Inconsolata", CAIRO_FONT_SLANT_NORMAL,
-                           (cmd->flags & CCLOVER_TEXT_BOLD)
-                               ? CAIRO_FONT_WEIGHT_BOLD
-                               : CAIRO_FONT_WEIGHT_NORMAL);
-    cairo_set_font_size(cr, cmd->text_size);
+    cclover_select_font(cr, cmd->text_size, (cmd->flags & CCLOVER_TEXT_BOLD) != 0);
     cairo_text_extents(cr, text, &ext);
     cairo_font_extents(cr, &font);
     x = cmd->x;
@@ -145,7 +177,7 @@ static void cclover_draw_scene(cairo_t *cr, const CcloverScene *scene) {
 
 static void cclover_scene(CcloverHost *host, CcloverScene *scene) {
     memset(scene, 0, sizeof(*scene));
-    host->callbacks->scene(host->context, scene);
+    host->callbacks->scene(host->context, host, cclover_measure_text, scene);
 }
 
 /* ---------------- X11 host ---------------- */
@@ -224,7 +256,7 @@ static void x11_policy(Display *display, Window window) {
 }
 
 int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks) {
-    CcloverHost host = { context, callbacks };
+    CcloverHost host = { context, callbacks, NULL, NULL };
     CcloverScene scene;
     Display *display = XOpenDisplay(NULL);
     Window window;
@@ -238,6 +270,11 @@ int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks) {
     Colormap colormap;
     XSetWindowAttributes attrs;
     if (!display) return 101;
+    if (cclover_measure_init(&host) < 0) {
+        cclover_measure_destroy(&host);
+        XCloseDisplay(display);
+        return 102;
+    }
 
     cclover_scene(&host, &scene);
     width = scene.width;
@@ -311,6 +348,7 @@ int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks) {
     XDestroyWindow(display, window);
     XFreeColormap(display, colormap);
     XCloseDisplay(display);
+    cclover_measure_destroy(&host);
     return 0;
 }
 
@@ -604,6 +642,12 @@ int cclover_linux_wayland_run(void *context, const CcloverCallbacks *callbacks) 
     /* Collect initial wl_output.scale events before the surface enters an output. */
     wl_display_roundtrip(host.globals.display);
     wayland_set_initial_scale(&host);
+    if (cclover_measure_init(&host.host) < 0) {
+        cclover_measure_destroy(&host.host);
+        wl_registry_destroy(registry);
+        wl_display_disconnect(host.globals.display);
+        return 203;
+    }
 
     cclover_scene(&host.host, &scene);
     host.width = scene.width;
@@ -680,5 +724,6 @@ int cclover_linux_wayland_run(void *context, const CcloverCallbacks *callbacks) 
     wl_registry_destroy(registry);
     wl_display_roundtrip(host.globals.display);
     wl_display_disconnect(host.globals.display);
+    cclover_measure_destroy(&host.host);
     return 0;
 }

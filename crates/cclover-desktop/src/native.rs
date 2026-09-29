@@ -8,7 +8,11 @@ use std::sync::mpsc::Receiver;
 
 use cclover_core::model::MonitorState;
 use cclover_presentation::Dashboard;
-use cclover_ui::{DashboardUi, NativeScene, Primitive, Rgba, TextAlign};
+use cclover_ui::{
+    DashboardUi, NativeScene, NativeTextMeasurer, Primitive, Rgba, TextAlign, TextWeight,
+};
+
+type MeasureTextFn = unsafe extern "C" fn(*mut c_void, *const u8, usize, u32, u32) -> f32;
 
 macro_rules! abi_rust_type {
     (u32) => { u32 };
@@ -18,7 +22,9 @@ macro_rules! abi_rust_type {
     (const_command_ptr) => { *const NativeCommand };
     (const_point_ptr) => { *const NativePoint };
     (poll_fn) => { unsafe extern "C" fn(*mut c_void) -> u32 };
-    (scene_fn) => { unsafe extern "C" fn(*mut c_void, *mut SceneView) };
+    (scene_fn) => {
+        unsafe extern "C" fn(*mut c_void, *mut c_void, MeasureTextFn, *mut SceneView)
+    };
 }
 
 macro_rules! define_native_abi {
@@ -61,18 +67,19 @@ impl DesktopApp {
 pub(crate) struct NativeContext {
     receiver: Receiver<MonitorState>,
     state: MonitorState,
-    frame: FrameStorage,
+    frame: Option<FrameStorage>,
+    frame_dirty: bool,
     quit: Option<Arc<AtomicBool>>,
 }
 
 impl NativeContext {
     pub(crate) fn new(receiver: Receiver<MonitorState>, quit: Option<Arc<AtomicBool>>) -> Self {
         let state = MonitorState::default();
-        let frame = build_frame(&state);
         Self {
             receiver,
             state,
-            frame,
+            frame: None,
+            frame_dirty: true,
             quit,
         }
     }
@@ -93,7 +100,7 @@ impl NativeContext {
         }
         if let Some(state) = latest {
             self.state = state;
-            self.frame = build_frame(&self.state);
+            self.frame_dirty = true;
             flags |= POLL_FRAME;
         }
         flags
@@ -257,9 +264,23 @@ fn argb(color: Rgba) -> u32 {
         | u32::from(color.b)
 }
 
-fn build_frame(state: &MonitorState) -> FrameStorage {
+struct HostTextMeasurer {
+    context: *mut c_void,
+    measure: MeasureTextFn,
+}
+
+impl NativeTextMeasurer for HostTextMeasurer {
+    fn width(&self, text: &str, size: u32, weight: TextWeight) -> f32 {
+        let flags = u32::from(weight == TextWeight::Bold) * FLAG_TEXT_BOLD;
+        // SAFETY: the native host supplies this callback and context for the duration of the
+        // synchronous scene request. The UTF-8 byte slice remains alive for the call.
+        unsafe { (self.measure)(self.context, text.as_ptr(), text.len(), size, flags) }
+    }
+}
+
+fn build_frame(state: &MonitorState, text: &impl NativeTextMeasurer) -> FrameStorage {
     let dashboard = DashboardUi::new(Dashboard::new(state));
-    FrameStorage::from_scene(NativeScene::from_dashboard(&dashboard))
+    FrameStorage::from_scene(NativeScene::from_dashboard(&dashboard, text))
 }
 
 unsafe extern "C" fn poll_callback(context: *mut c_void) -> u32 {
@@ -268,8 +289,25 @@ unsafe extern "C" fn poll_callback(context: *mut c_void) -> u32 {
     context.poll()
 }
 
-unsafe extern "C" fn scene_callback(context: *mut c_void, scene: *mut SceneView) {
-    // SAFETY: both pointers are supplied by the synchronous native host callback contract.
-    let context = unsafe { &*(context.cast::<NativeContext>()) };
-    unsafe { scene.write(context.frame.view()) };
+unsafe extern "C" fn scene_callback(
+    context: *mut c_void,
+    measure_context: *mut c_void,
+    measure_text: MeasureTextFn,
+    scene: *mut SceneView,
+) {
+    // SAFETY: pointers and callback are supplied by the synchronous native host contract.
+    let context = unsafe { &mut *(context.cast::<NativeContext>()) };
+    if context.frame_dirty || context.frame.is_none() {
+        let text = HostTextMeasurer {
+            context: measure_context,
+            measure: measure_text,
+        };
+        context.frame = Some(build_frame(&context.state, &text));
+        context.frame_dirty = false;
+    }
+    let frame = context
+        .frame
+        .as_ref()
+        .expect("scene frame must be initialized");
+    unsafe { scene.write(frame.view()) };
 }

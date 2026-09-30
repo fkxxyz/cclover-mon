@@ -55,6 +55,12 @@ pub(super) struct Collector {
     discovery_issues: Vec<String>,
 }
 
+#[derive(Clone, Copy)]
+enum StorageTemperatureProjection {
+    Product,
+    Diagnostic,
+}
+
 struct StorageDevice {
     disk_number: u32,
     identity: String,
@@ -84,12 +90,27 @@ impl Collector {
 
     pub(super) fn collect(
         &self,
+        notes: Option<&mut Vec<String>>,
+    ) -> Collection<Vec<TemperatureSnapshot>> {
+        self.collect_with_storage_projection(StorageTemperatureProjection::Product, notes)
+    }
+
+    pub(super) fn collect_diagnostic(
+        &self,
+        notes: Option<&mut Vec<String>>,
+    ) -> Collection<Vec<TemperatureSnapshot>> {
+        self.collect_with_storage_projection(StorageTemperatureProjection::Diagnostic, notes)
+    }
+
+    fn collect_with_storage_projection(
+        &self,
+        projection: StorageTemperatureProjection,
         mut notes: Option<&mut Vec<String>>,
     ) -> Collection<Vec<TemperatureSnapshot>> {
         for issue in &self.discovery_issues {
             report_issue(&mut notes, || issue.clone());
         }
-        let storage = collect_storage_temperatures(&self.storage, notes.as_deref_mut());
+        let storage = collect_storage_temperatures(&self.storage, projection, notes.as_deref_mut());
         let thermal = collect_thermal_zones(&self.thermal_paths, notes.as_deref_mut());
         let battery = collect_battery_temperatures(&self.battery_paths, notes);
         let merged = hardware::merge_temperature_sources([storage, thermal, battery]);
@@ -154,6 +175,7 @@ fn discover_storage_devices(issues: &mut Vec<String>) -> Vec<StorageDevice> {
 
 fn collect_storage_temperatures(
     devices: &[StorageDevice],
+    projection: StorageTemperatureProjection,
     mut notes: Option<&mut Vec<String>>,
 ) -> Collection<Vec<TemperatureSnapshot>> {
     let mut values = Vec::new();
@@ -197,20 +219,19 @@ fn collect_storage_temperatures(
         match structured {
             Ok(sensors) if !sensors.is_empty() => {
                 degraded |= device.fallback_identity;
-                for sensor in sensors {
-                    let name = if sensor.index == 0 {
-                        format!("Disk {disk_number}")
-                    } else {
-                        format!("Disk {disk_number} Sensor {}", sensor.index)
-                    };
-                    values.push(TemperatureSnapshot {
-                        id: TemperatureId::from_opaque_key(format!(
-                            "windows:storage:{}:temperature:{}",
-                            device.identity, sensor.index
-                        )),
-                        name,
-                        celsius: sensor.celsius,
-                    });
+                match projection {
+                    StorageTemperatureProjection::Product => {
+                        if let Some(sensor) = primary_storage_temperature(&sensors) {
+                            values.push(storage_temperature_snapshot(device, *sensor, false));
+                        }
+                    }
+                    StorageTemperatureProjection::Diagnostic => {
+                        values.extend(
+                            sensors
+                                .into_iter()
+                                .map(|sensor| storage_temperature_snapshot(device, sensor, true)),
+                        );
+                    }
                 }
             }
             result => match ata_smart_temperature(&path) {
@@ -273,6 +294,34 @@ fn collect_storage_temperatures(
 struct StorageTemperature {
     index: u16,
     celsius: f64,
+}
+
+fn primary_storage_temperature(sensors: &[StorageTemperature]) -> Option<&StorageTemperature> {
+    sensors
+        .iter()
+        .find(|sensor| sensor.index == 0)
+        .or_else(|| sensors.iter().min_by_key(|sensor| sensor.index))
+}
+
+fn storage_temperature_snapshot(
+    device: &StorageDevice,
+    sensor: StorageTemperature,
+    diagnostic: bool,
+) -> TemperatureSnapshot {
+    let disk_number = device.disk_number;
+    let name = if diagnostic && sensor.index != 0 {
+        format!("Disk {disk_number} Sensor {}", sensor.index)
+    } else {
+        format!("Disk {disk_number}")
+    };
+    TemperatureSnapshot {
+        id: TemperatureId::from_opaque_key(format!(
+            "windows:storage:{}:temperature:{}",
+            device.identity, sensor.index
+        )),
+        name,
+        celsius: sensor.celsius,
+    }
 }
 
 fn storage_temperature_info(handle: HANDLE) -> io::Result<Vec<StorageTemperature>> {
@@ -786,6 +835,49 @@ mod tests {
     #[test]
     fn invalid_kelvin_temperature_is_rejected() {
         assert!(kelvin_tenths_to_celsius(0).is_err());
+    }
+
+    #[test]
+    fn storage_product_temperature_prefers_index_zero_even_when_unsorted() {
+        let sensors = [
+            StorageTemperature {
+                index: 4,
+                celsius: 44.0,
+            },
+            StorageTemperature {
+                index: 0,
+                celsius: 40.0,
+            },
+            StorageTemperature {
+                index: 2,
+                celsius: 42.0,
+            },
+        ];
+        assert_eq!(primary_storage_temperature(&sensors), Some(&sensors[1]));
+    }
+
+    #[test]
+    fn storage_product_temperature_falls_back_to_lowest_index() {
+        let sensors = [
+            StorageTemperature {
+                index: 3,
+                celsius: 43.0,
+            },
+            StorageTemperature {
+                index: 1,
+                celsius: 41.0,
+            },
+            StorageTemperature {
+                index: 2,
+                celsius: 42.0,
+            },
+        ];
+        assert_eq!(primary_storage_temperature(&sensors), Some(&sensors[1]));
+    }
+
+    #[test]
+    fn storage_product_temperature_handles_empty_sensor_set() {
+        assert_eq!(primary_storage_temperature(&[]), None);
     }
 
     #[test]

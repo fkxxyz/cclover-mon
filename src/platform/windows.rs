@@ -77,7 +77,7 @@ impl Backend {
             ProbeKind::Disk => ProbeSample::Disk(disk::collect(notes)),
             ProbeKind::Temperatures => {
                 let hardware = self.hardware.collect_temperatures(notes.as_deref_mut());
-                let native = self.temperatures.collect(notes);
+                let native = self.temperatures.collect_diagnostic(notes);
                 ProbeSample::Temperatures(hardware::merge_temperature_sources([hardware, native]))
             }
             ProbeKind::Fans => ProbeSample::Fans(self.hardware.collect_fans(notes)),

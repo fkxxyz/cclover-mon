@@ -37,7 +37,7 @@ Do not introduce PDH for these basic collectors where the direct structured sour
 
 Windows projects shared `swap` from actual page-file capacity and occupancy, not from system commit accounting. Physical-memory and page-file observations therefore remain distinct even when a Windows memory-status API exposes fields whose names contain page-file terminology.
 
-Storage temperature keeps the least-privilege structured query path independent from legacy ATA SMART. The normal storage-property query must not acquire read/write disk access merely because the SMART fallback requires it; fallback access failure affects only that optional source.
+Storage temperature keeps the least-privilege structured query path independent from legacy ATA SMART. The normal storage-property query must not acquire read/write disk access merely because the SMART fallback requires it; fallback access failure affects only that optional source. The product projection exposes at most one representative structured temperature per physical disk: prefer sensor index 0 when present, otherwise the lowest valid sensor index. Diagnostic projection may retain every valid structured sensor. The representative sensor keeps its actual sensor index in stable identity even when a nonzero index is selected as fallback.
 
 ## PawnIO runtime
 

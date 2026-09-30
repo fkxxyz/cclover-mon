@@ -6,12 +6,12 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "native_scene.h"
+#include "windows_geometry.h"
 
 #define CCLOVER_WM_TRAY (WM_APP + 7)
 #define CCLOVER_TIMER_ID 1
 #define CCLOVER_MENU_QUIT 1001
 #define CCLOVER_MARGIN 16
-#define CCLOVER_DEFAULT_DPI 96
 #ifndef WM_DPICHANGED
 #define WM_DPICHANGED 0x02E0
 #endif
@@ -64,14 +64,12 @@ static COLORREF cclover_color(uint32_t argb) {
     return RGB(r, g, b);
 }
 
-static int cclover_round(float value) { return (int)(value + 0.5f); }
-
 static int cclover_px(const CcloverHost *host, float logical) {
-    return cclover_round(logical * (float)host->display.dpi / (float)CCLOVER_DEFAULT_DPI);
+    return cclover_scale_logical(logical, host->display.dpi);
 }
 
 static float cclover_logical_px(const CcloverHost *host, int physical) {
-    return (float)physical * (float)CCLOVER_DEFAULT_DPI / (float)host->display.dpi;
+    return cclover_unscale_physical(physical, host->display.dpi);
 }
 
 static void cclover_init_dpi_api(CcloverDpiApi *api) {
@@ -156,7 +154,10 @@ static void cclover_set_display(CcloverHost *host, HMONITOR monitor, UINT dpi) {
     }
     if (!dpi) dpi = cclover_monitor_dpi(&host->dpi_api, monitor);
     if (!dpi) dpi = CCLOVER_DEFAULT_DPI;
-    if (host->display.dpi && host->display.dpi != dpi) cclover_release_fonts(host);
+    if (host->display.dpi &&
+        cclover_dpi_requires_resource_refresh(host->display.dpi, dpi)) {
+        cclover_release_fonts(host);
+    }
     host->display.dpi = dpi;
     host->display.monitor = monitor;
     ZeroMemory(&info, sizeof(info));
@@ -336,21 +337,21 @@ static void cclover_scene(CcloverHost *host, CcloverScene *scene) {
 
 static void cclover_place(CcloverHost *host, HWND hwnd, uint32_t width, uint32_t height) {
     HWND shell = GetShellWindow();
-    RECT work = host->display.work_area;
-    int physical_width = cclover_px(host, (float)width);
-    int physical_height = cclover_px(host, (float)height);
-    int margin = cclover_px(host, (float)CCLOVER_MARGIN);
+    CcloverRectI work = {
+        host->display.work_area.left,
+        host->display.work_area.top,
+        host->display.work_area.right,
+        host->display.work_area.bottom,
+    };
+    CcloverWindowGeometry geometry = cclover_top_right_geometry(
+        width, height, work, host->display.dpi, (float)CCLOVER_MARGIN);
     int radius = cclover_px(host, 32.0f);
-    int x, y;
     if (shell && GetWindow(hwnd, GW_OWNER) != shell) {
         SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, (LONG_PTR)shell);
     }
-    x = work.right - physical_width - margin;
-    y = work.top + margin;
-    if (x < work.left) x = work.left;
-    SetWindowPos(hwnd, HWND_BOTTOM, x, y, physical_width, physical_height,
+    SetWindowPos(hwnd, HWND_BOTTOM, geometry.x, geometry.y, geometry.width, geometry.height,
                  SWP_NOACTIVATE | SWP_SHOWWINDOW);
-    SetWindowRgn(hwnd, CreateRoundRectRgn(0, 0, physical_width + 1, physical_height + 1,
+    SetWindowRgn(hwnd, CreateRoundRectRgn(0, 0, geometry.width + 1, geometry.height + 1,
                                          radius, radius), TRUE);
 }
 

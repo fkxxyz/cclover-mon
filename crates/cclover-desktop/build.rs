@@ -91,8 +91,11 @@ fn c_field(name: &str, field_type: &str) -> String {
 
 fn build_windows(out_dir: &Path) {
     println!("cargo:rerun-if-changed=native/windows_host.c");
+    println!("cargo:rerun-if-changed=native/windows_geometry.c");
+    println!("cargo:rerun-if-changed=native/windows_geometry.h");
     cc::Build::new()
         .file("native/windows_host.c")
+        .file("native/windows_geometry.c")
         .include(out_dir)
         .include("native")
         .warnings(true)

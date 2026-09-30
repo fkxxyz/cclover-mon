@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
-use crate::core::model::CollectionStatus;
+use crate::core::model::{CollectionStatus, CollectionUnavailable};
 use crate::core::{SampleCycle, Sampler};
 use crate::platform::{Backend, ProbeKind};
 use crate::presentation::{Dashboard, format_bytes, format_percent, format_rate, unavailable};
@@ -423,14 +423,10 @@ fn probe(kind: ProbeKind, raw: bool) {
     let elapsed = started.elapsed();
 
     println!("collector: {}", kind.as_str());
-    println!(
-        "status: {}",
-        match report.status {
-            CollectionStatus::Available => "ok",
-            CollectionStatus::Degraded => "degraded",
-            CollectionStatus::Unavailable(_) => "unavailable",
-        }
-    );
+    println!("status: {}", probe_status_name(report.status));
+    if let CollectionStatus::Unavailable(reason) = report.status {
+        println!("reason: {}", unavailable_reason_name(reason));
+    }
     println!("elapsed: {:.3} ms", elapsed.as_secs_f64() * 1_000.0);
     for line in report.summary {
         println!("result: {line}");
@@ -446,6 +442,24 @@ fn probe(kind: ProbeKind, raw: bool) {
         for note in report.notes {
             println!("diagnostic: {note}");
         }
+    }
+}
+
+fn probe_status_name(status: CollectionStatus) -> &'static str {
+    match status {
+        CollectionStatus::Available => "ok",
+        CollectionStatus::Degraded => "degraded",
+        CollectionStatus::Unavailable(_) => "unavailable",
+    }
+}
+
+fn unavailable_reason_name(reason: CollectionUnavailable) -> &'static str {
+    match reason {
+        CollectionUnavailable::Unsupported => "unsupported",
+        CollectionUnavailable::Disabled => "disabled",
+        CollectionUnavailable::PermissionDenied => "permission-denied",
+        CollectionUnavailable::Unavailable => "unavailable",
+        CollectionUnavailable::InvalidData => "invalid-data",
     }
 }
 
@@ -530,6 +544,22 @@ mod tests {
         assert!(probe_needs_pawnio(ProbeKind::Temperatures));
         assert!(probe_needs_pawnio(ProbeKind::Fans));
         assert!(!probe_needs_pawnio(ProbeKind::Cpu));
+    }
+
+    #[test]
+    fn probe_unavailability_reasons_have_stable_cli_names() {
+        assert_eq!(
+            unavailable_reason_name(CollectionUnavailable::PermissionDenied),
+            "permission-denied"
+        );
+        assert_eq!(
+            unavailable_reason_name(CollectionUnavailable::Unsupported),
+            "unsupported"
+        );
+        assert_eq!(
+            unavailable_reason_name(CollectionUnavailable::InvalidData),
+            "invalid-data"
+        );
     }
 
     #[cfg(not(feature = "http"))]

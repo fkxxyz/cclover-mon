@@ -117,15 +117,21 @@ Run Linux build/test/lint validation with:
 bun validate.ts linux
 ```
 
-Run both supported Windows cross-builds with:
+Run both supported Windows cross-builds and compile target-specific tests with:
 
 ```bash
 bun validate.ts windows
 ```
 
-`bun validate.ts all` runs all deterministic profiles when the required Linux and cargo-xwin toolchains are available. GitHub Actions invokes the same focused profiles; do not maintain a separate CI-only validation command set.
+Run Windows-host deterministic tests with:
 
-The Windows profile sets `XWIN_ARCH=x86,x86_64` on every individual `cargo xwin` subprocess. Do not invoke cargo-xwin from new automation outside this validation authority unless the same per-invocation rule is preserved.
+```bash
+bun validate.ts windows-native
+```
+
+`bun validate.ts all` runs the portable fast/Linux/Windows-cross profiles when the required Linux and cargo-xwin toolchains are available. Windows-host execution remains a separate `windows-native` profile because it requires a Windows runner. GitHub Actions invokes these same profiles; do not maintain a separate CI-only validation command set.
+
+The Windows cross profile sets `XWIN_ARCH=x86,x86_64` on every individual `cargo xwin` subprocess. Do not invoke cargo-xwin from new automation outside this validation authority unless the same per-invocation rule is preserved.
 
 For Linux UI or window-placement changes, also perform a real Wayland runtime check. If the shell does not inherit the desktop environment, locate the compositor socket under `/run/user/$(id -u)/wayland-*` and set the matching `XDG_RUNTIME_DIR` and `WAYLAND_DISPLAY` before launching `target/release/cclover-mon`. Runtime compositor/shell checks are evidence, not substitutes for deterministic validation.
 

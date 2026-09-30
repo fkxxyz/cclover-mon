@@ -67,6 +67,26 @@ struct StorageDevice {
     fallback_identity: bool,
 }
 
+enum DeviceRead<T> {
+    Value(T),
+    Empty,
+    Unsupported,
+    Failed(io::Error),
+}
+
+enum StructuredTemperatureRead {
+    Sensors(Vec<StorageTemperature>),
+    Unsupported,
+    Failed(io::Error),
+}
+
+enum SmartTemperatureRead {
+    Temperature(f64),
+    Empty,
+    Unsupported,
+    Failed(io::Error),
+}
+
 impl Collector {
     pub(super) fn new() -> Self {
         let mut discovery_issues = Vec::new();
@@ -211,73 +231,17 @@ fn collect_storage_temperatures(
             continue;
         }
 
-        let structured = storage_temperature_info(handle);
-        let fallback_expected = match &structured {
-            Ok(sensors) => sensors.is_empty(),
-            Err(error) => unsupported_ioctl(error),
+        let structured = classify_structured_temperature(storage_temperature_info(handle));
+        let smart = if storage_needs_smart(&structured) {
+            Some(classify_smart_temperature(ata_smart_temperature(&path)))
+        } else {
+            None
         };
-        match structured {
-            Ok(sensors) if !sensors.is_empty() => {
-                degraded |= device.fallback_identity;
-                match projection {
-                    StorageTemperatureProjection::Product => {
-                        if let Some(sensor) = primary_storage_temperature(&sensors) {
-                            values.push(storage_temperature_snapshot(device, *sensor, false));
-                        }
-                    }
-                    StorageTemperatureProjection::Diagnostic => {
-                        values.extend(
-                            sensors
-                                .into_iter()
-                                .map(|sensor| storage_temperature_snapshot(device, sensor, true)),
-                        );
-                    }
-                }
-            }
-            result => match ata_smart_temperature(&path) {
-                Ok(Some(celsius)) => {
-                    degraded |= device.fallback_identity;
-                    values.push(TemperatureSnapshot {
-                        id: TemperatureId::from_opaque_key(format!(
-                            "windows:storage:{}:temperature:0",
-                            device.identity
-                        )),
-                        name: format!("Disk {disk_number}"),
-                        celsius,
-                    });
-                }
-                Ok(None) => {
-                    if !fallback_expected {
-                        degraded = true;
-                        if let Err(error) = result {
-                            report_issue(&mut notes, || {
-                                format!("storage temperature query failed for {path}: {error}")
-                            });
-                        }
-                    }
-                }
-                Err(smart_error) => {
-                    if fallback_expected {
-                        if !unsupported_ioctl(&smart_error) {
-                            report_issue(&mut notes, || {
-                                format!(
-                                    "ATA SMART temperature fallback unavailable for {path}: {smart_error}"
-                                )
-                            });
-                        }
-                    } else {
-                        degraded = true;
-                        if let Err(error) = result {
-                            report_issue(&mut notes, || {
-                                format!(
-                                    "storage temperature query failed for {path}: {error}; ATA SMART fallback failed: {smart_error}"
-                                )
-                            });
-                        }
-                    }
-                }
-            },
-        }
+        report_storage_temperature_issues(&path, &structured, smart.as_ref(), &mut notes);
+        let (mut projected, device_degraded) =
+            project_storage_temperature(device, projection, &structured, smart.as_ref());
+        values.append(&mut projected);
+        degraded |= device_degraded;
 
         // SAFETY: handle was opened successfully and is closed exactly once here.
         unsafe { CloseHandle(handle) };
@@ -287,6 +251,115 @@ fn collect_storage_temperatures(
         Collection::degraded(values)
     } else {
         Collection::available(values)
+    }
+}
+
+fn classify_structured_temperature(
+    result: io::Result<Vec<StorageTemperature>>,
+) -> StructuredTemperatureRead {
+    match result {
+        Ok(sensors) => StructuredTemperatureRead::Sensors(sensors),
+        Err(error) if unsupported_ioctl(&error) => StructuredTemperatureRead::Unsupported,
+        Err(error) => StructuredTemperatureRead::Failed(error),
+    }
+}
+
+fn classify_smart_temperature(result: io::Result<Option<f64>>) -> SmartTemperatureRead {
+    match result {
+        Ok(Some(celsius)) => SmartTemperatureRead::Temperature(celsius),
+        Ok(None) => SmartTemperatureRead::Empty,
+        Err(error) if unsupported_ioctl(&error) => SmartTemperatureRead::Unsupported,
+        Err(error) => SmartTemperatureRead::Failed(error),
+    }
+}
+
+fn storage_needs_smart(structured: &StructuredTemperatureRead) -> bool {
+    !matches!(structured, StructuredTemperatureRead::Sensors(sensors) if !sensors.is_empty())
+}
+
+fn storage_fallback_expected(structured: &StructuredTemperatureRead) -> bool {
+    match structured {
+        StructuredTemperatureRead::Sensors(sensors) => sensors.is_empty(),
+        StructuredTemperatureRead::Unsupported => true,
+        StructuredTemperatureRead::Failed(_) => false,
+    }
+}
+
+fn project_storage_temperature(
+    device: &StorageDevice,
+    projection: StorageTemperatureProjection,
+    structured: &StructuredTemperatureRead,
+    smart: Option<&SmartTemperatureRead>,
+) -> (Vec<TemperatureSnapshot>, bool) {
+    if let StructuredTemperatureRead::Sensors(sensors) = structured {
+        if !sensors.is_empty() {
+            let values = match projection {
+                StorageTemperatureProjection::Product => primary_storage_temperature(sensors)
+                    .map(|sensor| vec![storage_temperature_snapshot(device, *sensor, false)])
+                    .unwrap_or_default(),
+                StorageTemperatureProjection::Diagnostic => sensors
+                    .iter()
+                    .copied()
+                    .map(|sensor| storage_temperature_snapshot(device, sensor, true))
+                    .collect(),
+            };
+            return (values, device.fallback_identity);
+        }
+    }
+
+    if let Some(SmartTemperatureRead::Temperature(celsius)) = smart {
+        return (
+            vec![TemperatureSnapshot {
+                id: TemperatureId::from_opaque_key(format!(
+                    "windows:storage:{}:temperature:0",
+                    device.identity
+                )),
+                name: format!("Disk {}", device.disk_number),
+                celsius: *celsius,
+            }],
+            device.fallback_identity,
+        );
+    }
+
+    (Vec::new(), !storage_fallback_expected(structured))
+}
+
+fn report_storage_temperature_issues(
+    path: &str,
+    structured: &StructuredTemperatureRead,
+    smart: Option<&SmartTemperatureRead>,
+    notes: &mut Option<&mut Vec<String>>,
+) {
+    let fallback_expected = storage_fallback_expected(structured);
+    match (structured, smart) {
+        (StructuredTemperatureRead::Failed(error), Some(SmartTemperatureRead::Empty)) => {
+            report_issue(notes, || {
+                format!("storage temperature query failed for {path}: {error}")
+            });
+        }
+        (StructuredTemperatureRead::Failed(error), Some(SmartTemperatureRead::Unsupported)) => {
+            report_issue(notes, || {
+                format!(
+                    "storage temperature query failed for {path}: {error}; ATA SMART fallback unsupported"
+                )
+            });
+        }
+        (
+            StructuredTemperatureRead::Failed(error),
+            Some(SmartTemperatureRead::Failed(smart_error)),
+        ) => {
+            report_issue(notes, || {
+                format!(
+                    "storage temperature query failed for {path}: {error}; ATA SMART fallback failed: {smart_error}"
+                )
+            });
+        }
+        (_, Some(SmartTemperatureRead::Failed(smart_error))) if fallback_expected => {
+            report_issue(notes, || {
+                format!("ATA SMART temperature fallback unavailable for {path}: {smart_error}")
+            });
+        }
+        _ => {}
     }
 }
 
@@ -477,12 +550,29 @@ fn collect_thermal_zones(
     paths: &[String],
     mut notes: Option<&mut Vec<String>>,
 ) -> Collection<Vec<TemperatureSnapshot>> {
-    let total = paths.len();
+    let reads = paths
+        .iter()
+        .map(|path| (path.clone(), classify_device_read(read_thermal_zone(path))))
+        .collect::<Vec<_>>();
+    for (path, read) in &reads {
+        if let DeviceRead::Failed(error) = read {
+            report_issue(&mut notes, || {
+                format!("ACPI thermal-zone read failed for {path}: {error}")
+            });
+        }
+    }
+    project_thermal_zones(&reads)
+}
+
+fn project_thermal_zones(
+    reads: &[(String, DeviceRead<f64>)],
+) -> Collection<Vec<TemperatureSnapshot>> {
+    let total = reads.len();
     let mut values = Vec::new();
     let mut degraded = false;
-    for (index, path) in paths.iter().enumerate() {
-        match read_thermal_zone(path) {
-            Ok(Some(celsius)) => values.push(TemperatureSnapshot {
+    for (index, (path, read)) in reads.iter().enumerate() {
+        match read {
+            DeviceRead::Value(celsius) => values.push(TemperatureSnapshot {
                 id: TemperatureId::from_opaque_key(format!(
                     "windows:acpi-thermal-zone:{}",
                     path.to_ascii_lowercase()
@@ -492,16 +582,10 @@ fn collect_thermal_zones(
                 } else {
                     format!("ACPI Thermal Zone {}", index + 1)
                 },
-                celsius,
+                celsius: *celsius,
             }),
-            Ok(None) => {}
-            Err(error) if unsupported_ioctl(&error) => {}
-            Err(error) => {
-                degraded = true;
-                report_issue(&mut notes, || {
-                    format!("ACPI thermal-zone read failed for {path}: {error}")
-                });
-            }
+            DeviceRead::Empty | DeviceRead::Unsupported => {}
+            DeviceRead::Failed(_) => degraded = true,
         }
     }
     if degraded {
@@ -548,12 +632,34 @@ fn collect_battery_temperatures(
     paths: &[String],
     mut notes: Option<&mut Vec<String>>,
 ) -> Collection<Vec<TemperatureSnapshot>> {
-    let total = paths.len();
+    let reads = paths
+        .iter()
+        .map(|path| {
+            (
+                path.clone(),
+                classify_device_read(read_battery_temperature(path)),
+            )
+        })
+        .collect::<Vec<_>>();
+    for (path, read) in &reads {
+        if let DeviceRead::Failed(error) = read {
+            report_issue(&mut notes, || {
+                format!("battery temperature read failed for {path}: {error}")
+            });
+        }
+    }
+    project_battery_temperatures(&reads)
+}
+
+fn project_battery_temperatures(
+    reads: &[(String, DeviceRead<(String, f64)>)],
+) -> Collection<Vec<TemperatureSnapshot>> {
+    let total = reads.len();
     let mut values = Vec::new();
     let mut degraded = false;
-    for (index, path) in paths.iter().enumerate() {
-        match read_battery_temperature(path) {
-            Ok(Some((identity, celsius))) => values.push(TemperatureSnapshot {
+    for (index, (_, read)) in reads.iter().enumerate() {
+        match read {
+            DeviceRead::Value((identity, celsius)) => values.push(TemperatureSnapshot {
                 id: TemperatureId::from_opaque_key(format!(
                     "windows:battery:{identity}:temperature"
                 )),
@@ -562,16 +668,10 @@ fn collect_battery_temperatures(
                 } else {
                     format!("Battery {}", index + 1)
                 },
-                celsius,
+                celsius: *celsius,
             }),
-            Ok(None) => {}
-            Err(error) if unsupported_ioctl(&error) => {}
-            Err(error) => {
-                degraded = true;
-                report_issue(&mut notes, || {
-                    format!("battery temperature read failed for {path}: {error}")
-                });
-            }
+            DeviceRead::Empty | DeviceRead::Unsupported => {}
+            DeviceRead::Failed(_) => degraded = true,
         }
     }
     if degraded {
@@ -807,6 +907,15 @@ fn unsupported_ioctl(error: &io::Error) -> bool {
     )
 }
 
+fn classify_device_read<T>(result: io::Result<Option<T>>) -> DeviceRead<T> {
+    match result {
+        Ok(Some(value)) => DeviceRead::Value(value),
+        Ok(None) => DeviceRead::Empty,
+        Err(error) if unsupported_ioctl(&error) => DeviceRead::Unsupported,
+        Err(error) => DeviceRead::Failed(error),
+    }
+}
+
 fn wide_z(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(std::iter::once(0)).collect()
 }
@@ -906,5 +1015,231 @@ mod tests {
         page[ATA_SMART_ATTRIBUTE_OFFSET] = ATA_SMART_TEMPERATURE;
         page[ATA_SMART_ATTRIBUTE_OFFSET + 5] = 200;
         assert_eq!(ata_smart_temperature_from_page(&page), None);
+    }
+
+    fn storage_device(fallback_identity: bool) -> StorageDevice {
+        StorageDevice {
+            disk_number: 7,
+            identity: "disk-id".to_owned(),
+            fallback_identity,
+        }
+    }
+
+    #[test]
+    fn storage_policy_selects_one_product_sensor_and_all_diagnostic_sensors() {
+        let structured = StructuredTemperatureRead::Sensors(vec![
+            StorageTemperature {
+                index: 3,
+                celsius: 43.0,
+            },
+            StorageTemperature {
+                index: 0,
+                celsius: 40.0,
+            },
+        ]);
+        let device = storage_device(false);
+
+        let (product, degraded) = project_storage_temperature(
+            &device,
+            StorageTemperatureProjection::Product,
+            &structured,
+            None,
+        );
+        assert!(!degraded);
+        assert_eq!(product.len(), 1);
+        assert_eq!(
+            product[0].id.as_opaque_key(),
+            "windows:storage:disk-id:temperature:0"
+        );
+        assert_eq!(product[0].celsius, 40.0);
+
+        let (diagnostic, degraded) = project_storage_temperature(
+            &device,
+            StorageTemperatureProjection::Diagnostic,
+            &structured,
+            None,
+        );
+        assert!(!degraded);
+        assert_eq!(diagnostic.len(), 2);
+        assert_eq!(
+            diagnostic[0].id.as_opaque_key(),
+            "windows:storage:disk-id:temperature:3"
+        );
+        assert_eq!(
+            diagnostic[1].id.as_opaque_key(),
+            "windows:storage:disk-id:temperature:0"
+        );
+    }
+
+    #[test]
+    fn storage_policy_uses_smart_for_unsupported_structured_temperature() {
+        let device = storage_device(false);
+        let (values, degraded) = project_storage_temperature(
+            &device,
+            StorageTemperatureProjection::Product,
+            &StructuredTemperatureRead::Unsupported,
+            Some(&SmartTemperatureRead::Temperature(38.0)),
+        );
+        assert!(!degraded);
+        assert_eq!(values.len(), 1);
+        assert_eq!(
+            values[0].id.as_opaque_key(),
+            "windows:storage:disk-id:temperature:0"
+        );
+        assert_eq!(values[0].celsius, 38.0);
+    }
+
+    #[test]
+    fn storage_policy_distinguishes_expected_fallback_absence_from_hard_failure() {
+        let device = storage_device(false);
+        let (values, degraded) = project_storage_temperature(
+            &device,
+            StorageTemperatureProjection::Product,
+            &StructuredTemperatureRead::Sensors(Vec::new()),
+            Some(&SmartTemperatureRead::Unsupported),
+        );
+        assert!(values.is_empty());
+        assert!(!degraded);
+
+        let (values, degraded) = project_storage_temperature(
+            &device,
+            StorageTemperatureProjection::Product,
+            &StructuredTemperatureRead::Failed(io::Error::other("structured failure")),
+            Some(&SmartTemperatureRead::Empty),
+        );
+        assert!(values.is_empty());
+        assert!(degraded);
+    }
+
+    #[test]
+    fn storage_policy_marks_locator_identity_as_degraded() {
+        let device = storage_device(true);
+        let (values, degraded) = project_storage_temperature(
+            &device,
+            StorageTemperatureProjection::Product,
+            &StructuredTemperatureRead::Sensors(vec![StorageTemperature {
+                index: 2,
+                celsius: 42.0,
+            }]),
+            None,
+        );
+        assert_eq!(
+            values[0].id.as_opaque_key(),
+            "windows:storage:disk-id:temperature:2"
+        );
+        assert!(degraded);
+    }
+
+    #[test]
+    fn storage_native_results_preserve_capability_and_hard_failure_classes() {
+        assert!(matches!(
+            classify_structured_temperature(Err(io::Error::from_raw_os_error(ERROR_NOT_SUPPORTED))),
+            StructuredTemperatureRead::Unsupported
+        ));
+        assert!(matches!(
+            classify_structured_temperature(Err(io::Error::other("query failed"))),
+            StructuredTemperatureRead::Failed(_)
+        ));
+        assert!(matches!(
+            classify_smart_temperature(Err(io::Error::from_raw_os_error(ERROR_INVALID_FUNCTION))),
+            SmartTemperatureRead::Unsupported
+        ));
+        assert!(matches!(
+            classify_smart_temperature(Err(io::Error::other("SMART failed"))),
+            SmartTemperatureRead::Failed(_)
+        ));
+    }
+
+    #[test]
+    fn acpi_policy_keeps_partial_success_and_typed_identity() {
+        let reads = vec![
+            ("THERMAL-A".to_owned(), DeviceRead::Value(45.0)),
+            ("THERMAL-B".to_owned(), DeviceRead::Unsupported),
+            (
+                "THERMAL-C".to_owned(),
+                DeviceRead::Failed(io::Error::other("read failed")),
+            ),
+        ];
+        let result = project_thermal_zones(&reads);
+        let Collection::Degraded(values) = result else {
+            panic!("hard device failure must degrade partial ACPI data");
+        };
+        assert_eq!(values.len(), 1);
+        assert_eq!(
+            values[0].id.as_opaque_key(),
+            "windows:acpi-thermal-zone:thermal-a"
+        );
+        assert_eq!(values[0].celsius, 45.0);
+    }
+
+    #[test]
+    fn acpi_unsupported_and_empty_are_successful_empty_observations() {
+        let result = project_thermal_zones(&[
+            ("a".to_owned(), DeviceRead::Unsupported),
+            ("b".to_owned(), DeviceRead::Empty),
+        ]);
+        assert!(matches!(result, Collection::Available(values) if values.is_empty()));
+    }
+
+    #[test]
+    fn device_read_classification_keeps_unsupported_empty_and_invalid_distinct() {
+        assert!(matches!(
+            classify_device_read::<f64>(Ok(None)),
+            DeviceRead::Empty
+        ));
+        assert!(matches!(
+            classify_device_read::<f64>(Err(io::Error::from_raw_os_error(ERROR_NOT_SUPPORTED))),
+            DeviceRead::Unsupported
+        ));
+        assert!(matches!(
+            classify_device_read::<f64>(Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid temperature"
+            ))),
+            DeviceRead::Failed(_)
+        ));
+    }
+
+    #[test]
+    fn battery_policy_keeps_partial_success_and_stable_identity() {
+        let reads = vec![
+            (
+                "path-a".to_owned(),
+                DeviceRead::Value(("battery-uid".to_owned(), 31.5)),
+            ),
+            ("path-b".to_owned(), DeviceRead::Unsupported),
+            (
+                "path-c".to_owned(),
+                DeviceRead::Failed(io::Error::other("read failed")),
+            ),
+        ];
+        let result = project_battery_temperatures(&reads);
+        let Collection::Degraded(values) = result else {
+            panic!("hard battery failure must degrade partial data");
+        };
+        assert_eq!(values.len(), 1);
+        assert_eq!(
+            values[0].id.as_opaque_key(),
+            "windows:battery:battery-uid:temperature"
+        );
+        assert_eq!(values[0].celsius, 31.5);
+    }
+
+    #[test]
+    fn battery_empty_and_unsupported_are_not_hard_failures() {
+        let result = project_battery_temperatures(&[
+            ("a".to_owned(), DeviceRead::Empty),
+            ("b".to_owned(), DeviceRead::Unsupported),
+        ]);
+        assert!(matches!(result, Collection::Available(values) if values.is_empty()));
+
+        let result = project_battery_temperatures(&[(
+            "c".to_owned(),
+            DeviceRead::Failed(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid battery temperature",
+            )),
+        )]);
+        assert!(matches!(result, Collection::Degraded(values) if values.is_empty()));
     }
 }

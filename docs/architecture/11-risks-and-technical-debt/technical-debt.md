@@ -23,5 +23,4 @@ Presence is the state: every document in `technical-debt/` represents debt that 
 
 Current architecture-level technical debt:
 
-- [Windows hardware telemetry deterministic test seam](technical-debt/windows-hardware-telemetry-test-seam.md) — Medium-high priority; collector policy across CPU, storage temperature, ACPI/battery, and GPU topology still depends too much on live-hardware outcomes.
 - [Windows AMD Family 10h upstream authority](technical-debt/windows-amd-family10-upstream-authority.md) — Low-medium priority; Family 10h still retains a second temperature-algorithm authority because the pinned official PawnIO transport cannot execute upstream Erratum 319 validation.

@@ -46,3 +46,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo install cargo-xwin --locked
       - run: bun validate.ts windows
+
+  windows-native:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: bun validate.ts windows-native

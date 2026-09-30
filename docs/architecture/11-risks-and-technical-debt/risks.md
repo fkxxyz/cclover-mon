@@ -21,6 +21,7 @@ These items are risks or intentional capability limits that can remain even when
 
 - Linux native desktop rendering depends on system Cairo, X11/Xext, and Wayland client libraries plus checked-in generated layer-shell protocol code; packaging and protocol-library upgrades require native build and runtime validation.
 - Native metric parity will vary by operating system; the shared model must preserve common semantics without flattening meaningful platform-specific data.
+- Windows hardware telemetry still depends on real firmware, signed PawnIO capabilities, Windows driver/ABI behavior, and installed GPU vendor runtimes. Deterministic tests prove collector policy from typed native outcomes, but representative hardware remains necessary compatibility evidence for those external boundaries.
 - Third-party C++ SDKs may impose runtime or packaging costs that must be measured before adoption.
 - X11 window-manager behavior varies across EWMH implementations; top-right placement, skip-taskbar/pager, focus avoidance, transparency, and desktop-like stacking require runtime validation on representative window managers.
 - Linux eBPF I/O attribution depends on kernel BTF and attach-point compatibility. CO-RE reduces struct-layout coupling but does not guarantee every supported kernel exposes equivalent hook semantics; compatibility must be demonstrated on representative kernels.

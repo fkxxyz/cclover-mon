@@ -56,17 +56,44 @@ const LINUX_STEPS: readonly ValidationStep[] = [
 
 const WINDOWS_STEPS: readonly ValidationStep[] = [
   { name: "Windows dependency preparation", command: ["bun", "prepare-windows-deps.ts"] },
-  ...["x86_64-pc-windows-msvc", "i686-pc-windows-msvc"].map((target) => ({
-    name: `Windows release build (${target})`,
-    command: ["cargo", "xwin", "build", "--locked", "--release", "--target", target],
-    env: { XWIN_ARCH },
-  })),
+  ...["x86_64-pc-windows-msvc", "i686-pc-windows-msvc"].flatMap((target) => [
+    {
+      name: `Windows test compile (${target})`,
+      command: [
+        "cargo",
+        "xwin",
+        "test",
+        "--locked",
+        "-p",
+        "cclover-mon",
+        "--no-default-features",
+        "--no-run",
+        "--target",
+        target,
+      ],
+      env: { XWIN_ARCH },
+    },
+    {
+      name: `Windows release build (${target})`,
+      command: ["cargo", "xwin", "build", "--locked", "--release", "--target", target],
+      env: { XWIN_ARCH },
+    },
+  ]),
+];
+
+const WINDOWS_NATIVE_STEPS: readonly ValidationStep[] = [
+  { name: "Windows dependency preparation", command: ["bun", "prepare-windows-deps.ts"] },
+  {
+    name: "Windows deterministic tests",
+    command: ["cargo", "test", "--locked", "-p", "cclover-mon", "--no-default-features"],
+  },
 ];
 
 export const VALIDATION_PROFILES = {
   fast: FAST_STEPS,
   linux: LINUX_STEPS,
   windows: WINDOWS_STEPS,
+  "windows-native": WINDOWS_NATIVE_STEPS,
   all: [...FAST_STEPS, ...LINUX_STEPS, ...WINDOWS_STEPS],
 } as const;
 
@@ -89,7 +116,7 @@ export function formatValidationStep(step: ValidationStep): string {
 }
 
 function usage(): void {
-  console.log("usage: bun validate.ts <fast|linux|windows|all>");
+  console.log("usage: bun validate.ts <fast|linux|windows|windows-native|all>");
 }
 
 function isValidationProfile(value: string): value is ValidationProfile {

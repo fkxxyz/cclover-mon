@@ -17,14 +17,31 @@ describe("validation profiles", () => {
     ]);
   });
 
-  test("every Windows build pins the shared xwin architecture set per invocation", () => {
-    const [prepare, ...builds] = validationSteps("windows");
+  test("every Windows cross command pins the shared xwin architecture set per invocation", () => {
+    const [prepare, ...commands] = validationSteps("windows");
     expect(prepare?.command).toEqual(["bun", "prepare-windows-deps.ts"]);
-    for (const step of builds) {
-      expect(step.command.slice(0, 3)).toEqual(["cargo", "xwin", "build"]);
+    for (const step of commands) {
+      expect(step.command.slice(0, 2)).toEqual(["cargo", "xwin"]);
+      expect(["build", "test"]).toContain(step.command[2]);
       expect(step.env).toEqual({ XWIN_ARCH: "x86,x86_64" });
-      expect(formatValidationStep(step)).toStartWith(`XWIN_ARCH=${XWIN_ARCH} cargo xwin build`);
+      expect(formatValidationStep(step)).toStartWith(`XWIN_ARCH=${XWIN_ARCH} cargo xwin`);
     }
+  });
+
+  test("Windows cross validation compiles target-specific test code", () => {
+    const testCompiles = validationSteps("windows").filter((step) => step.command[2] === "test");
+    expect(testCompiles).toHaveLength(2);
+    for (const step of testCompiles) {
+      expect(step.command).toContain("--no-run");
+      expect(step.command).toContain("--no-default-features");
+    }
+  });
+
+  test("Windows native validation executes deterministic tests on a Windows host", () => {
+    expect(validationSteps("windows-native").map((step) => step.command)).toEqual([
+      ["bun", "prepare-windows-deps.ts"],
+      ["cargo", "test", "--locked", "-p", "cclover-mon", "--no-default-features"],
+    ]);
   });
 
   test("all profile is exactly the three focused profiles in order", () => {

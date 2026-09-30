@@ -81,6 +81,11 @@ struct CpuObservation {
     diagnostic: CpuDiagnostic,
 }
 
+struct CpuSampleDecision {
+    collection: Collection<Vec<TemperatureSnapshot>>,
+    retry_reason: Option<CollectionUnavailable>,
+}
+
 #[derive(Debug)]
 enum CpuDiagnostic {
     Intel {
@@ -226,12 +231,12 @@ impl Collector {
             .ready_mut()
             .expect("CPU telemetry source is ready after ensure_ready")
             .collect();
-        match result {
+        match &result {
             Ok(observation) => {
                 let count = observation.temperatures.len();
                 let degraded = observation.degraded;
                 report_issue(&mut notes, || {
-                    let detail = match observation.diagnostic {
+                    let detail = match &observation.diagnostic {
                         CpuDiagnostic::Intel {
                             core_count,
                             affinity_failures,
@@ -244,31 +249,18 @@ impl Collector {
                     };
                     format!("CPU temperature source: sensors={count} degraded={degraded} {detail}")
                 });
-                let temperatures = observation
-                    .temperatures
-                    .into_iter()
-                    .filter(|temperature| {
-                        matches!(projection, CpuTemperatureProjection::Diagnostic)
-                            || temperature.visibility == CpuTemperatureVisibility::Primary
-                    })
-                    .map(|temperature| temperature.snapshot)
-                    .collect();
-                if observation.degraded {
-                    Collection::degraded(temperatures)
-                } else {
-                    Collection::available(temperatures)
-                }
             }
             Err(error) => {
                 report_issue(&mut notes, || {
                     format!("PawnIO CPU temperature sampling failed: {error}")
                 });
-                if source_transport_failed(&error) {
-                    self.cpu.retry(now, unavailable_from_io(&error));
-                }
-                Collection::unavailable(unavailable_from_io(&error))
             }
         }
+        let decision = project_cpu_sample(result, projection);
+        if let Some(reason) = decision.retry_reason {
+            self.cpu.retry(now, reason);
+        }
+        decision.collection
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -734,6 +726,41 @@ fn initialize_ec(board: Option<board::Info>) -> Result<EcRuntime, InitFailure> {
     Err(InitFailure::Stable(CollectionUnavailable::Unsupported))
 }
 
+fn project_cpu_sample(
+    result: std::io::Result<CpuObservation>,
+    projection: CpuTemperatureProjection,
+) -> CpuSampleDecision {
+    match result {
+        Ok(observation) => {
+            let temperatures = observation
+                .temperatures
+                .into_iter()
+                .filter(|temperature| {
+                    matches!(projection, CpuTemperatureProjection::Diagnostic)
+                        || temperature.visibility == CpuTemperatureVisibility::Primary
+                })
+                .map(|temperature| temperature.snapshot)
+                .collect();
+            let collection = if observation.degraded {
+                Collection::degraded(temperatures)
+            } else {
+                Collection::available(temperatures)
+            };
+            CpuSampleDecision {
+                collection,
+                retry_reason: None,
+            }
+        }
+        Err(error) => {
+            let reason = unavailable_from_io(&error);
+            CpuSampleDecision {
+                collection: Collection::unavailable(reason),
+                retry_reason: source_transport_failed(&error).then_some(reason),
+            }
+        }
+    }
+}
+
 fn source_transport_failed(error: &std::io::Error) -> bool {
     error.raw_os_error().is_some()
 }
@@ -742,6 +769,92 @@ fn source_transport_failed(error: &std::io::Error) -> bool {
 mod tests {
     use super::*;
     use crate::core::model::TemperatureId;
+
+    fn cpu_observation(degraded: bool) -> CpuObservation {
+        CpuObservation {
+            temperatures: vec![
+                CpuTemperature {
+                    snapshot: TemperatureSnapshot {
+                        id: TemperatureId::from_opaque_key("cpu-primary"),
+                        name: "package".to_owned(),
+                        celsius: 52.0,
+                    },
+                    visibility: CpuTemperatureVisibility::Primary,
+                },
+                CpuTemperature {
+                    snapshot: TemperatureSnapshot {
+                        id: TemperatureId::from_opaque_key("cpu-detail"),
+                        name: "core".to_owned(),
+                        celsius: 48.0,
+                    },
+                    visibility: CpuTemperatureVisibility::Detail,
+                },
+            ],
+            degraded,
+            diagnostic: CpuDiagnostic::Intel {
+                core_count: 1,
+                affinity_failures: 0,
+                invalid_core_dts: 0,
+            },
+        }
+    }
+
+    #[test]
+    fn cpu_product_and_diagnostic_projections_use_typed_visibility() {
+        let product = project_cpu_sample(
+            Ok(cpu_observation(false)),
+            CpuTemperatureProjection::Product,
+        );
+        let Collection::Available(product) = product.collection else {
+            panic!("healthy CPU sample must remain available");
+        };
+        assert_eq!(product.len(), 1);
+        assert_eq!(product[0].id.as_opaque_key(), "cpu-primary");
+
+        let diagnostic = project_cpu_sample(
+            Ok(cpu_observation(false)),
+            CpuTemperatureProjection::Diagnostic,
+        );
+        let Collection::Available(diagnostic) = diagnostic.collection else {
+            panic!("healthy diagnostic CPU sample must remain available");
+        };
+        assert_eq!(diagnostic.len(), 2);
+        assert_eq!(diagnostic[0].id.as_opaque_key(), "cpu-primary");
+        assert_eq!(diagnostic[1].id.as_opaque_key(), "cpu-detail");
+    }
+
+    #[test]
+    fn cpu_partial_success_projects_as_degraded_without_retry() {
+        let decision = project_cpu_sample(
+            Ok(cpu_observation(true)),
+            CpuTemperatureProjection::Diagnostic,
+        );
+        assert!(matches!(decision.collection, Collection::Degraded(values) if values.len() == 2));
+        assert_eq!(decision.retry_reason, None);
+    }
+
+    #[test]
+    fn cpu_transport_failure_becomes_unavailable_and_requests_retry() {
+        let error = std::io::Error::from_raw_os_error(5);
+        let expected = unavailable_from_io(&error);
+        let decision = project_cpu_sample(Err(error), CpuTemperatureProjection::Product);
+        assert!(matches!(
+            decision.collection,
+            Collection::Unavailable(reason) if reason == expected
+        ));
+        assert_eq!(decision.retry_reason, Some(expected));
+    }
+
+    #[test]
+    fn cpu_nontransport_invalid_data_is_unavailable_without_session_retry() {
+        let error = std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid channel data");
+        let decision = project_cpu_sample(Err(error), CpuTemperatureProjection::Product);
+        assert!(matches!(
+            decision.collection,
+            Collection::Unavailable(CollectionUnavailable::InvalidData)
+        ));
+        assert_eq!(decision.retry_reason, None);
+    }
 
     #[test]
     fn source_initializes_independently() {

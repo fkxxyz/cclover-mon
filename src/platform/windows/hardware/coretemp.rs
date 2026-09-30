@@ -54,6 +54,7 @@ pub(super) struct Collector {
     topology_degraded: bool,
 }
 
+#[derive(Debug)]
 pub(super) struct Observation {
     pub core_temperatures: Vec<(usize, f64)>,
     pub package_temperature: Option<f64>,
@@ -69,15 +70,10 @@ unsafe impl Send for Collector {}
 
 impl Collector {
     pub(super) fn new(info: &Info) -> io::Result<Self> {
-        let topology = if info.core_dts || info.package_dts {
-            super::cpu::physical_core_affinities()
-        } else {
-            Ok(Vec::new())
-        };
-        let (cores, topology_degraded) = match topology {
-            Ok(cores) => (cores, false),
-            Err(_) => (Vec::new(), true),
-        };
+        let (cores, topology_degraded) = topology_state(
+            info.core_dts || info.package_dts,
+            super::cpu::physical_core_affinities,
+        );
 
         let brand = CString::new(info.brand.as_bytes()).map_err(|_| {
             io::Error::new(
@@ -125,54 +121,17 @@ impl Collector {
     pub(super) fn collect(&mut self, session: &Session) -> io::Result<Observation> {
         self.context.session = session;
         self.context.error = None;
-        let mut degraded = self.topology_degraded;
-        let mut affinity_failures = 0;
-        let mut invalid_core_dts = 0;
-        let mut core_temperatures = Vec::new();
-
-        if self.core_dts {
-            if self.context.cores.is_empty() {
-                degraded = true;
-            }
-            for cpu in 0..self.context.cores.len() {
-                match self.read(false, cpu as u32) {
-                    Ok(celsius) if (0.0..=125.0).contains(&celsius) => {
-                        core_temperatures.push((cpu, celsius));
-                    }
-                    Ok(_) => {
-                        degraded = true;
-                        invalid_core_dts += 1;
-                    }
-                    Err(error) if error.kind() == io::ErrorKind::InvalidInput => {
-                        degraded = true;
-                        affinity_failures += 1;
-                    }
-                    Err(error) => return Err(error),
-                }
-            }
-        }
-
-        let package_temperature = if self.package_dts {
-            match self.read(true, 0) {
-                Ok(celsius) if (0.0..=125.0).contains(&celsius) => Some(celsius),
-                Ok(_) => {
-                    degraded = true;
-                    None
-                }
-                Err(error) => return Err(error),
-            }
-        } else {
-            None
-        };
-
-        Ok(Observation {
-            core_temperatures,
-            package_temperature,
-            degraded,
-            core_count: self.context.cores.len(),
-            affinity_failures,
-            invalid_core_dts,
-        })
+        let core_dts = self.core_dts;
+        let package_dts = self.package_dts;
+        let topology_degraded = self.topology_degraded;
+        let core_count = self.context.cores.len();
+        collect_observation(
+            core_dts,
+            package_dts,
+            topology_degraded,
+            core_count,
+            |package, cpu| self.read(package, cpu),
+        )
     }
 
     fn read(&mut self, package: bool, cpu: u32) -> io::Result<f64> {
@@ -198,6 +157,76 @@ impl Collector {
         }
         Ok(millidegrees as f64 / 1000.0)
     }
+}
+
+fn topology_state(
+    required: bool,
+    topology: impl FnOnce() -> io::Result<Vec<CoreAffinity>>,
+) -> (Vec<CoreAffinity>, bool) {
+    if !required {
+        return (Vec::new(), false);
+    }
+    match topology() {
+        Ok(cores) => (cores, false),
+        Err(_) => (Vec::new(), true),
+    }
+}
+
+fn collect_observation(
+    core_dts: bool,
+    package_dts: bool,
+    topology_degraded: bool,
+    core_count: usize,
+    mut read: impl FnMut(bool, u32) -> io::Result<f64>,
+) -> io::Result<Observation> {
+    let mut degraded = topology_degraded;
+    let mut affinity_failures = 0;
+    let mut invalid_core_dts = 0;
+    let mut core_temperatures = Vec::new();
+
+    if core_dts {
+        if core_count == 0 {
+            degraded = true;
+        }
+        for cpu in 0..core_count {
+            match read(false, cpu as u32) {
+                Ok(celsius) if (0.0..=125.0).contains(&celsius) => {
+                    core_temperatures.push((cpu, celsius));
+                }
+                Ok(_) => {
+                    degraded = true;
+                    invalid_core_dts += 1;
+                }
+                Err(error) if error.kind() == io::ErrorKind::InvalidInput => {
+                    degraded = true;
+                    affinity_failures += 1;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    let package_temperature = if package_dts {
+        match read(true, 0) {
+            Ok(celsius) if (0.0..=125.0).contains(&celsius) => Some(celsius),
+            Ok(_) => {
+                degraded = true;
+                None
+            }
+            Err(error) => return Err(error),
+        }
+    } else {
+        None
+    };
+
+    Ok(Observation {
+        core_temperatures,
+        package_temperature,
+        degraded,
+        core_count,
+        affinity_failures,
+        invalid_core_dts,
+    })
 }
 
 impl Drop for Collector {
@@ -248,5 +277,68 @@ unsafe extern "C" fn read_msr(context: *mut c_void, cpu: u32, msr: u32, value: *
             context.error = Some(error);
             -code
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::VecDeque;
+
+    #[test]
+    fn topology_failure_is_degraded_without_live_topology() {
+        let (cores, degraded) =
+            topology_state(true, || Err(io::Error::other("scripted topology failure")));
+        assert!(cores.is_empty());
+        assert!(degraded);
+    }
+
+    #[test]
+    fn topology_is_not_required_when_no_dts_channel_exists() {
+        let (cores, degraded) = topology_state(false, || {
+            panic!("topology query must stay outside the no-DTS path")
+        });
+        assert!(cores.is_empty());
+        assert!(!degraded);
+    }
+
+    #[test]
+    fn observation_keeps_partial_success_for_affinity_and_invalid_channels() {
+        let mut reads = VecDeque::from([
+            Ok(41.0),
+            Err(io::Error::new(io::ErrorKind::InvalidInput, "affinity")),
+            Ok(500.0),
+            Ok(55.0),
+        ]);
+        let observation = collect_observation(true, true, false, 3, |_, _| {
+            reads.pop_front().expect("scripted read exists")
+        })
+        .unwrap();
+
+        assert_eq!(observation.core_temperatures, vec![(0, 41.0)]);
+        assert_eq!(observation.package_temperature, Some(55.0));
+        assert_eq!(observation.core_count, 3);
+        assert_eq!(observation.affinity_failures, 1);
+        assert_eq!(observation.invalid_core_dts, 1);
+        assert!(observation.degraded);
+    }
+
+    #[test]
+    fn observation_propagates_transport_failure() {
+        let error = collect_observation(true, false, false, 1, |_, _| {
+            Err(io::Error::from_raw_os_error(5))
+        })
+        .unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(5));
+    }
+
+    #[test]
+    fn observation_with_empty_required_topology_is_degraded() {
+        let observation = collect_observation(true, false, false, 0, |_, _| {
+            unreachable!("zero cores must not read")
+        })
+        .unwrap();
+        assert_eq!(observation.core_count, 0);
+        assert!(observation.degraded);
     }
 }

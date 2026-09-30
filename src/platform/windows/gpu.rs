@@ -16,6 +16,20 @@ enum Source<T> {
     Unsupported(String),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct BackendPlan {
+    nvml: bool,
+    adl: bool,
+    d3dkmt: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct BackendAvailability {
+    nvml: bool,
+    adl: bool,
+    d3dkmt: bool,
+}
+
 impl Collector {
     pub(super) fn new() -> Self {
         Self {
@@ -40,39 +54,39 @@ impl Collector {
             Source::Available { session, .. } => Some(session.vendors()),
             _ => None,
         };
-        let expect_nvml = topology.is_none_or(|vendors| vendors.nvidia() != VendorPresence::Absent);
-        let expect_adl = topology.is_none_or(|vendors| vendors.amd() != VendorPresence::Absent);
-        let expect_d3dkmt =
-            topology.is_none_or(|vendors| vendors.intel() != VendorPresence::Absent);
-        if expect_nvml {
+        let plan = match topology {
+            Some(vendors) => backend_plan(vendors.nvidia(), vendors.amd(), vendors.intel()),
+            None => backend_plan(
+                VendorPresence::Unknown,
+                VendorPresence::Unknown,
+                VendorPresence::Unknown,
+            ),
+        };
+        if plan.nvml {
             initialize_source(&mut self.nvml, gpu_nvml::Session::load, "NVML", &mut notes);
         }
-        if expect_adl {
+        if plan.adl {
             initialize_source(&mut self.adl, gpu_adl::Session::load, "ADL", &mut notes);
         }
 
-        let nvml_available = matches!(self.nvml, Source::Available { .. });
-        let adl_available = matches!(self.adl, Source::Available { .. });
-        let d3dkmt_available = matches!(self.d3dkmt, Source::Available { .. });
-        if topology.is_some() && !expect_nvml && !expect_adl && !expect_d3dkmt {
-            return Collection::unavailable(CollectionUnavailable::Unsupported);
-        }
-        if !nvml_available && !adl_available && !d3dkmt_available {
-            report_unsupported(&self.nvml, "NVML", &mut notes);
-            report_unsupported(&self.adl, "ADL", &mut notes);
-            report_unsupported(&self.d3dkmt, "D3DKMT", &mut notes);
-            return Collection::unavailable(CollectionUnavailable::Unsupported);
-        }
+        let availability = BackendAvailability {
+            nvml: matches!(self.nvml, Source::Available { .. }),
+            adl: matches!(self.adl, Source::Available { .. }),
+            d3dkmt: matches!(self.d3dkmt, Source::Available { .. }),
+        };
+        let mut degraded =
+            match initial_collection_degradation(topology.is_some(), plan, availability) {
+                Ok(degraded) => degraded,
+                Err(reason) => {
+                    report_unsupported(&self.nvml, "NVML", &mut notes);
+                    report_unsupported(&self.adl, "ADL", &mut notes);
+                    report_unsupported(&self.d3dkmt, "D3DKMT", &mut notes);
+                    return Collection::unavailable(reason);
+                }
+            };
 
-        let mut degraded = topology.is_none();
-        if expect_nvml && !nvml_available {
-            degraded = true;
-        }
-        if expect_adl && !adl_available {
-            degraded = true;
-        }
         let mut values = Vec::new();
-        if expect_nvml {
+        if plan.nvml {
             if let Source::Available {
                 session,
                 degraded: source_degraded,
@@ -84,7 +98,7 @@ impl Collector {
                 report_unsupported(&self.nvml, "NVML", &mut notes);
             }
         }
-        if expect_adl {
+        if plan.adl {
             if let Source::Available {
                 session,
                 degraded: source_degraded,
@@ -96,7 +110,7 @@ impl Collector {
                 report_unsupported(&self.adl, "ADL", &mut notes);
             }
         }
-        if expect_d3dkmt {
+        if plan.d3dkmt {
             if let Source::Available {
                 session,
                 degraded: source_degraded,
@@ -120,6 +134,38 @@ impl Collector {
 impl Default for Collector {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+fn backend_plan(nvidia: VendorPresence, amd: VendorPresence, intel: VendorPresence) -> BackendPlan {
+    BackendPlan {
+        nvml: nvidia != VendorPresence::Absent,
+        adl: amd != VendorPresence::Absent,
+        d3dkmt: intel != VendorPresence::Absent,
+    }
+}
+
+fn initial_collection_degradation(
+    topology_known: bool,
+    plan: BackendPlan,
+    availability: BackendAvailability,
+) -> Result<bool, CollectionUnavailable> {
+    if topology_known && !plan.nvml && !plan.adl && !plan.d3dkmt {
+        return Err(CollectionUnavailable::Unsupported);
+    }
+    if !availability.nvml && !availability.adl && !availability.d3dkmt {
+        return Err(CollectionUnavailable::Unsupported);
+    }
+    Ok(!topology_known || (plan.nvml && !availability.nvml) || (plan.adl && !availability.adl))
+}
+
+fn query_value<T, E>(degraded: &mut bool, result: Result<T, E>) -> (Option<T>, Option<E>) {
+    match result {
+        Ok(value) => (Some(value), None),
+        Err(error) => {
+            *degraded = true;
+            (None, Some(error))
+        }
     }
 }
 
@@ -226,32 +272,27 @@ fn collect_adl(
 ) {
     values.reserve(session.devices().len());
     for (index, device) in session.devices().iter().enumerate() {
-        let memory_used_bytes = match session.memory_used_bytes(index) {
-            Ok(value) => value,
-            Err(status) => {
-                *degraded = true;
-                report_issue(notes, || {
-                    format!(
-                        "ADL GPU {} dedicated VRAM usage unavailable: status {status}",
-                        device.stable_key()
-                    )
-                });
-                None
-            }
-        };
-        let telemetry = match session.telemetry(index) {
-            Ok(value) => value,
-            Err(status) => {
-                *degraded = true;
-                report_issue(notes, || {
-                    format!(
-                        "ADL GPU {} telemetry unavailable: status {status}",
-                        device.stable_key()
-                    )
-                });
-                None
-            }
-        };
+        let (memory_used_bytes, memory_error) =
+            query_value(degraded, session.memory_used_bytes(index));
+        if let Some(status) = memory_error {
+            report_issue(notes, || {
+                format!(
+                    "ADL GPU {} dedicated VRAM usage unavailable: status {status}",
+                    device.stable_key()
+                )
+            });
+        }
+        let memory_used_bytes = memory_used_bytes.flatten();
+        let (telemetry, telemetry_error) = query_value(degraded, session.telemetry(index));
+        if let Some(status) = telemetry_error {
+            report_issue(notes, || {
+                format!(
+                    "ADL GPU {} telemetry unavailable: status {status}",
+                    device.stable_key()
+                )
+            });
+        }
+        let telemetry = telemetry.flatten();
         if memory_used_bytes.is_none()
             || telemetry.is_none()
             || device.memory_total_bytes().is_none()
@@ -286,19 +327,16 @@ fn collect_d3dkmt(
 ) {
     values.reserve(session.devices().len());
     for (index, device) in session.devices().iter().enumerate() {
-        let temperature_celsius = match session.temperature(index) {
-            Ok(value) => Some(value),
-            Err(status) => {
-                *degraded = true;
-                report_issue(notes, || {
-                    format!(
-                        "D3DKMT Intel GPU {} temperature unavailable: status {status}",
-                        device.stable_key()
-                    )
-                });
-                None
-            }
-        };
+        let (temperature_celsius, temperature_error) =
+            query_value(degraded, session.temperature(index));
+        if let Some(status) = temperature_error {
+            report_issue(notes, || {
+                format!(
+                    "D3DKMT Intel GPU {} temperature unavailable: status {status}",
+                    device.stable_key()
+                )
+            });
+        }
         values.push(GpuSnapshot {
             id: GpuId::from_opaque_key(format!("d3dkmt:{}", device.stable_key())),
             name: device.name().to_owned(),
@@ -321,14 +359,176 @@ fn nvml_query<T>(
     metric: &str,
     result: Result<T, u32>,
 ) -> Option<T> {
-    match result {
-        Ok(value) => Some(value),
-        Err(status) => {
-            *degraded = true;
-            report_issue(notes, || {
-                format!("NVML GPU {uuid} {metric} unavailable: status {status}")
-            });
-            None
-        }
+    let (value, error) = query_value(degraded, result);
+    if let Some(status) = error {
+        report_issue(notes, || {
+            format!("NVML GPU {uuid} {metric} unavailable: status {status}")
+        });
+    }
+    value
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn availability(nvml: bool, adl: bool, d3dkmt: bool) -> BackendAvailability {
+        BackendAvailability { nvml, adl, d3dkmt }
+    }
+
+    #[test]
+    fn backend_plan_distinguishes_present_absent_and_unknown_vendors() {
+        assert_eq!(
+            backend_plan(
+                VendorPresence::Present,
+                VendorPresence::Absent,
+                VendorPresence::Unknown,
+            ),
+            BackendPlan {
+                nvml: true,
+                adl: false,
+                d3dkmt: true,
+            }
+        );
+        assert_eq!(
+            backend_plan(
+                VendorPresence::Unknown,
+                VendorPresence::Unknown,
+                VendorPresence::Unknown,
+            ),
+            BackendPlan {
+                nvml: true,
+                adl: true,
+                d3dkmt: true,
+            }
+        );
+        assert_eq!(
+            backend_plan(
+                VendorPresence::Absent,
+                VendorPresence::Absent,
+                VendorPresence::Absent,
+            ),
+            BackendPlan {
+                nvml: false,
+                adl: false,
+                d3dkmt: false,
+            }
+        );
+    }
+
+    #[test]
+    fn known_topology_with_only_expected_backend_available_is_not_degraded() {
+        let plan = backend_plan(
+            VendorPresence::Absent,
+            VendorPresence::Absent,
+            VendorPresence::Present,
+        );
+        assert_eq!(
+            initial_collection_degradation(true, plan, availability(false, false, true)),
+            Ok(false)
+        );
+    }
+
+    #[test]
+    fn unknown_topology_or_missing_expected_vendor_backend_is_degraded() {
+        let unknown = backend_plan(
+            VendorPresence::Unknown,
+            VendorPresence::Unknown,
+            VendorPresence::Unknown,
+        );
+        assert_eq!(
+            initial_collection_degradation(false, unknown, availability(true, false, false)),
+            Ok(true)
+        );
+
+        let nvidia = backend_plan(
+            VendorPresence::Present,
+            VendorPresence::Absent,
+            VendorPresence::Present,
+        );
+        assert_eq!(
+            initial_collection_degradation(true, nvidia, availability(false, false, true)),
+            Ok(true)
+        );
+    }
+
+    #[test]
+    fn no_applicable_or_no_available_gpu_backend_is_unsupported() {
+        let absent = backend_plan(
+            VendorPresence::Absent,
+            VendorPresence::Absent,
+            VendorPresence::Absent,
+        );
+        assert_eq!(
+            initial_collection_degradation(true, absent, availability(false, false, true)),
+            Err(CollectionUnavailable::Unsupported)
+        );
+
+        let expected = backend_plan(
+            VendorPresence::Present,
+            VendorPresence::Absent,
+            VendorPresence::Absent,
+        );
+        assert_eq!(
+            initial_collection_degradation(true, expected, availability(false, false, false)),
+            Err(CollectionUnavailable::Unsupported)
+        );
+    }
+
+    #[test]
+    fn backend_load_outcomes_are_deterministic_without_vendor_runtime() {
+        let mut notes = None;
+        let mut available = Source::Uninitialized;
+        initialize_source(
+            &mut available,
+            || Ok::<_, String>((7_u8, Vec::new())),
+            "test",
+            &mut notes,
+        );
+        assert!(matches!(
+            available,
+            Source::Available {
+                session: 7,
+                degraded: false
+            }
+        ));
+
+        let mut degraded = Source::Uninitialized;
+        initialize_source(
+            &mut degraded,
+            || Ok::<_, String>((9_u8, vec!["partial discovery".to_owned()])),
+            "test",
+            &mut notes,
+        );
+        assert!(matches!(
+            degraded,
+            Source::Available {
+                session: 9,
+                degraded: true
+            }
+        ));
+
+        let mut unsupported = Source::<u8>::Uninitialized;
+        initialize_source(
+            &mut unsupported,
+            || Err("runtime missing".to_owned()),
+            "test",
+            &mut notes,
+        );
+        assert!(matches!(unsupported, Source::Unsupported(reason) if reason == "runtime missing"));
+    }
+
+    #[test]
+    fn backend_query_failure_preserves_partial_collection_and_marks_degraded() {
+        let mut degraded = false;
+        let (value, error) = query_value(&mut degraded, Ok::<_, i32>(57.0));
+        assert_eq!(value, Some(57.0));
+        assert_eq!(error, None);
+        assert!(!degraded);
+
+        let (value, error) = query_value::<f64, _>(&mut degraded, Err(-5_i32));
+        assert_eq!(value, None);
+        assert_eq!(error, Some(-5));
+        assert!(degraded);
     }
 }

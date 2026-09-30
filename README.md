@@ -31,13 +31,19 @@ The executable is written to:
 target/release/cclover-mon
 ```
 
-Windows cross-build validation uses `cargo-xwin` through the repository validation entry point. The profile fixes `XWIN_ARCH=x86,x86_64` independently for every xwin invocation so both supported targets share one CRT/SDK cache layout.
+Windows cross validation uses `cargo-xwin` through the repository validation entry point. It compiles target-specific tests and release builds for both supported targets, fixing `XWIN_ARCH=x86,x86_64` independently for every xwin invocation.
 
 ```bash
 bun validate.ts windows
 ```
 
-For local preflight and Linux validation, use `bun validate.ts fast` and `bun validate.ts linux`. `bun validate.ts all` runs all deterministic profiles when all required toolchains are installed; CI invokes the same profiles.
+On a Windows host, run the deterministic Windows test suite with:
+
+```bash
+bun validate.ts windows-native
+```
+
+For local preflight and Linux validation, use `bun validate.ts fast` and `bun validate.ts linux`. `bun validate.ts all` runs the portable fast/Linux/Windows-cross profiles; CI additionally runs `windows-native` on a Windows runner.
 
 The 32-bit executable is written to:
 

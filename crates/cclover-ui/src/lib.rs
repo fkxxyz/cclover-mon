@@ -727,7 +727,7 @@ fn disk_card<'a>(disk: cclover_presentation::DiskPanel<'a>, capacity: usize) -> 
         children: vec![
             Element::Row(TextRow {
                 cells: vec![
-                    TextCell::borrowed(disk.name(), 13, Tone::Foreground)
+                    TextCell::owned(disk.name(), 13, Tone::Foreground)
                         .bold()
                         .grow()
                         .clip(),

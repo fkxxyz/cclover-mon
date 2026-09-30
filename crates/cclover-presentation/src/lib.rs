@@ -367,8 +367,11 @@ pub struct DiskPanel<'a> {
 }
 
 impl<'a> DiskPanel<'a> {
-    pub fn name(self) -> &'a str {
-        &self.value.name
+    pub fn name(self) -> String {
+        disk_title(
+            &self.value.metadata.system_label,
+            &self.value.metadata.associated_labels,
+        )
     }
 
     pub fn value(self) -> String {
@@ -397,6 +400,15 @@ impl<'a> DiskPanel<'a> {
                 first_value: format_compact_rate(process.read_bytes_per_sec),
                 second_value: format_compact_rate(process.write_bytes_per_sec),
             })
+    }
+}
+
+fn disk_title(system_label: &str, associated_labels: &[String]) -> String {
+    match associated_labels {
+        [] => system_label.to_owned(),
+        [one] => one.clone(),
+        [first, second] => format!("{first} · {second}"),
+        [first, second, rest @ ..] => format!("{first} · {second} +{}", rest.len()),
     }
 }
 
@@ -503,6 +515,21 @@ pub fn format_bytes(value: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cclover_core::model::DiskMetadata;
+
+    #[test]
+    fn disk_title_prefers_user_recognizable_associated_labels() {
+        assert_eq!(disk_title("Disk 0", &[]), "Disk 0");
+        assert_eq!(disk_title("Disk 0", &["C:".into()]), "C:");
+        assert_eq!(disk_title("Disk 0", &["C:".into(), "D:".into()]), "C: · D:");
+        assert_eq!(
+            disk_title(
+                "Disk 0",
+                &["C:".into(), "D:".into(), "E:".into(), "F:".into()]
+            ),
+            "C: · D: +2"
+        );
+    }
 
     #[test]
     fn shared_value_formatting_is_stable() {
@@ -573,7 +600,10 @@ mod tests {
         let mut state = MonitorState::default();
         state.snapshot.disks = Collection::available(vec![DiskSnapshot {
             id: disk_id,
-            name: "nvme0n1".into(),
+            metadata: DiskMetadata {
+                system_label: "nvme0n1".into(),
+                associated_labels: Vec::new(),
+            },
             bytes_per_sec: 10.0,
         }]);
         state.snapshot.process_disk_io =
@@ -603,7 +633,10 @@ mod tests {
         let mut state = MonitorState::default();
         state.snapshot.disks = Collection::available(vec![DiskSnapshot {
             id: disk_id.clone(),
-            name: "nvme0n1".into(),
+            metadata: DiskMetadata {
+                system_label: "nvme0n1".into(),
+                associated_labels: Vec::new(),
+            },
             bytes_per_sec: 0.0,
         }]);
         state.snapshot.networks = Collection::available(vec![NetworkSnapshot {

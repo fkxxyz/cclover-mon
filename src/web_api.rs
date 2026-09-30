@@ -505,7 +505,7 @@ impl From<&DiskSnapshot> for ApiV1DiskSnapshot {
     fn from(value: &DiskSnapshot) -> Self {
         Self {
             id: value.id.as_opaque_key().to_owned(),
-            name: value.name.clone(),
+            name: value.metadata.system_label.clone(),
             bytes_per_sec: value.bytes_per_sec,
         }
     }

@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use crate::core::model::{Collection, DiskCounter, DiskId};
+use crate::core::model::{Collection, DiskCounter, DiskId, DiskMetadata};
 
 use super::diagnostics::{probe_note, report_issue, unavailable_from_io};
 
@@ -83,7 +83,7 @@ fn collect_from(
             }
         }
     }
-    rows.sort_by(|a, b| a.name.cmp(&b.name));
+    rows.sort_by(|a, b| a.metadata.system_label.cmp(&b.metadata.system_label));
     if degraded {
         Collection::degraded(rows)
     } else {
@@ -107,7 +107,10 @@ fn parse_stat(id: DiskId, name: String, text: &str) -> Result<DiskCounter, usize
 
     Ok(DiskCounter {
         id,
-        name,
+        metadata: DiskMetadata {
+            system_label: name,
+            associated_labels: Vec::new(),
+        },
         read_bytes: read_sectors.saturating_mul(512),
         write_bytes: written_sectors.saturating_mul(512),
     })
@@ -152,7 +155,7 @@ mod tests {
         };
 
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].name, "nvme0n1");
+        assert_eq!(rows[0].metadata.system_label, "nvme0n1");
         assert_eq!(rows[0].read_bytes, 3 * 512);
         assert_eq!(rows[0].write_bytes, 7 * 512);
         assert_eq!(
@@ -174,7 +177,7 @@ mod tests {
         };
 
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].name, "nvme0n1");
+        assert_eq!(rows[0].metadata.system_label, "nvme0n1");
     }
 
     #[test]

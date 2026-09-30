@@ -234,7 +234,11 @@ fn report_disks(value: Collection<Vec<DiskCounter>>, notes: Vec<String>) -> Prob
     let summary = vec![format!(
         "{} devices: {}",
         values.len(),
-        names(values.iter().map(|item| item.name.as_str()))
+        names(
+            values
+                .iter()
+                .map(|item| item.metadata.system_label.as_str()),
+        )
     )];
     #[cfg(target_os = "windows")]
     let summary = vec![format!("{} disks", values.len())];
@@ -246,7 +250,7 @@ fn report_disks(value: Collection<Vec<DiskCounter>>, notes: Vec<String>) -> Prob
             .map(|item| {
                 format!(
                     "name={} read_bytes={} write_bytes={}",
-                    item.name, item.read_bytes, item.write_bytes
+                    item.metadata.system_label, item.read_bytes, item.write_bytes
                 )
             })
             .collect(),

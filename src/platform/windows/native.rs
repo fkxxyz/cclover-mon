@@ -1,7 +1,7 @@
 #![allow(unsafe_code)]
 
 use std::io;
-use std::mem::{size_of, zeroed};
+use std::mem::{size_of, size_of_val, zeroed};
 use std::ptr::{null, null_mut};
 
 use windows_sys::Wdk::System::SystemInformation::{
@@ -13,12 +13,13 @@ use windows_sys::Win32::NetworkManagement::IpHelper::{
 };
 use windows_sys::Win32::NetworkManagement::Ndis::IfOperStatusUp;
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+    CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, GetLogicalDrives,
+    IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS, OPEN_EXISTING,
 };
 use windows_sys::Win32::System::IO::DeviceIoControl;
 use windows_sys::Win32::System::Ioctl::{
     DISK_PERFORMANCE, IOCTL_DISK_PERFORMANCE, IOCTL_STORAGE_QUERY_PROPERTY, PropertyStandardQuery,
-    STORAGE_DEVICE_DESCRIPTOR, STORAGE_PROPERTY_QUERY, StorageDeviceProperty,
+    STORAGE_DEVICE_DESCRIPTOR, STORAGE_PROPERTY_QUERY, StorageDeviceProperty, VOLUME_DISK_EXTENTS,
 };
 use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 use windows_sys::Win32::System::Threading::{
@@ -58,14 +59,18 @@ pub(super) struct NativeNetwork {
     pub tx_bytes: u64,
 }
 pub(super) struct NativeDisk {
+    pub disk_number: u32,
     pub identity: String,
-    pub name: String,
     pub read_bytes: u64,
     pub write_bytes: u64,
 }
 pub(super) struct NativeDisks {
     pub disks: Vec<NativeDisk>,
     pub fallback_identities: usize,
+}
+pub(super) struct DriveBinding {
+    pub label: String,
+    pub disk_numbers: Vec<u32>,
 }
 
 pub(super) fn system_cpu_times() -> io::Result<CpuTimes> {
@@ -260,17 +265,16 @@ pub(super) fn physical_disks() -> io::Result<NativeDisks> {
                 continue;
             }
         };
-        let (identity, name, fallback) = descriptor.unwrap_or_else(|| {
+        let (identity, fallback) = descriptor.unwrap_or_else(|| {
             (
                 format!("physical-drive:{}", performance.StorageDeviceNumber),
-                format!("PhysicalDrive{index}"),
                 true,
             )
         });
         fallback_identities += usize::from(fallback);
         disks.push(NativeDisk {
+            disk_number: performance.StorageDeviceNumber,
             identity,
-            name,
             read_bytes: performance.BytesRead.max(0) as u64,
             write_bytes: performance.BytesWritten.max(0) as u64,
         });
@@ -284,6 +288,100 @@ pub(super) fn physical_disks() -> io::Result<NativeDisks> {
         disks,
         fallback_identities,
     })
+}
+
+pub(super) fn drive_bindings() -> io::Result<Vec<DriveBinding>> {
+    // SAFETY: GetLogicalDrives has no pointer arguments.
+    let mask = unsafe { GetLogicalDrives() };
+    if mask == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut bindings = Vec::new();
+    for index in 0..26_u32 {
+        if mask & (1_u32 << index) == 0 {
+            continue;
+        }
+        let letter = (b'A' + index as u8) as char;
+        let label = format!("{letter}:");
+        let path = format!(r"\\.\{label}");
+        let wide = wide_z(&path);
+        // SAFETY: wide is nul-terminated; zero desired access is sufficient for this metadata query.
+        let handle = unsafe {
+            CreateFileW(
+                wide.as_ptr(),
+                0,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                null(),
+                OPEN_EXISTING,
+                0,
+                null_mut(),
+            )
+        };
+        if handle == INVALID_HANDLE_VALUE {
+            continue;
+        }
+        let disk_numbers = volume_disk_numbers(handle);
+        // SAFETY: handle was opened successfully and is closed exactly once here.
+        unsafe { CloseHandle(handle) };
+        if let Ok(disk_numbers) = disk_numbers
+            && !disk_numbers.is_empty()
+        {
+            bindings.push(DriveBinding {
+                label,
+                disk_numbers,
+            });
+        }
+    }
+    Ok(bindings)
+}
+
+fn volume_disk_numbers(handle: HANDLE) -> io::Result<Vec<u32>> {
+    let mut buffer = vec![0_u8; 4096];
+    let mut returned = 0_u32;
+    // SAFETY: handle is valid and buffer is writable for its advertised size.
+    if unsafe {
+        DeviceIoControl(
+            handle,
+            IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS,
+            null(),
+            0,
+            buffer.as_mut_ptr().cast(),
+            buffer.len() as u32,
+            &mut returned,
+            null_mut(),
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    if (returned as usize) < size_of::<VOLUME_DISK_EXTENTS>() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "truncated VOLUME_DISK_EXTENTS",
+        ));
+    }
+    // SAFETY: size checked above; the returned buffer starts with VOLUME_DISK_EXTENTS.
+    let extents = unsafe { &*(buffer.as_ptr().cast::<VOLUME_DISK_EXTENTS>()) };
+    let count = extents.NumberOfDiskExtents as usize;
+    let extent_size = size_of_val(&extents.Extents[0]);
+    let required = std::mem::offset_of!(VOLUME_DISK_EXTENTS, Extents)
+        .saturating_add(count.saturating_mul(extent_size));
+    if required > returned as usize {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "truncated volume disk extents",
+        ));
+    }
+    // SAFETY: required size was validated against the returned byte count; Extents is the first
+    // element of the API's variable-length trailing DISK_EXTENT array.
+    let rows = unsafe { std::slice::from_raw_parts(extents.Extents.as_ptr(), count) };
+    let mut numbers = rows
+        .iter()
+        .map(|extent| extent.DiskNumber)
+        .collect::<Vec<_>>();
+    numbers.sort_unstable();
+    numbers.dedup();
+    Ok(numbers)
 }
 
 fn disk_performance(handle: HANDLE) -> io::Result<DISK_PERFORMANCE> {
@@ -309,7 +407,7 @@ fn disk_performance(handle: HANDLE) -> io::Result<DISK_PERFORMANCE> {
     Ok(output)
 }
 
-fn storage_descriptor(handle: HANDLE) -> Option<(String, String, bool)> {
+fn storage_descriptor(handle: HANDLE) -> Option<(String, bool)> {
     let query = STORAGE_PROPERTY_QUERY {
         PropertyId: StorageDeviceProperty,
         QueryType: PropertyStandardQuery,
@@ -339,12 +437,9 @@ fn storage_descriptor(handle: HANDLE) -> Option<(String, String, bool)> {
     // SAFETY: size checked; STORAGE_DEVICE_DESCRIPTOR begins the returned buffer.
     let descriptor = unsafe { &*(buffer.as_ptr().cast::<STORAGE_DEVICE_DESCRIPTOR>()) };
     let serial = ansi_field(&buffer, descriptor.SerialNumberOffset);
-    let product = ansi_field(&buffer, descriptor.ProductIdOffset)
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "Physical disk".to_owned());
     serial
         .filter(|s| !s.is_empty())
-        .map(|serial| (format!("serial:{serial}"), product, false))
+        .map(|serial| (format!("serial:{serial}"), false))
 }
 
 fn filetime(value: FILETIME) -> u64 {

@@ -3,10 +3,10 @@ use std::collections::{BTreeMap, VecDeque};
 use serde::{Deserialize, Serialize};
 
 use crate::core::model::{
-    Collection, CollectionUnavailable, DiskId, DiskSnapshot, FanId, FanSnapshot, GpuId,
-    GpuSnapshot, MemorySnapshot, MonitorHistory, MonitorState, NetworkDirectionHistory, NetworkId,
-    NetworkSnapshot, ProcessCpuUsage, ProcessDiskIo, ProcessInstanceId, ProcessMemoryUsage,
-    ProcessNetworkIo, SystemSnapshot, TemperatureSnapshot,
+    Collection, CollectionUnavailable, DiskId, DiskMetadata, DiskSnapshot, FanId, FanSnapshot,
+    GpuId, GpuSnapshot, MemorySnapshot, MonitorHistory, MonitorState, NetworkDirectionHistory,
+    NetworkId, NetworkSnapshot, ProcessCpuUsage, ProcessDiskIo, ProcessInstanceId,
+    ProcessMemoryUsage, ProcessNetworkIo, SystemSnapshot, TemperatureSnapshot,
 };
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -128,7 +128,8 @@ struct WebNetworkSnapshot {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct WebDiskSnapshot {
     id: String,
-    name: String,
+    system_label: String,
+    associated_labels: Vec<String>,
     bytes_per_sec: f64,
 }
 
@@ -381,7 +382,8 @@ impl From<&DiskSnapshot> for WebDiskSnapshot {
     fn from(value: &DiskSnapshot) -> Self {
         Self {
             id: value.id.as_opaque_key().to_owned(),
-            name: value.name.clone(),
+            system_label: value.metadata.system_label.clone(),
+            associated_labels: value.metadata.associated_labels.clone(),
             bytes_per_sec: value.bytes_per_sec,
         }
     }
@@ -391,7 +393,10 @@ impl From<WebDiskSnapshot> for DiskSnapshot {
     fn from(value: WebDiskSnapshot) -> Self {
         Self {
             id: DiskId::from_opaque_key(value.id),
-            name: value.name,
+            metadata: DiskMetadata {
+                system_label: value.system_label,
+                associated_labels: value.associated_labels,
+            },
             bytes_per_sec: value.bytes_per_sec,
         }
     }
@@ -703,6 +708,14 @@ mod tests {
             down_bytes_per_sec: 12.0,
             up_bytes_per_sec: 5.0,
         }]);
+        state.snapshot.disks = Collection::available(vec![DiskSnapshot {
+            id: DiskId::from_opaque_key("disk-a"),
+            metadata: DiskMetadata {
+                system_label: "Disk 0".to_owned(),
+                associated_labels: vec!["C:".to_owned(), "D:".to_owned()],
+            },
+            bytes_per_sec: 9.0,
+        }]);
         state.snapshot.gpus = Collection::available(vec![GpuSnapshot {
             id: GpuId::from_opaque_key("gpu-a"),
             name: "RTX Test".to_owned(),
@@ -744,6 +757,9 @@ mod tests {
         assert_eq!(decoded.snapshot.cpu_percent.value().copied(), Some(37.5));
         assert_eq!(decoded.snapshot.memory.value().unwrap().used_bytes, 10);
         assert_eq!(decoded.snapshot.networks.value().unwrap()[0].name, "eth0");
+        let disk = &decoded.snapshot.disks.value().unwrap()[0];
+        assert_eq!(disk.metadata.system_label, "Disk 0");
+        assert_eq!(disk.metadata.associated_labels, ["C:", "D:"]);
         let gpu = &decoded.snapshot.gpus.value().unwrap()[0];
         assert_eq!(gpu.id.as_opaque_key(), "gpu-a");
         assert_eq!(gpu.name, "RTX Test");

@@ -179,7 +179,7 @@ fn retain_present<K: Clone + Ord, T>(map: &mut BTreeMap<K, T>, ids: impl Iterato
 mod tests {
     use super::*;
     use crate::model::{
-        CollectionUnavailable, DiskId, DiskSnapshot, GpuId, GpuSnapshot, NetworkId,
+        CollectionUnavailable, DiskId, DiskMetadata, DiskSnapshot, GpuId, GpuSnapshot, NetworkId,
         NetworkSnapshot, SystemSnapshot, TemperatureSnapshot,
     };
 
@@ -295,7 +295,10 @@ mod tests {
             }]),
             disks: Collection::available(vec![DiskSnapshot {
                 id: disk_id.clone(),
-                name: "sda".to_owned(),
+                metadata: DiskMetadata {
+                    system_label: "sda".to_owned(),
+                    associated_labels: Vec::new(),
+                },
                 bytes_per_sec: 30.0,
             }]),
             ..SystemSnapshot::default()
@@ -311,7 +314,10 @@ mod tests {
             }]),
             disks: Collection::available(vec![DiskSnapshot {
                 id: disk_id.clone(),
-                name: "system-disk".to_owned(),
+                metadata: DiskMetadata {
+                    system_label: "system-disk".to_owned(),
+                    associated_labels: vec!["C:".to_owned()],
+                },
                 bytes_per_sec: 31.0,
             }]),
             ..SystemSnapshot::default()

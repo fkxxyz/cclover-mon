@@ -26,7 +26,7 @@ Prefer direct structured native APIs that expose the required counters without s
 | physical memory | `GlobalMemoryStatusEx` |
 | processes | one `NtQuerySystemInformation(SystemProcessInformation)` snapshot for identity, CPU counters, and working set |
 | network interfaces | IP Helper `GetIfTable2`; `InterfaceGuid` is the stable network identity source |
-| physical disks | `CreateFile(\\.\\PhysicalDriveN)` plus `DeviceIoControl(IOCTL_DISK_PERFORMANCE)`; storage properties provide stable identity where available |
+| physical disks | `CreateFile(\\.\\PhysicalDriveN)` plus `DeviceIoControl(IOCTL_DISK_PERFORMANCE)`; storage properties provide stable identity where available; logical drive letters are resolved through volume disk extents only as associated display metadata |
 | hardware telemetry | coordinated CPU/Super-I/O/EC discovery and sampling through structured native interfaces or pinned signed PawnIO modules; typed temperature/fan projections share source topology and runtime ownership |
 | GPUs | dynamically loaded NVIDIA NVML and AMD ADL from installed display drivers |
 | per-process disk/network attribution | future ETW/WFP-class work; PawnIO is not the attribution mechanism |
@@ -52,6 +52,8 @@ NVIDIA loads driver-installed `nvml.dll`, enumerates devices once, and derives G
 Unimplemented Windows capabilities remain explicit typed unavailability. Per-process disk/network attribution and unimplemented hardware-sensor source families must not appear as successful empty observations or fabricated zeros. Zero fan RPM is valid data only when the source actually reports zero.
 
 Process identity is PID plus process creation time. Network interface index and `PhysicalDriveN` are locators rather than durable identities. Disk observations that must fall back to `PhysicalDriveN` are degraded because that locator is session-local rather than reboot-stable.
+
+Disk I/O accounting remains physical-device based. Drive letters are mapped to physical disk numbers with `IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS` and cross the platform boundary only as structured associated labels. They never become `DiskId` values and never redefine the counter scope. Failure to resolve this auxiliary topology does not invalidate a successful physical-disk observation; the dashboard falls back to the physical disk's system label. [ADR 011](../09-architecture-decisions/011-physical-disk-display-aliases.md) owns this semantic.
 
 Physical-network selection uses `MIB_IF_ROW2` hardware-interface capability rather than adapter-name patterns.
 

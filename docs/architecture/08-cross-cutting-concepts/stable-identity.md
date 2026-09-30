@@ -39,3 +39,5 @@ Hardware-sensor display labels are not identities. Windows canonicalizes a stabl
 Linux network identity is derived from canonical sysfs device identity plus interface index so rename does not change `NetworkId`; disk identity uses canonical sysfs device identity plus device number so the kernel block name remains a label.
 
 Windows network identity prefers `InterfaceGuid`. Windows disk identity prefers stable serial/device descriptors; `PhysicalDriveN` may be used only as a session-local fallback, which makes the observation degraded rather than reboot-stable.
+
+Disk display metadata is deliberately separate from this identity. A physical disk may carry an OS-level `system_label` plus zero or more `associated_labels`; Windows drive letters are topology-derived associated labels, not disk identities and not I/O accounting scopes. Changing `D:` to `E:` therefore does not create a new disk or reset rate/history state. See [ADR 011](../09-architecture-decisions/011-physical-disk-display-aliases.md).

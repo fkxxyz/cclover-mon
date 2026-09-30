@@ -115,9 +115,19 @@ pub struct NetworkSnapshot {
 }
 
 #[derive(Clone, Debug)]
+pub struct DiskMetadata {
+    /// Short OS-level label for the physical disk (for example `nvme0n1` or `Disk 0`).
+    /// This is presentation metadata, not stable identity.
+    pub system_label: String,
+    /// User-recognizable logical storage labels associated with this physical disk.
+    /// These describe topology only; they do not define accounting scope or identity.
+    pub associated_labels: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
 pub struct DiskSnapshot {
     pub id: DiskId,
-    pub name: String,
+    pub metadata: DiskMetadata,
     pub bytes_per_sec: f64,
 }
 
@@ -256,7 +266,7 @@ pub struct NetworkCounter {
 #[derive(Clone, Debug)]
 pub struct DiskCounter {
     pub id: DiskId,
-    pub name: String,
+    pub metadata: DiskMetadata,
     pub read_bytes: u64,
     pub write_bytes: u64,
 }

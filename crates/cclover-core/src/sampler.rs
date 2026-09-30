@@ -285,7 +285,7 @@ fn derive_disks(
             });
             DiskSnapshot {
                 id: item.id.clone(),
-                name: item.name.clone(),
+                metadata: item.metadata.clone(),
                 bytes_per_sec: rate,
             }
         })
@@ -571,6 +571,13 @@ mod tests {
         DiskId::from_opaque_key(key)
     }
 
+    fn disk_metadata(system_label: &str) -> DiskMetadata {
+        DiskMetadata {
+            system_label: system_label.to_owned(),
+            associated_labels: Vec::new(),
+        }
+    }
+
     #[test]
     fn sample_wait_fills_only_the_remaining_interval() {
         assert_eq!(
@@ -616,7 +623,7 @@ mod tests {
             }]),
             disks: Collection::available(vec![DiskCounter {
                 id: disk_id("disk-a"),
-                name: "nvme0n1".into(),
+                metadata: disk_metadata("nvme0n1"),
                 read_bytes: 3_000,
                 write_bytes: 4_000,
             }]),
@@ -659,7 +666,10 @@ mod tests {
             ),
             (0.0, 0.0)
         );
-        assert_eq!(out.disks.value().unwrap()[0].name, "nvme0n1");
+        assert_eq!(
+            out.disks.value().unwrap()[0].metadata.system_label,
+            "nvme0n1"
+        );
         assert_eq!(out.disks.value().unwrap()[0].bytes_per_sec, 0.0);
 
         let disk = out.process_disk_io.value().unwrap();
@@ -700,7 +710,7 @@ mod tests {
             }]),
             disks: Collection::available(vec![DiskCounter {
                 id: disk_id("disk-a"),
-                name: "sda".into(),
+                metadata: disk_metadata("sda"),
                 read_bytes: 100,
                 write_bytes: 100,
             }]),
@@ -727,7 +737,7 @@ mod tests {
             }]),
             disks: Collection::available(vec![DiskCounter {
                 id: disk_id("disk-a"),
-                name: "sda".into(),
+                metadata: disk_metadata("sda"),
                 read_bytes: 300,
                 write_bytes: 500,
             }]),
@@ -754,7 +764,10 @@ mod tests {
             }]),
             disks: Collection::available(vec![DiskCounter {
                 id: disk_id("disk-a"),
-                name: "sda".into(),
+                metadata: DiskMetadata {
+                    system_label: "sda".into(),
+                    associated_labels: vec!["D:".into()],
+                },
                 read_bytes: 100,
                 write_bytes: 100,
             }]),
@@ -770,7 +783,10 @@ mod tests {
             }]),
             disks: Collection::available(vec![DiskCounter {
                 id: disk_id("disk-a"),
-                name: "system-disk".into(),
+                metadata: DiskMetadata {
+                    system_label: "system-disk".into(),
+                    associated_labels: vec!["E:".into()],
+                },
                 read_bytes: 300,
                 write_bytes: 500,
             }]),
@@ -782,7 +798,14 @@ mod tests {
         assert_eq!(out.networks.value().unwrap()[0].name, "lan0");
         assert_eq!(out.networks.value().unwrap()[0].down_bytes_per_sec, 200.0);
         assert_eq!(out.networks.value().unwrap()[0].up_bytes_per_sec, 300.0);
-        assert_eq!(out.disks.value().unwrap()[0].name, "system-disk");
+        assert_eq!(
+            out.disks.value().unwrap()[0].metadata.system_label,
+            "system-disk"
+        );
+        assert_eq!(
+            out.disks.value().unwrap()[0].metadata.associated_labels,
+            ["E:"]
+        );
         assert_eq!(out.disks.value().unwrap()[0].bytes_per_sec, 600.0);
     }
 
@@ -799,7 +822,7 @@ mod tests {
             }]),
             disks: Collection::available(vec![DiskCounter {
                 id: disk_id("disk-old"),
-                name: "sda".into(),
+                metadata: disk_metadata("sda"),
                 read_bytes: 10_000,
                 write_bytes: 20_000,
             }]),
@@ -815,7 +838,7 @@ mod tests {
             }]),
             disks: Collection::available(vec![DiskCounter {
                 id: disk_id("disk-new"),
-                name: "sda".into(),
+                metadata: disk_metadata("sda"),
                 read_bytes: 100,
                 write_bytes: 200,
             }]),
@@ -848,7 +871,7 @@ mod tests {
             }]),
             disks: Collection::available(vec![DiskCounter {
                 id: disk_id("disk-a"),
-                name: "sda".into(),
+                metadata: disk_metadata("sda"),
                 read_bytes: 90_000,
                 write_bytes: 120_000,
             }]),

@@ -357,12 +357,13 @@ fn dump(samples: u64) {
     );
     print_section(
         "Disk",
-        snapshot
-            .disks
-            .value()
-            .into_iter()
-            .flatten()
-            .map(|item| format!("{}  {}", item.name, format_rate(item.bytes_per_sec))),
+        snapshot.disks.value().into_iter().flatten().map(|item| {
+            format!(
+                "{}  {}",
+                item.metadata.system_label,
+                format_rate(item.bytes_per_sec)
+            )
+        }),
     );
     match snapshot.process_disk_io.value() {
         Some(rows) if rows.is_empty() => println!("Process disk I/O:\n  none"),

@@ -263,7 +263,7 @@ mod tests {
         temperature::Observation {
             physical_device: device.map(|value| PhysicalDeviceId(PathBuf::from(value))),
             snapshot: TemperatureSnapshot {
-                id: id.to_owned(),
+                id: crate::core::model::TemperatureId::from_opaque_key(id),
                 name: "GPU".to_owned(),
                 celsius: value,
             },
@@ -304,7 +304,7 @@ mod tests {
 
         let values = temperatures.value().unwrap();
         assert_eq!(values.len(), 1);
-        assert_eq!(values[0].id, "generic");
+        assert_eq!(values[0].id.as_opaque_key(), "generic");
         assert_eq!(values[0].name, "GPU");
     }
 
@@ -316,6 +316,9 @@ mod tests {
         );
 
         assert_eq!(temperatures.value().unwrap().len(), 1);
-        assert_eq!(temperatures.value().unwrap()[0].id, "temp-a");
+        assert_eq!(
+            temperatures.value().unwrap()[0].id.as_opaque_key(),
+            "temp-a"
+        );
     }
 }

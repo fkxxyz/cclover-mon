@@ -73,22 +73,23 @@ pub(super) fn normalize_display_names(values: &mut [TemperatureSnapshot]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::model::TemperatureId;
 
     #[test]
     fn duplicate_display_names_are_numbered_without_changing_order_or_identity() {
         let mut values = vec![
             TemperatureSnapshot {
-                id: "nvml:GPU-b".to_owned(),
+                id: TemperatureId::from_opaque_key("nvml:GPU-b"),
                 name: "GPU".to_owned(),
                 celsius: 51.0,
             },
             TemperatureSnapshot {
-                id: "hwmon:pci-a:temp1".to_owned(),
+                id: TemperatureId::from_opaque_key("hwmon:pci-a:temp1"),
                 name: "GPU".to_owned(),
                 celsius: 49.0,
             },
             TemperatureSnapshot {
-                id: "hwmon:cpu:temp1".to_owned(),
+                id: TemperatureId::from_opaque_key("hwmon:cpu:temp1"),
                 name: "CPU".to_owned(),
                 celsius: 61.0,
             },
@@ -97,10 +98,10 @@ mod tests {
         normalize_display_names(&mut values);
 
         assert_eq!(values[0].name, "GPU 1");
-        assert_eq!(values[0].id, "nvml:GPU-b");
+        assert_eq!(values[0].id.as_opaque_key(), "nvml:GPU-b");
         assert_eq!(values[1].name, "GPU 2");
-        assert_eq!(values[1].id, "hwmon:pci-a:temp1");
+        assert_eq!(values[1].id.as_opaque_key(), "hwmon:pci-a:temp1");
         assert_eq!(values[2].name, "CPU");
-        assert_eq!(values[2].id, "hwmon:cpu:temp1");
+        assert_eq!(values[2].id.as_opaque_key(), "hwmon:cpu:temp1");
     }
 }

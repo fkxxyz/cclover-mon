@@ -39,7 +39,7 @@ Installed PawnIO driver state belongs to Windows and may be shared across proces
 
 The runtime talks directly to the documented buffered device IO-control interface rather than shipping `PawnIOLib.dll`. Only signed modules used by implemented collectors are embedded. PawnIO handles, module blobs, IOCTL identifiers, and NTSTATUS details remain platform-private. Privileged provisioning is outside sampling and is governed by [ADR 009](../09-architecture-decisions/009-windows-pawnio-provisioning.md).
 
-Diagnostic probes activate only the hardware source required by the requested metric. A temperature probe must not initialize or sample Super-I/O merely because normal production sampling composes temperature and fan observations into one hardware batch, and the inverse applies to fan probes.
+Diagnostic probes activate only source paths that can produce the requested metric. A temperature probe may initialize Super-I/O or EC when those sources expose temperature channels, but it must not read fan-only channels merely because production sampling composes both projections into one hardware batch; the inverse applies to fan probes.
 
 Super-I/O and EC compatibility knowledge may be ported from the pinned reviewed LibreHardwareMonitor upstream according to [ADR 010](../09-architecture-decisions/010-windows-hardware-telemetry-upstream.md). LibreHardwareMonitor is not loaded or shipped at runtime. Chip-family register behavior stays separate from manufacturer/model-specific channel naming; improving a channel label must not change sensor identity.
 

@@ -6,7 +6,7 @@ use crate::core::model::{
     Collection, CollectionUnavailable, DiskId, DiskMetadata, DiskSnapshot, FanId, FanSnapshot,
     GpuId, GpuSnapshot, MemorySnapshot, MonitorHistory, MonitorState, NetworkDirectionHistory,
     NetworkId, NetworkSnapshot, ProcessCpuUsage, ProcessDiskIo, ProcessInstanceId,
-    ProcessMemoryUsage, ProcessNetworkIo, SystemSnapshot, TemperatureSnapshot,
+    ProcessMemoryUsage, ProcessNetworkIo, SystemSnapshot, TemperatureId, TemperatureSnapshot,
 };
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -465,7 +465,7 @@ impl From<WebProcessNetworkIo> for ProcessNetworkIo {
 impl From<&TemperatureSnapshot> for WebTemperatureSnapshot {
     fn from(value: &TemperatureSnapshot) -> Self {
         Self {
-            id: value.id.clone(),
+            id: value.id.as_opaque_key().to_owned(),
             name: value.name.clone(),
             celsius: value.celsius,
         }
@@ -475,7 +475,7 @@ impl From<&TemperatureSnapshot> for WebTemperatureSnapshot {
 impl From<WebTemperatureSnapshot> for TemperatureSnapshot {
     fn from(value: WebTemperatureSnapshot) -> Self {
         Self {
-            id: value.id,
+            id: TemperatureId::from_opaque_key(value.id),
             name: value.name,
             celsius: value.celsius,
         }
@@ -590,7 +590,11 @@ impl From<&MonitorHistory> for WebMonitorHistory {
                 .iter()
                 .map(|(id, values)| (id.as_opaque_key().to_owned(), values.clone()))
                 .collect(),
-            temperatures: history.temperatures.clone(),
+            temperatures: history
+                .temperatures
+                .iter()
+                .map(|(id, values)| (id.as_opaque_key().to_owned(), values.clone()))
+                .collect(),
             fans: history
                 .fans
                 .iter()
@@ -636,7 +640,11 @@ impl From<WebMonitorHistory> for MonitorHistory {
                 .into_iter()
                 .map(|(id, values)| (DiskId::from_opaque_key(id), values))
                 .collect(),
-            temperatures: history.temperatures,
+            temperatures: history
+                .temperatures
+                .into_iter()
+                .map(|(id, values)| (TemperatureId::from_opaque_key(id), values))
+                .collect(),
             fans: history
                 .fans
                 .into_iter()

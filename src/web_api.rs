@@ -542,7 +542,7 @@ impl From<&ProcessNetworkIo> for ApiV1ProcessNetworkIo {
 impl From<&TemperatureSnapshot> for ApiV1TemperatureSnapshot {
     fn from(value: &TemperatureSnapshot) -> Self {
         Self {
-            id: value.id.clone(),
+            id: value.id.as_opaque_key().to_owned(),
             name: value.name.clone(),
             celsius: value.celsius,
         }
@@ -621,7 +621,11 @@ impl From<&MonitorHistory> for ApiV1History {
                 .iter()
                 .map(|(id, values)| (id.as_opaque_key().to_owned(), values.clone()))
                 .collect(),
-            temperatures: history.temperatures.clone(),
+            temperatures: history
+                .temperatures
+                .iter()
+                .map(|(id, values)| (id.as_opaque_key().to_owned(), values.clone()))
+                .collect(),
             fans: history
                 .fans
                 .iter()

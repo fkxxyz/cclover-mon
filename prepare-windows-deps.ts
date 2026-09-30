@@ -102,6 +102,11 @@ try {
     "-y",
     modulesArchive,
     PAWNIO.modules.required.intelMsr.name,
+    PAWNIO.modules.required.amdFamily0f.name,
+    PAWNIO.modules.required.amdFamily10.name,
+    PAWNIO.modules.required.amdFamily17.name,
+    PAWNIO.modules.required.lpcAcpiEc.name,
+    PAWNIO.modules.required.lpcCrosEc.name,
     PAWNIO.modules.required.lpcIo.name,
     "COPYING",
   ], modules);
@@ -121,6 +126,18 @@ try {
   await verify(intelMsr, PAWNIO.modules.required.intelMsr.sha256);
   await copyFile(intelMsr, join(x64, "modules", "IntelMSR.bin"));
   await copyFile(intelMsr, join(x86, "modules", "IntelMSR.bin"));
+
+  for (const module of [
+    PAWNIO.modules.required.amdFamily0f,
+    PAWNIO.modules.required.amdFamily10,
+    PAWNIO.modules.required.amdFamily17,
+    PAWNIO.modules.required.lpcAcpiEc,
+    PAWNIO.modules.required.lpcCrosEc,
+  ]) {
+    const path = join(modules, module.name);
+    await verify(path, module.sha256);
+    await copyFile(path, join(x64, "modules", module.name));
+  }
 
   const lpcIo = join(modules, PAWNIO.modules.required.lpcIo.name);
   await verify(lpcIo, PAWNIO.modules.required.lpcIo.sha256);

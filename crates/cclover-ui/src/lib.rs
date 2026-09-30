@@ -888,7 +888,7 @@ mod tests {
 
         let mut populated = MonitorState::default();
         populated.snapshot.temperatures = Collection::available(vec![TemperatureSnapshot {
-            id: "cpu-temperature".to_owned(),
+            id: cclover_core::model::TemperatureId::from_opaque_key("cpu-temperature"),
             name: "CPU".to_owned(),
             celsius: 50.0,
         }]);

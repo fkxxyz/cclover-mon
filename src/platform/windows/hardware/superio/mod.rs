@@ -8,7 +8,9 @@ mod winbond;
 
 use std::io;
 
-use crate::core::model::{Collection, CollectionUnavailable, FanId, FanSnapshot};
+use crate::core::model::{
+    Collection, CollectionUnavailable, FanId, FanSnapshot, TemperatureId, TemperatureSnapshot,
+};
 use crate::platform::windows::diagnostics::report_issue;
 use crate::platform::windows::pawnio::Session;
 
@@ -16,12 +18,24 @@ use access::Access;
 use detect::DeviceDescriptor;
 
 pub(super) struct Collector {
+    board: Option<super::board::Info>,
     devices: Option<Vec<Device>>,
 }
 
+pub(super) struct Observation {
+    pub temperatures: Collection<Vec<TemperatureSnapshot>>,
+    pub fans: Collection<Vec<FanSnapshot>>,
+}
+
 pub(super) enum CollectOutcome {
-    Observation(Collection<Vec<FanSnapshot>>),
+    Observation(Observation),
     SourceFailed(io::Error),
+}
+
+#[derive(Clone, Copy)]
+struct Projection {
+    temperatures: bool,
+    fans: bool,
 }
 
 enum Device {
@@ -32,29 +46,85 @@ enum Device {
 }
 
 impl Collector {
-    pub(super) fn new() -> Self {
-        Self { devices: None }
+    pub(super) fn new(board: Option<super::board::Info>) -> Self {
+        Self {
+            board,
+            devices: None,
+        }
     }
 
     pub(super) fn collect(
         &mut self,
         session: &Session,
+        notes: Option<&mut Vec<String>>,
+    ) -> CollectOutcome {
+        self.collect_projection(
+            session,
+            notes,
+            Projection {
+                temperatures: true,
+                fans: true,
+            },
+        )
+    }
+
+    pub(super) fn collect_temperatures(
+        &mut self,
+        session: &Session,
+        notes: Option<&mut Vec<String>>,
+    ) -> CollectOutcome {
+        self.collect_projection(
+            session,
+            notes,
+            Projection {
+                temperatures: true,
+                fans: false,
+            },
+        )
+    }
+
+    pub(super) fn collect_fans(
+        &mut self,
+        session: &Session,
+        notes: Option<&mut Vec<String>>,
+    ) -> CollectOutcome {
+        self.collect_projection(
+            session,
+            notes,
+            Projection {
+                temperatures: false,
+                fans: true,
+            },
+        )
+    }
+
+    fn collect_projection(
+        &mut self,
+        session: &Session,
         mut notes: Option<&mut Vec<String>>,
+        projection: Projection,
     ) -> CollectOutcome {
         let access = Access::new(session);
         let _guard = match Access::lock_isa_bus() {
             Ok(guard) => guard,
             Err(error) => {
                 report_issue(&mut notes, || format!("Super-I/O bus unavailable: {error}"));
-                return CollectOutcome::Observation(Collection::unavailable(
+                return CollectOutcome::Observation(Observation::unavailable(
+                    projection,
                     CollectionUnavailable::Unavailable,
                 ));
             }
         };
 
         if self.devices.is_none() {
-            match discover_devices(&access, notes.as_deref_mut()) {
-                Ok(devices) => self.devices = Some(devices),
+            match discover_devices(&access, self.board.as_ref(), notes.as_deref_mut()) {
+                Ok(devices) => {
+                    let count = devices.len();
+                    report_issue(&mut notes, || {
+                        format!("Super-I/O discovery: devices={count}")
+                    });
+                    self.devices = Some(devices);
+                }
                 Err(error) => {
                     report_issue(&mut notes, || {
                         format!("Super-I/O discovery failed: {error}")
@@ -62,7 +132,8 @@ impl Collector {
                     return if source_transport_failed(&error) {
                         CollectOutcome::SourceFailed(error)
                     } else {
-                        CollectOutcome::Observation(Collection::unavailable(
+                        CollectOutcome::Observation(Observation::unavailable(
+                            projection,
                             CollectionUnavailable::Unavailable,
                         ))
                     };
@@ -70,32 +141,110 @@ impl Collector {
             }
         }
 
+        let mut temperatures = Vec::new();
         let mut fans = Vec::new();
-        let mut degraded = false;
+        let mut temperature_degraded = false;
+        let mut fan_degraded = false;
         for device in self.devices.as_ref().expect("initialized above") {
-            match device.read_fans(&access) {
-                Ok(values) => append_fans(&mut fans, device.descriptor(), values),
-                Err(error) => {
-                    if source_transport_failed(&error) {
+            if projection.temperatures {
+                match device.read_temperatures(&access) {
+                    Ok(values) => {
+                        let descriptor = device.descriptor();
+                        let readable = values.iter().filter(|value| value.is_some()).count();
+                        let total = values.len();
                         report_issue(&mut notes, || {
-                            format!("PawnIO Super-I/O session failed: {error}")
+                            format!(
+                                "{} temperature channels: readable={readable} total={total}",
+                                descriptor.chip.name()
+                            )
                         });
-                        return CollectOutcome::SourceFailed(error);
+                        append_temperatures(&mut temperatures, device, values)
                     }
-                    degraded = true;
-                    let descriptor = device.descriptor();
-                    report_issue(&mut notes, || {
-                        format!("{} fan read failed: {error}", descriptor.chip.name())
-                    });
+                    Err(error) => {
+                        if source_transport_failed(&error) {
+                            report_issue(&mut notes, || {
+                                format!("PawnIO Super-I/O session failed: {error}")
+                            });
+                            return CollectOutcome::SourceFailed(error);
+                        }
+                        temperature_degraded = true;
+                        let descriptor = device.descriptor();
+                        report_issue(&mut notes, || {
+                            format!(
+                                "{} temperature read failed: {error}",
+                                descriptor.chip.name()
+                            )
+                        });
+                    }
+                }
+            }
+
+            if projection.fans {
+                match device.read_fans(&access) {
+                    Ok(values) => {
+                        let descriptor = device.descriptor();
+                        let readable = values.iter().filter(|value| value.is_some()).count();
+                        let total = values.len();
+                        report_issue(&mut notes, || {
+                            format!(
+                                "{} fan channels: readable={readable} total={total}",
+                                descriptor.chip.name()
+                            )
+                        });
+                        append_fans(&mut fans, descriptor, values)
+                    }
+                    Err(error) => {
+                        if source_transport_failed(&error) {
+                            report_issue(&mut notes, || {
+                                format!("PawnIO Super-I/O session failed: {error}")
+                            });
+                            return CollectOutcome::SourceFailed(error);
+                        }
+                        fan_degraded = true;
+                        let descriptor = device.descriptor();
+                        report_issue(&mut notes, || {
+                            format!("{} fan read failed: {error}", descriptor.chip.name())
+                        });
+                    }
                 }
             }
         }
 
-        if degraded {
-            CollectOutcome::Observation(Collection::degraded(fans))
-        } else {
-            CollectOutcome::Observation(Collection::available(fans))
+        CollectOutcome::Observation(Observation {
+            temperatures: projection_collection(
+                projection.temperatures,
+                temperature_degraded,
+                temperatures,
+            ),
+            fans: projection_collection(projection.fans, fan_degraded, fans),
+        })
+    }
+}
+
+impl Observation {
+    fn unavailable(projection: Projection, reason: CollectionUnavailable) -> Self {
+        Self {
+            temperatures: if projection.temperatures {
+                Collection::unavailable(reason)
+            } else {
+                Collection::unavailable(CollectionUnavailable::Unsupported)
+            },
+            fans: if projection.fans {
+                Collection::unavailable(reason)
+            } else {
+                Collection::unavailable(CollectionUnavailable::Unsupported)
+            },
         }
+    }
+}
+
+fn projection_collection<T>(requested: bool, degraded: bool, values: Vec<T>) -> Collection<Vec<T>> {
+    if !requested {
+        Collection::unavailable(CollectionUnavailable::Unsupported)
+    } else if degraded {
+        Collection::degraded(values)
+    } else {
+        Collection::available(values)
     }
 }
 
@@ -105,10 +254,15 @@ fn source_transport_failed(error: &io::Error) -> bool {
 
 fn discover_devices(
     access: &Access<'_>,
+    board: Option<&super::board::Info>,
     mut notes: Option<&mut Vec<String>>,
 ) -> io::Result<Vec<Device>> {
     let mut devices = Vec::new();
-    for descriptor in detect::discover(access)? {
+    let discovery = detect::discover(access, board)?;
+    for detail in discovery.details {
+        report_issue(&mut notes, || format!("Super-I/O probe: {detail}"));
+    }
+    for descriptor in discovery.devices {
         let device = if descriptor.chip.is_fintek() {
             Some(Device::Fintek(fintek::Reader::new(descriptor)))
         } else if descriptor.chip.is_ite() {
@@ -131,6 +285,47 @@ fn discover_devices(
         }
     }
     Ok(devices)
+}
+
+fn append_temperatures(
+    output: &mut Vec<TemperatureSnapshot>,
+    device: &Device,
+    values: Vec<Option<f64>>,
+) {
+    let descriptor = device.descriptor();
+    if let Device::Nuvoton(reader) = device {
+        for ((key, name), celsius) in reader.temperature_metadata().zip(values) {
+            let Some(celsius) = celsius else {
+                continue;
+            };
+            output.push(TemperatureSnapshot {
+                id: TemperatureId::from_opaque_key(format!(
+                    "windows:superio:slot{}:{}:temp:{key}",
+                    descriptor.slot,
+                    descriptor.chip.stable_key(),
+                )),
+                name: name.to_owned(),
+                celsius,
+            });
+        }
+        return;
+    }
+
+    for (index, celsius) in values.into_iter().enumerate() {
+        let Some(celsius) = celsius else {
+            continue;
+        };
+        output.push(TemperatureSnapshot {
+            id: TemperatureId::from_opaque_key(format!(
+                "windows:superio:slot{}:{}:temp{}",
+                descriptor.slot,
+                descriptor.chip.stable_key(),
+                index + 1
+            )),
+            name: format!("{} Temperature #{}", descriptor.chip.name(), index + 1),
+            celsius,
+        });
+    }
 }
 
 fn append_fans(
@@ -165,6 +360,15 @@ impl Device {
         }
     }
 
+    fn read_temperatures(&self, access: &Access<'_>) -> io::Result<Vec<Option<f64>>> {
+        match self {
+            Self::Fintek(reader) => reader.read_temperatures(access),
+            Self::Ite(reader) => reader.read_temperatures(access),
+            Self::Nuvoton(reader) => reader.read_temperatures(access),
+            Self::Winbond(reader) => reader.read_temperatures(access),
+        }
+    }
+
     fn read_fans(&self, access: &Access<'_>) -> io::Result<Vec<Option<u64>>> {
         match self {
             Self::Fintek(reader) => reader.read_fans(access),
@@ -172,5 +376,26 @@ impl Device {
             Self::Nuvoton(reader) => reader.read_fans(access),
             Self::Winbond(reader) => reader.read_fans(access),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn projection_collection_preserves_partial_success() {
+        assert!(matches!(
+            projection_collection(true, false, vec![1_u8]),
+            Collection::Available(values) if values == vec![1]
+        ));
+        assert!(matches!(
+            projection_collection(true, true, vec![1_u8]),
+            Collection::Degraded(values) if values == vec![1]
+        ));
+        assert!(matches!(
+            projection_collection::<u8>(false, false, Vec::new()),
+            Collection::Unavailable(CollectionUnavailable::Unsupported)
+        ));
     }
 }

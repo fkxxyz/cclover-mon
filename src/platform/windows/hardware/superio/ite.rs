@@ -3,7 +3,7 @@
 // https://mozilla.org/MPL/2.0/.
 // Copyright (C) LibreHardwareMonitor and Contributors.
 // Partial Copyright (C) Michael Möller <mmoeller@openhardwaremonitor.org> and Contributors.
-// Fan decode ported for cclover-mon from LibreHardwareMonitor IT87XX.cs at reviewed commit
+// Temperature/fan decode ported for cclover-mon from LibreHardwareMonitor IT87XX.cs at reviewed commit
 // 677a3a56abde9adff5abdb42db3a7638c9137572.
 
 use std::io;
@@ -75,6 +75,23 @@ impl Reader {
 
     pub(super) fn descriptor(&self) -> DeviceDescriptor {
         self.descriptor
+    }
+
+    pub(super) fn read_temperatures(&self, access: &Access<'_>) -> io::Result<Vec<Option<f64>>> {
+        if self.requires_bank_zero {
+            self.select_bank_zero(access)?;
+        }
+        let count = temperature_count(self.descriptor.chip);
+        let mut values = Vec::with_capacity(count);
+        for index in 0..count {
+            let (raw, valid) = self.read_byte(access, 0x29 + index as u8)?;
+            let temperature = raw as i8;
+            values.push(
+                (valid && temperature > 0 && temperature < i8::MAX)
+                    .then_some(f64::from(temperature)),
+            );
+        }
+        Ok(values)
     }
 
     pub(super) fn read_fans(&self, access: &Access<'_>) -> io::Result<Vec<Option<u64>>> {
@@ -159,6 +176,21 @@ fn fan_count(chip: Chip) -> usize {
     }
 }
 
+fn temperature_count(chip: Chip) -> usize {
+    match chip {
+        Chip::It8613E => 4,
+        Chip::It8628E
+        | Chip::It8655E
+        | Chip::It8665E
+        | Chip::It8688E
+        | Chip::It8689E
+        | Chip::It8696E => 6,
+        Chip::It8686E => 7,
+        Chip::It8631E | Chip::It8638E => 2,
+        _ => 3,
+    }
+}
+
 fn decode_16_bit(value: u16) -> Option<u64> {
     if value <= 0x3F {
         None
@@ -190,5 +222,13 @@ mod tests {
         assert_eq!(decode_16_bit(675), Some(1000));
         assert_eq!(decode_8_bit(0xFF, 2), Some(0));
         assert_eq!(decode_8_bit(135, 10), Some(1000));
+    }
+
+    #[test]
+    fn ite_temperature_channel_counts_match_lhm() {
+        assert_eq!(temperature_count(Chip::It8686E), 7);
+        assert_eq!(temperature_count(Chip::It8665E), 6);
+        assert_eq!(temperature_count(Chip::It8613E), 4);
+        assert_eq!(temperature_count(Chip::It8792E), 3);
     }
 }

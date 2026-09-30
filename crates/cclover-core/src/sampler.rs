@@ -642,7 +642,7 @@ mod tests {
                 tx_bytes: 200,
             }]),
             temperatures: Collection::available(vec![TemperatureSnapshot {
-                id: "cpu-temp".into(),
+                id: TemperatureId::from_opaque_key("cpu-temp"),
                 name: "CPU".into(),
                 celsius: 42.0,
             }]),

@@ -58,6 +58,8 @@ The operational update procedure is maintained separately in [`docs/maintenance/
 
 Core retains metric-specific contracts such as temperature and fan snapshots rather than a generic name/type/value/unit sensor bag. Sharing happens below the metric boundary in hardware discovery and access.
 
+CPU hardware adapters may collect finer-grained thermal channels than the product exposes by default. The normal product temperature projection includes primary package/die-style CPU temperatures and excludes per-core, per-CCD, or similarly fine-grained CPU channels. Diagnostic probes may expose those detailed channels without changing the product projection. Channel visibility is an explicit adapter semantic, not inferred from display labels or opaque sensor identifiers.
+
 Hardware sensor identity is independent from display naming. Native slot numbers, enumeration order, and board labels are locators or presentation metadata. A source canonicalizes physical source identity plus stable chip/channel identity before producing a core-owned sensor identity. Improving a board mapping from `Fan #1` to `CPU Fan` must not reset history or create a new semantic sensor.
 
 Zero RPM is a valid fan observation. Unsupported, inaccessible, or failed fan sources remain typed unavailability/degradation rather than fabricated zero.
@@ -66,7 +68,7 @@ Zero RPM is a valid fan observation. Unsupported, inaccessible, or failed fan so
 
 Stable topology is discovered outside the one-second sampling hot path and reused while valid. Sampling reads known channels once per coordinated source observation. Reinitialization occurs only through bounded retry after source failure or when the source explicitly requires topology refresh.
 
-LPC/ISA and EC transactions use the interoperable Windows named synchronization primitives expected by the hardware-monitoring ecosystem, with locks held only around the physical transaction. A failure in one source family degrades only projections that depend on that source.
+LPC/ISA and EC transactions use the interoperable Windows named synchronization primitives expected by the hardware-monitoring ecosystem, with locks held only around the physical transaction. A failure in one source family degrades only projections that depend on that source. Within one source, optional topology or channel capabilities have the same failure-boundary rule: failure of a narrower capability must not invalidate independently readable observations from that source. For example, physical-core topology failure may degrade per-core CPU temperatures while an independently readable package temperature remains available.
 
 Hardware telemetry is read-only product capability. Register writes required by a documented read protocol, such as bank or logical-device selection, are protocol mechanics; changing fan PWM, control mode, firmware policy, or other machine behavior requires a separate architecture decision.
 

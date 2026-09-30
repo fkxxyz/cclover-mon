@@ -302,7 +302,9 @@ fn report_temperatures(
         .map(|temperature| {
             format!(
                 "id={} name={} celsius={:.3}",
-                temperature.id, temperature.name, temperature.celsius
+                temperature.id.as_opaque_key(),
+                temperature.name,
+                temperature.celsius
             )
         })
         .collect();

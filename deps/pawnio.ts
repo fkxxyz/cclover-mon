@@ -46,6 +46,31 @@ export const PAWNIO = {
         name: "IntelMSR.bin",
         sha256: "d6ed85d65ab17a22f813ef98207d6d537155ee2ded5976a21cb48413c9b92e5f",
       },
+      amdFamily0f: {
+        name: "AMDFamily0F.bin",
+        sha256: "a6e11619e87a97820705a6523714f22d676ce44f902631833d4429b89d509d55",
+        targets: ["x86_64"],
+      },
+      amdFamily10: {
+        name: "AMDFamily10.bin",
+        sha256: "6443080b2968474ffbc38aa4356cc56f9664349fa4b917afdb33027d6bb50525",
+        targets: ["x86_64"],
+      },
+      amdFamily17: {
+        name: "AMDFamily17.bin",
+        sha256: "dae74615761b78bdf064dfb3e136252ddcc6fc727d88f14738d0e5800d427a91",
+        targets: ["x86_64"],
+      },
+      lpcAcpiEc: {
+        name: "LpcACPIEC.bin",
+        sha256: "c38fd116e7aff4d1fdb0a494e296be0a6708e5a22fc72f14587442fb7f8f7906",
+        targets: ["x86_64"],
+      },
+      lpcCrosEc: {
+        name: "LpcCrOSEC.bin",
+        sha256: "1ca4b495ea09dc05278e8627bda993e20e8d66a9f90e866283f0007ef0d57e28",
+        targets: ["x86_64"],
+      },
       lpcIo: {
         name: "LpcIO.bin",
         sha256: "b3896a1cab0d808fca31fe2ebcae045d59dac690da87b17c858bb8da357eb45e",

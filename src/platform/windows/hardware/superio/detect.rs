@@ -10,6 +10,7 @@ use std::io;
 use std::thread;
 use std::time::Duration;
 
+use super::super::board;
 use super::access::Access;
 use super::chip::Chip;
 
@@ -32,34 +33,49 @@ pub(super) struct DeviceDescriptor {
     pub ite_version: u8,
 }
 
-pub(super) fn discover(access: &Access<'_>) -> io::Result<Vec<DeviceDescriptor>> {
+pub(super) struct Discovery {
+    pub devices: Vec<DeviceDescriptor>,
+    pub details: Vec<String>,
+}
+
+pub(super) fn discover(access: &Access<'_>, board: Option<&board::Info>) -> io::Result<Discovery> {
     let mut devices = Vec::new();
+    let mut details = Vec::new();
     for slot in 0..=1_u8 {
         access.select_slot(u64::from(slot))?;
-        if let Some(device) = detect_winbond_nuvoton_fintek(access, slot)? {
+        let (winbond_device, id, revision) = detect_winbond_nuvoton_fintek(access, slot, board)?;
+        if let Some(device) = winbond_device {
             devices.push(device);
             continue;
         }
-        if let Some(device) = detect_ite(access, slot)? {
+        let (ite_device, ite_id) = detect_ite(access, slot)?;
+        if let Some(device) = ite_device {
             devices.push(device);
+        } else {
+            details.push(format!(
+                "slot={slot} ports=0x{:02X}/0x{:02X} winbond/nuvoton/fintek=0x{id:02X}:0x{revision:02X} ite=0x{ite_id:04X}",
+                register_port(slot),
+                register_port(slot) + 1,
+            ));
         }
     }
-    Ok(devices)
+    Ok(Discovery { devices, details })
 }
 
 fn detect_winbond_nuvoton_fintek(
     access: &Access<'_>,
     slot: u8,
-) -> io::Result<Option<DeviceDescriptor>> {
+    board: Option<&board::Info>,
+) -> io::Result<(Option<DeviceDescriptor>, u8, u8)> {
     let register_port = register_port(slot);
     access.write_port(register_port, 0x87)?;
     access.write_port(register_port, 0x87)?;
 
     let id = access.read_config_byte(CHIP_ID_REGISTER)?;
     let revision = access.read_config_byte(CHIP_REVISION_REGISTER)?;
-    let Some((chip, ldn)) = winbond_nuvoton_fintek_chip(id, revision) else {
+    let Some((chip, ldn)) = winbond_nuvoton_fintek_chip(id, revision, board) else {
         access.write_port(register_port, 0xAA)?;
-        return Ok(None);
+        return Ok((None, id, revision));
     };
 
     access.find_bars()?;
@@ -81,8 +97,12 @@ fn detect_winbond_nuvoton_fintek(
             | Chip::Nct6793D
             | Chip::Nct6795D
             | Chip::Nct6796D
+            | Chip::Nct6796Dr
+            | Chip::Nct6796Ds
             | Chip::Nct6797D
             | Chip::Nct6798D
+            | Chip::Nct6799D
+            | Chip::Nct5585D
             | Chip::Nct6701D
     ) {
         let options = access.read_config_byte(0x28)?;
@@ -94,25 +114,29 @@ fn detect_winbond_nuvoton_fintek(
     access.write_port(register_port, 0xAA)?;
 
     if chip.is_fintek() && vendor_id != FINTEK_VENDOR_ID {
-        return Ok(None);
+        return Ok((None, id, revision));
     }
     let mut base = address;
     if chip.is_fintek() && base & 0x07 == 0x05 {
         base &= 0xFFF8;
     }
     if invalid_runtime_base(base) {
-        return Ok(None);
+        return Ok((None, id, revision));
     }
 
-    Ok(Some(DeviceDescriptor {
-        slot,
-        chip,
-        base,
-        ite_version: 0,
-    }))
+    Ok((
+        Some(DeviceDescriptor {
+            slot,
+            chip,
+            base,
+            ite_version: 0,
+        }),
+        id,
+        revision,
+    ))
 }
 
-fn detect_ite(access: &Access<'_>, slot: u8) -> io::Result<Option<DeviceDescriptor>> {
+fn detect_ite(access: &Access<'_>, slot: u8) -> io::Result<(Option<DeviceDescriptor>, u16)> {
     let register_port = register_port(slot);
     let value_port = register_port + 1;
 
@@ -134,7 +158,7 @@ fn detect_ite(access: &Access<'_>, slot: u8) -> io::Result<Option<DeviceDescript
             access.write_port(register_port, 0x02)?;
             access.write_port(value_port, 0x02)?;
         }
-        return Ok(None);
+        return Ok((None, chip_id));
     };
 
     access.find_bars()?;
@@ -148,15 +172,18 @@ fn detect_ite(access: &Access<'_>, slot: u8) -> io::Result<Option<DeviceDescript
     }
 
     if invalid_runtime_base(base) {
-        return Ok(None);
+        return Ok((None, chip_id));
     }
 
-    Ok(Some(DeviceDescriptor {
-        slot,
-        chip,
-        base,
-        ite_version: version,
-    }))
+    Ok((
+        Some(DeviceDescriptor {
+            slot,
+            chip,
+            base,
+            ite_version: version,
+        }),
+        chip_id,
+    ))
 }
 
 fn stable_config_word(access: &Access<'_>, register: u8) -> io::Result<u16> {
@@ -180,7 +207,11 @@ fn register_port(slot: u8) -> u16 {
     if slot == 0 { 0x2E } else { 0x4E }
 }
 
-fn winbond_nuvoton_fintek_chip(id: u8, revision: u8) -> Option<(Chip, u8)> {
+fn winbond_nuvoton_fintek_chip(
+    id: u8,
+    revision: u8,
+    board: Option<&board::Info>,
+) -> Option<(Chip, u8)> {
     let hwmon = WINBOND_NUVOTON_HARDWARE_MONITOR_LDN;
     let fintek = FINTEK_HARDWARE_MONITOR_LDN;
     let value = match (id, revision) {
@@ -213,13 +244,37 @@ fn winbond_nuvoton_fintek_chip(id: u8, revision: u8) -> Option<(Chip, u8)> {
         (0xD1, 0x21) => (Chip::Nct6793D, hwmon),
         (0xD3, 0x52) => (Chip::Nct6795D, hwmon),
         (0xD4, 0x23) => (Chip::Nct6796D, hwmon),
-        // 0xD42A is board-dependent in LHM (NCT6796DR vs NCT5585D). Defer until
-        // board identity is available rather than guessing.
+        (0xD4, 0x2A) => {
+            let board = board?;
+            if board.is_asrock() && board.product_is("X870E_NOVA_WIFI") {
+                (Chip::Nct5585D, hwmon)
+            } else {
+                (Chip::Nct6796Dr, hwmon)
+            }
+        }
         (0xD4, 0x51) => (Chip::Nct6797D, hwmon),
         (0xD4, 0x2B) => (Chip::Nct6798D, hwmon),
         (0xD4, 0x40 | 0x41) => (Chip::Nct6686D, hwmon),
-        // 0xD592 is board-dependent in LHM (NCT6687D vs NCT6687DR).
-        // 0xD802 is board-dependent in LHM (NCT6796DS vs NCT6799D).
+        (0xD5, 0x92) => {
+            let board = board?;
+            if board.is_msi()
+                && ["B840", "B850", "B860", "X870", "Z890"]
+                    .iter()
+                    .any(|family| board.product_contains(family))
+            {
+                (Chip::Nct6687Dr, hwmon)
+            } else {
+                (Chip::Nct6687D, hwmon)
+            }
+        }
+        (0xD8, 0x02) => {
+            let board = board?;
+            if board.product_is("X870E_NOVA_WIFI") || board.product_is("B650M_HDV_M_2") {
+                (Chip::Nct6796Ds, hwmon)
+            } else {
+                (Chip::Nct6799D, hwmon)
+            }
+        }
         (0xD8, 0x06) => (Chip::Nct6701D, hwmon),
         _ => return None,
     };
@@ -263,19 +318,19 @@ mod tests {
 
     #[test]
     fn ambiguous_board_dependent_nuvoton_ids_are_not_guessed() {
-        assert_eq!(winbond_nuvoton_fintek_chip(0xD4, 0x2A), None);
-        assert_eq!(winbond_nuvoton_fintek_chip(0xD8, 0x02), None);
+        assert_eq!(winbond_nuvoton_fintek_chip(0xD4, 0x2A, None), None);
+        assert_eq!(winbond_nuvoton_fintek_chip(0xD8, 0x02, None), None);
     }
 
     #[test]
     fn common_chip_ids_match_reviewed_lhm_table() {
         assert_eq!(ite_chip(0x8688), Some(Chip::It8688E));
         assert_eq!(
-            winbond_nuvoton_fintek_chip(0xD4, 0x2B).map(|x| x.0),
+            winbond_nuvoton_fintek_chip(0xD4, 0x2B, None).map(|x| x.0),
             Some(Chip::Nct6798D)
         );
         assert_eq!(
-            winbond_nuvoton_fintek_chip(0x10, 0x05).map(|x| x.0),
+            winbond_nuvoton_fintek_chip(0x10, 0x05, None).map(|x| x.0),
             Some(Chip::F71889AD)
         );
     }

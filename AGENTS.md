@@ -133,7 +133,7 @@ For Linux UI or window-placement changes, also perform a real Wayland runtime ch
 
 - Native Linux desktop rendering requires Cairo, X11/Xext, Wayland client libraries, and the checked-in generated layer-shell protocol sources. Do not reintroduce Iced/winit/wgpu to avoid native host work.
 - Every `cargo xwin` build must use exactly `XWIN_ARCH=x86,x86_64`, including builds targeting only `i686-pc-windows-msvc` or only `x86_64-pc-windows-msvc`. Do not omit it or switch to a per-target value: cargo-xwin's default architecture set differs, and changing this setting can force CRT/SDK cache re-download/re-splat work.
-- Linux is implemented and runtime-validated. Windows native collectors are implemented for CPU, memory, processes, network interfaces, physical disks, temperatures, and NVIDIA/AMD GPU telemetry; per-process disk/network attribution remains unsupported, and real Windows runtime validation is still required for parity claims.
+- Linux is implemented and runtime-validated. Windows native collectors for CPU, memory, processes, network interfaces, physical disks, temperatures, and NVIDIA/AMD GPU telemetry have representative real-Windows runtime validation; per-process disk/network attribution remains unsupported.
 - Static compilation is insufficient for UI changes. Previous runtime checks caught layout overlap and virtual block devices that passed Rust tests and Clippy.
 - The Linux panel intentionally uses top-right anchoring, bottom layer, and zero exclusive zone. Preserve these semantics unless the product behavior is intentionally changed.
 

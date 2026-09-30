@@ -1,6 +1,6 @@
 mod runtime;
 
-use crate::core::model::{Collection, CollectionUnavailable, TemperatureSnapshot};
+use crate::core::model::{Collection, CollectionUnavailable, TemperatureId, TemperatureSnapshot};
 
 use super::super::diagnostics::{probe_note, report_issue};
 
@@ -84,7 +84,7 @@ fn collect_session(
 
 fn snapshot(uuid: &str, name: &str, temperature: u32) -> TemperatureSnapshot {
     TemperatureSnapshot {
-        id: format!("nvml:{uuid}"),
+        id: TemperatureId::from_opaque_key(format!("nvml:{uuid}")),
         name: name.to_owned(),
         celsius: f64::from(temperature),
     }
@@ -97,7 +97,7 @@ mod tests {
     #[test]
     fn nvml_identity_is_namespaced() {
         let value = snapshot("GPU-test", "NVIDIA Test Device", 51);
-        assert_eq!(value.id, "nvml:GPU-test");
+        assert_eq!(value.id.as_opaque_key(), "nvml:GPU-test");
         assert_eq!(value.name, "NVIDIA Test Device");
         assert_eq!(value.celsius, 51.0);
     }

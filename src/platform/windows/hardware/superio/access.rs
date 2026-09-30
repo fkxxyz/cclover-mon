@@ -8,13 +8,10 @@
 // Derived in part for cclover-mon from LibreHardwareMonitor LpcPort/LpcIO at reviewed commit
 // 677a3a56abde9adff5abdb42db3a7638c9137572.
 
-use std::io;
-use std::ptr::null;
-
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, WAIT_ABANDONED, WAIT_OBJECT_0};
-use windows_sys::Win32::System::Threading::{CreateMutexW, ReleaseMutex, WaitForSingleObject};
-
 use crate::platform::windows::pawnio::Session;
+use std::io;
+
+use super::super::sync::{NamedMutexGuard, lock_named};
 
 const ISA_MUTEX: &str = "Global\\Access_ISABUS.HTP.Method";
 const ISA_WAIT_MS: u32 = 100;
@@ -23,33 +20,13 @@ pub(super) struct Access<'a> {
     session: &'a Session,
 }
 
-pub(super) struct IsaBusGuard {
-    handle: HANDLE,
-}
-
 impl<'a> Access<'a> {
     pub(super) fn new(session: &'a Session) -> Self {
         Self { session }
     }
 
-    pub(super) fn lock_isa_bus() -> io::Result<IsaBusGuard> {
-        let name = wide_z(ISA_MUTEX);
-        // SAFETY: name is nul-terminated; default security attributes are intentional.
-        let handle = unsafe { CreateMutexW(null(), 0, name.as_ptr()) };
-        if handle.is_null() {
-            return Err(io::Error::last_os_error());
-        }
-        // SAFETY: handle is a live mutex handle.
-        let result = unsafe { WaitForSingleObject(handle, ISA_WAIT_MS) };
-        if result != WAIT_OBJECT_0 && result != WAIT_ABANDONED {
-            // SAFETY: handle was created above and is not owned after timeout/failure.
-            unsafe { CloseHandle(handle) };
-            return Err(io::Error::new(
-                io::ErrorKind::WouldBlock,
-                "timed out waiting for ISA/LPC bus mutex",
-            ));
-        }
-        Ok(IsaBusGuard { handle })
+    pub(super) fn lock_isa_bus() -> io::Result<NamedMutexGuard> {
+        lock_named(ISA_MUTEX, ISA_WAIT_MS, "ISA/LPC bus")
     }
 
     pub(super) fn select_slot(&self, slot: u64) -> io::Result<()> {
@@ -94,18 +71,4 @@ impl<'a> Access<'a> {
             .copied()
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "PawnIO returned no value"))
     }
-}
-
-impl Drop for IsaBusGuard {
-    fn drop(&mut self) {
-        // SAFETY: guard owns a successfully acquired mutex handle.
-        unsafe {
-            ReleaseMutex(self.handle);
-            CloseHandle(self.handle);
-        }
-    }
-}
-
-fn wide_z(value: &str) -> Vec<u16> {
-    value.encode_utf16().chain(std::iter::once(0)).collect()
 }

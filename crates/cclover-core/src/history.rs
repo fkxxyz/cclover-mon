@@ -180,7 +180,7 @@ mod tests {
     use super::*;
     use crate::model::{
         CollectionUnavailable, DiskId, DiskMetadata, DiskSnapshot, GpuId, GpuSnapshot, NetworkId,
-        NetworkSnapshot, SystemSnapshot, TemperatureSnapshot,
+        NetworkSnapshot, SystemSnapshot, TemperatureId, TemperatureSnapshot,
     };
 
     #[test]
@@ -250,7 +250,7 @@ mod tests {
         let mut history = MonitorHistory::default();
         let snapshot = SystemSnapshot {
             temperatures: Collection::available(vec![TemperatureSnapshot {
-                id: "sensor-a".to_owned(),
+                id: TemperatureId::from_opaque_key("sensor-a"),
                 name: "GPU".to_owned(),
                 celsius: 51.0,
             }]),
@@ -260,7 +260,7 @@ mod tests {
 
         let renamed = SystemSnapshot {
             temperatures: Collection::available(vec![TemperatureSnapshot {
-                id: "sensor-a".to_owned(),
+                id: TemperatureId::from_opaque_key("sensor-a"),
                 name: "GPU 1".to_owned(),
                 celsius: 52.0,
             }]),
@@ -271,14 +271,18 @@ mod tests {
         assert_eq!(
             history
                 .temperatures
-                .get("sensor-a")
+                .get(&TemperatureId::from_opaque_key("sensor-a"))
                 .unwrap()
                 .iter()
                 .copied()
                 .collect::<Vec<_>>(),
             vec![51.0, 52.0]
         );
-        assert!(!history.temperatures.contains_key("GPU"));
+        assert!(
+            !history
+                .temperatures
+                .contains_key(&TemperatureId::from_opaque_key("GPU"))
+        );
     }
 
     #[test]

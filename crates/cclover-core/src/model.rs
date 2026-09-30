@@ -106,6 +106,19 @@ impl FanId {
     }
 }
 
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct TemperatureId(String);
+
+impl TemperatureId {
+    pub fn from_opaque_key(key: impl Into<String>) -> Self {
+        Self(key.into())
+    }
+
+    pub fn as_opaque_key(&self) -> &str {
+        &self.0
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct NetworkSnapshot {
     pub id: NetworkId,
@@ -133,7 +146,7 @@ pub struct DiskSnapshot {
 
 #[derive(Clone, Debug)]
 pub struct TemperatureSnapshot {
-    pub id: String,
+    pub id: TemperatureId,
     pub name: String,
     pub celsius: f64,
 }
@@ -229,7 +242,7 @@ pub struct MonitorHistory {
     pub gpu_temperature: BTreeMap<GpuId, VecDeque<f64>>,
     pub networks: BTreeMap<NetworkId, NetworkDirectionHistory>,
     pub disks: BTreeMap<DiskId, VecDeque<f64>>,
-    pub temperatures: BTreeMap<String, VecDeque<f64>>,
+    pub temperatures: BTreeMap<TemperatureId, VecDeque<f64>>,
     pub fans: BTreeMap<FanId, VecDeque<f64>>,
 }
 

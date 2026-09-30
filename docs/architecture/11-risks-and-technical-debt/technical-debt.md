@@ -21,4 +21,6 @@ Technical debt here means current structure that makes future reasonable change 
 
 Presence is the state: every document in `technical-debt/` represents debt that currently exists. Do not add `Status` fields or retain resolved debt documents. When a debt is resolved, remove its index entry and delete its document; Git history preserves the former problem and its resolution. Durable constraints or residual runtime uncertainty must first be moved to the appropriate architecture View or risk document.
 
-Current architecture-level technical debt: none.
+Current architecture-level technical debt:
+
+- [Windows CPU telemetry deterministic test seam](technical-debt/windows-cpu-telemetry-test-seam.md) — Medium-high priority; collector-level partial-success and failure semantics still depend on privileged live-hardware validation.

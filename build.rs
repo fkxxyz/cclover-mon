@@ -68,6 +68,21 @@ fn configure_windows_resources() {
     );
 
     if resource_arch == "x86_64" {
+        for (file, env_name) in [
+            ("AMDFamily0F.bin", "CCLOVER_PAWNIO_AMD_FAMILY_0F_BIN"),
+            ("AMDFamily10.bin", "CCLOVER_PAWNIO_AMD_FAMILY_10_BIN"),
+            ("AMDFamily17.bin", "CCLOVER_PAWNIO_AMD_FAMILY_17_BIN"),
+            ("LpcACPIEC.bin", "CCLOVER_PAWNIO_LPC_ACPI_EC_BIN"),
+            ("LpcCrOSEC.bin", "CCLOVER_PAWNIO_LPC_CROS_EC_BIN"),
+        ] {
+            let module = target.join("modules").join(file);
+            assert!(
+                module.is_file(),
+                "prepared PawnIO {file} module is missing; run `bun prepare-windows-deps.ts`"
+            );
+            println!("cargo:rustc-env={env_name}={}", module.display());
+        }
+
         let lpc_io = target.join("modules/LpcIO.bin");
         assert!(
             lpc_io.is_file(),

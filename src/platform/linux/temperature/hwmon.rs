@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::core::devlog;
-use crate::core::model::{Collection, CollectionUnavailable, TemperatureSnapshot};
+use crate::core::model::{Collection, CollectionUnavailable, TemperatureId, TemperatureSnapshot};
 
 use super::super::diagnostics::{probe_note, report_issue, unavailable_from_io};
 use super::Observation;
@@ -105,7 +105,7 @@ impl Collector {
                         temperatures.push(Observation {
                             physical_device: chip.physical_device.clone(),
                             snapshot: TemperatureSnapshot {
-                                id: channel.id.clone(),
+                                id: TemperatureId::from_opaque_key(channel.id.clone()),
                                 name: chip.name.clone(),
                                 celsius: milli_celsius / 1000.0,
                             },
@@ -375,7 +375,13 @@ mod tests {
         assert_eq!(values.len(), 2);
         assert_eq!(values[0].snapshot.name, "CPU");
         assert_eq!(values[0].snapshot.celsius, 42.0);
-        assert!(values[0].snapshot.id.contains("coretemp:temp1"));
+        assert!(
+            values[0]
+                .snapshot
+                .id
+                .as_opaque_key()
+                .contains("coretemp:temp1")
+        );
         assert_eq!(values[1].snapshot.name, "GPU");
         assert_eq!(values[1].snapshot.celsius, 63.0);
         assert!(values[1].physical_device.is_some());

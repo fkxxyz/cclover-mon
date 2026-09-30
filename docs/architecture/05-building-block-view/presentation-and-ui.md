@@ -25,3 +25,5 @@ Native graphical rendering consumes `cclover-ui::NativeScene`, the shared loweri
 The terminal frontend consumes `cclover-presentation` directly. Terminal rows, columns, focus, scrolling, and terminal rendering are terminal-specific and are not forced through the graphical dashboard tree.
 
 Renderer adapters realize shared decisions; they do not independently infer metric availability, ranking, formatting, graph ranges, card visibility, or graphical card structure from raw monitor state or platform identity.
+
+Top-N subregions use observation capability as layout state. When the corresponding collection is observable, the graphical dashboard reserves the full fixed Top-N region even when fewer rows are currently populated, so sampling changes do not move surrounding content. When the collection is unavailable, the subregion is omitted entirely; the main dashboard does not spend space on unavailable placeholders or diagnostic reasons. Detailed failure reasons belong to diagnostic interfaces such as CLI probes.

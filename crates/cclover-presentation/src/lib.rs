@@ -382,8 +382,8 @@ impl<'a> DiskPanel<'a> {
         self.history
     }
 
-    pub fn process_unavailable_value(self) -> Option<&'static str> {
-        (!self.processes.is_observable()).then_some(UNAVAILABLE_VALUE)
+    pub fn process_rows_visible(self) -> bool {
+        self.processes.is_observable()
     }
 
     pub fn processes(self) -> impl Iterator<Item = IoProcessRow<'a>> + 'a {
@@ -436,8 +436,8 @@ impl<'a> NetworkPanel<'a> {
         self.history
     }
 
-    pub fn process_unavailable_value(self) -> Option<&'static str> {
-        (!self.processes.is_observable()).then_some(UNAVAILABLE_VALUE)
+    pub fn process_rows_visible(self) -> bool {
+        self.processes.is_observable()
     }
 
     pub fn processes(self) -> impl Iterator<Item = IoProcessRow<'a>> + 'a {
@@ -611,12 +611,12 @@ mod tests {
 
         let panel = Dashboard::new(&state).disk(0).unwrap();
         assert_eq!(panel.name(), "nvme0n1");
-        assert_eq!(panel.process_unavailable_value(), Some(UNAVAILABLE_VALUE));
+        assert!(!panel.process_rows_visible());
         assert_eq!(panel.processes().count(), 0);
 
         state.snapshot.process_disk_io = Collection::available(Vec::new());
         let panel = Dashboard::new(&state).disk(0).unwrap();
-        assert_eq!(panel.process_unavailable_value(), None);
+        assert!(panel.process_rows_visible());
         assert_eq!(panel.processes().count(), 0);
     }
 

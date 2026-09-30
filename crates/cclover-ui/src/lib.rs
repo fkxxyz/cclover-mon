@@ -714,40 +714,43 @@ fn small_graph_card<'a>(name: &'a str, value: String, graph: GraphSpec<'a>) -> B
 }
 
 fn disk_card<'a>(disk: cclover_presentation::DiskPanel<'a>, capacity: usize) -> Block<'a> {
+    let process_rows_visible = disk.process_rows_visible();
     let process_rows = io_process_rows(
         disk.processes()
             .map(|row| (row.name, row.pid, row.first_value, row.second_value)),
-        disk.process_unavailable_value(),
         "R",
         "W",
         Tone::Green,
         Tone::Orange,
     );
+    let mut children = vec![
+        Element::Row(TextRow {
+            cells: vec![
+                TextCell::owned(disk.name(), 13, Tone::Foreground)
+                    .bold()
+                    .grow()
+                    .clip(),
+                TextCell::owned(disk.value(), 12, Tone::Foreground),
+            ],
+            height: DISK_CARD_GEOMETRY.header_height,
+            gap: 0,
+        }),
+        Element::Graph(GraphSpec {
+            values: disk.history().unwrap_or(&EMPTY_GRAPH_VALUES),
+            min: 0.0,
+            max: 1.0,
+            auto_scale: true,
+            line: Tone::Orange,
+            fill_alpha: 0.13,
+            capacity,
+            height: DISK_CARD_GEOMETRY.graph_height,
+        }),
+    ];
+    if process_rows_visible {
+        children.push(Element::Stack(process_rows));
+    }
     card(Stack {
-        children: vec![
-            Element::Row(TextRow {
-                cells: vec![
-                    TextCell::owned(disk.name(), 13, Tone::Foreground)
-                        .bold()
-                        .grow()
-                        .clip(),
-                    TextCell::owned(disk.value(), 12, Tone::Foreground),
-                ],
-                height: DISK_CARD_GEOMETRY.header_height,
-                gap: 0,
-            }),
-            Element::Graph(GraphSpec {
-                values: disk.history().unwrap_or(&EMPTY_GRAPH_VALUES),
-                min: 0.0,
-                max: 1.0,
-                auto_scale: true,
-                line: Tone::Orange,
-                fill_alpha: 0.13,
-                capacity,
-                height: DISK_CARD_GEOMETRY.graph_height,
-            }),
-            Element::Stack(process_rows),
-        ],
+        children,
         gap: DISK_CARD_GEOMETRY.spacing,
         height: None,
     })
@@ -758,53 +761,56 @@ fn network_card<'a>(network: cclover_presentation::NetworkPanel<'a>, capacity: u
         .history()
         .map(|history| (&history.down, &history.up))
         .unwrap_or((&EMPTY_GRAPH_VALUES, &EMPTY_GRAPH_VALUES));
+    let process_rows_visible = network.process_rows_visible();
     let process_rows = io_process_rows(
         network
             .processes()
             .map(|row| (row.name, row.pid, row.first_value, row.second_value)),
-        network.process_unavailable_value(),
         "↓",
         "↑",
         Tone::Green,
         Tone::Orange,
     );
+    let mut children = vec![
+        Element::Row(TextRow {
+            cells: vec![
+                TextCell::borrowed(network.name(), 13, Tone::Foreground)
+                    .bold()
+                    .static_content()
+                    .grow()
+                    .clip(),
+            ],
+            height: NETWORK_CARD_GEOMETRY.header_height,
+            gap: 0,
+        }),
+        value_row("↓", network.down_value(), Tone::Green),
+        Element::Graph(GraphSpec {
+            values: down,
+            min: 0.0,
+            max: 1.0,
+            auto_scale: true,
+            line: Tone::Green,
+            fill_alpha: 0.125,
+            capacity,
+            height: NETWORK_CARD_GEOMETRY.graph_height,
+        }),
+        value_row("↑", network.up_value(), Tone::Orange),
+        Element::Graph(GraphSpec {
+            values: up,
+            min: 0.0,
+            max: 1.0,
+            auto_scale: true,
+            line: Tone::Orange,
+            fill_alpha: 0.125,
+            capacity,
+            height: NETWORK_CARD_GEOMETRY.graph_height,
+        }),
+    ];
+    if process_rows_visible {
+        children.push(Element::Stack(process_rows));
+    }
     card(Stack {
-        children: vec![
-            Element::Row(TextRow {
-                cells: vec![
-                    TextCell::borrowed(network.name(), 13, Tone::Foreground)
-                        .bold()
-                        .static_content()
-                        .grow()
-                        .clip(),
-                ],
-                height: NETWORK_CARD_GEOMETRY.header_height,
-                gap: 0,
-            }),
-            value_row("↓", network.down_value(), Tone::Green),
-            Element::Graph(GraphSpec {
-                values: down,
-                min: 0.0,
-                max: 1.0,
-                auto_scale: true,
-                line: Tone::Green,
-                fill_alpha: 0.125,
-                capacity,
-                height: NETWORK_CARD_GEOMETRY.graph_height,
-            }),
-            value_row("↑", network.up_value(), Tone::Orange),
-            Element::Graph(GraphSpec {
-                values: up,
-                min: 0.0,
-                max: 1.0,
-                auto_scale: true,
-                line: Tone::Orange,
-                fill_alpha: 0.125,
-                capacity,
-                height: NETWORK_CARD_GEOMETRY.graph_height,
-            }),
-            Element::Stack(process_rows),
-        ],
+        children,
         gap: NETWORK_CARD_GEOMETRY.spacing,
         height: None,
     })
@@ -824,20 +830,12 @@ fn value_row<'a>(label: &'static str, value: String, tone: Tone) -> Element<'a> 
 
 fn io_process_rows<'a>(
     rows: impl Iterator<Item = (Option<&'a str>, u32, String, String)>,
-    unavailable: Option<&'static str>,
     first_label: &'static str,
     second_label: &'static str,
     first_tone: Tone,
     second_tone: Tone,
 ) -> Stack<'a> {
     let mut children = Vec::new();
-    if let Some(value) = unavailable {
-        children.push(Element::Row(TextRow {
-            cells: vec![TextCell::borrowed(value, 10, Tone::Muted).static_content()],
-            height: IO_PROCESS_GEOMETRY.row_height,
-            gap: 0,
-        }));
-    }
     for (name, pid, first, second) in rows {
         children.push(Element::Row(TextRow {
             cells: vec![
@@ -873,7 +871,9 @@ fn column_height(blocks: &[Block<'_>]) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use cclover_core::model::{Collection, MonitorState, TemperatureSnapshot};
+    use cclover_core::model::{
+        Collection, DiskMetadata, DiskSnapshot, MonitorState, NetworkSnapshot, TemperatureSnapshot,
+    };
 
     use super::*;
 
@@ -893,6 +893,44 @@ mod tests {
         let populated_ui = DashboardUi::new(Dashboard::new(&populated));
         assert_eq!(populated_ui.left.len(), 4);
         assert!(populated_ui.height() > empty_ui.height());
+    }
+
+    #[test]
+    fn io_top_regions_are_fixed_when_observable_and_omitted_when_unavailable() {
+        let mut state = MonitorState::default();
+        state.snapshot.disks = Collection::available(vec![DiskSnapshot {
+            id: cclover_core::model::DiskId::from_opaque_key("disk-a"),
+            metadata: DiskMetadata {
+                system_label: "disk-a".into(),
+                associated_labels: Vec::new(),
+            },
+            bytes_per_sec: 0.0,
+        }]);
+        state.snapshot.networks = Collection::available(vec![NetworkSnapshot {
+            id: cclover_core::model::NetworkId::from_opaque_key("network-a"),
+            name: "network-a".into(),
+            down_bytes_per_sec: 0.0,
+            up_bytes_per_sec: 0.0,
+        }]);
+
+        let dashboard = Dashboard::new(&state);
+        let unavailable_disk_height = disk_card(dashboard.disk(0).unwrap(), 1).height();
+        let unavailable_network_height = network_card(dashboard.network(0).unwrap(), 1).height();
+
+        state.snapshot.process_disk_io = Collection::available(Vec::new());
+        state.snapshot.process_network_io = Collection::available(Vec::new());
+        let dashboard = Dashboard::new(&state);
+        let available_disk_height = disk_card(dashboard.disk(0).unwrap(), 1).height();
+        let available_network_height = network_card(dashboard.network(0).unwrap(), 1).height();
+
+        assert_eq!(
+            available_disk_height - unavailable_disk_height,
+            IO_PROCESS_GEOMETRY.height() + DISK_CARD_GEOMETRY.spacing
+        );
+        assert_eq!(
+            available_network_height - unavailable_network_height,
+            IO_PROCESS_GEOMETRY.height() + NETWORK_CARD_GEOMETRY.spacing
+        );
     }
 
     #[test]

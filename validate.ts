@@ -10,7 +10,7 @@ const FAST_STEPS: readonly ValidationStep[] = [
   { name: "architecture dependency gate", command: ["bun", "archgate.ts"] },
   {
     name: "validation policy tests",
-    command: ["bun", "test", "archgate.test.ts", "validate.test.ts"],
+    command: ["bun", "test", "archgate.test.ts", "validate.test.ts", "sync-linux-hwmon.test.ts"],
   },
   { name: "Rust formatting", command: ["cargo", "fmt", "--all", "--check"] },
   { name: "architecture documentation", command: ["bun", "archdoc.ts", "check"] },

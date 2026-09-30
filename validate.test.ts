@@ -11,7 +11,7 @@ describe("validation profiles", () => {
   test("fast profile keeps architecture enforcement cheap and deterministic", () => {
     expect(validationSteps("fast").map((step) => step.command)).toEqual([
       ["bun", "archgate.ts"],
-      ["bun", "test", "archgate.test.ts", "validate.test.ts"],
+      ["bun", "test", "archgate.test.ts", "validate.test.ts", "sync-linux-hwmon.test.ts"],
       ["cargo", "fmt", "--all", "--check"],
       ["bun", "archdoc.ts", "check"],
     ]);

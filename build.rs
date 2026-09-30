@@ -9,9 +9,53 @@ use std::process::Command;
 fn main() {
     if env::var_os("CARGO_CFG_TARGET_OS").as_deref() == Some(std::ffi::OsStr::new("windows")) {
         configure_windows_resources();
+        build_windows_hwmon_compat();
     }
     #[cfg(any(feature = "http", feature = "ebpf-io"))]
     build_optional_capabilities();
+}
+
+fn build_windows_hwmon_compat() {
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").expect("target arch");
+
+    for path in [
+        "native/windows_hwmon/coretemp_bridge.c",
+        "native/windows_hwmon/coretemp_bridge.h",
+        "vendor/linux/hwmon/coretemp.c",
+    ] {
+        println!("cargo:rerun-if-changed={path}");
+    }
+    if target_arch == "x86_64" {
+        for path in [
+            "native/windows_hwmon/k10temp_bridge.c",
+            "native/windows_hwmon/k10temp_bridge.h",
+            "vendor/linux/hwmon/k10temp.c",
+            "native/windows_hwmon/k8temp_bridge.c",
+            "native/windows_hwmon/k8temp_bridge.h",
+            "vendor/linux/hwmon/k8temp.c",
+        ] {
+            println!("cargo:rerun-if-changed={path}");
+        }
+    }
+    println!("cargo:rerun-if-changed=native/windows_hwmon/compat/include");
+
+    let mut build = cc::Build::new();
+    build
+        .file("native/windows_hwmon/coretemp_bridge.c")
+        .include("native/windows_hwmon")
+        .include("native/windows_hwmon/compat/include")
+        .include("vendor/linux/hwmon")
+        .warnings(true);
+    if target_arch == "x86_64" {
+        build
+            .file("native/windows_hwmon/k10temp_bridge.c")
+            .file("native/windows_hwmon/k8temp_bridge.c");
+    }
+    if build.get_compiler().is_like_clang() {
+        build.flag_if_supported("-Wno-unused-variable");
+        build.flag_if_supported("-Wno-unused-function");
+    }
+    build.compile("cclover_linux_hwmon_compat");
 }
 
 fn configure_windows_resources() {

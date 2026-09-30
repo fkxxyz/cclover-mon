@@ -24,10 +24,11 @@ pub(super) struct Info {
     pub vendor: Vendor,
     pub family: u32,
     pub model: u32,
+    pub stepping: u32,
     pub brand: String,
     pub core_dts: bool,
     pub package_dts: bool,
-    pub amd_dts: bool,
+    pub cpuid_80000001_ebx: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -62,6 +63,7 @@ pub(super) fn detect() -> Info {
     } else {
         base_family
     };
+    let stepping = leaf1.eax & 0x0F;
     let base_model = (leaf1.eax >> 4) & 0x0F;
     let extended_model = (leaf1.eax >> 16) & 0x0F;
     let model = if matches!(base_family, 0x06 | 0x0F) {
@@ -72,15 +74,20 @@ pub(super) fn detect() -> Info {
 
     let leaf6 = if leaf0.eax >= 6 { Some(cpuid(6)) } else { None };
     let max_extended = cpuid(0x8000_0000).eax;
-    let amd_dts = max_extended >= 0x8000_0007 && cpuid(0x8000_0007).edx & 1 != 0;
+    let cpuid_80000001_ebx = if max_extended >= 0x8000_0001 {
+        cpuid(0x8000_0001).ebx
+    } else {
+        0
+    };
     Info {
         vendor,
         family,
         model,
+        stepping,
         brand: cpu_brand(),
         core_dts: leaf6.is_some_and(|leaf| leaf.eax & 1 != 0),
         package_dts: leaf6.is_some_and(|leaf| leaf.eax & (1 << 6) != 0),
-        amd_dts,
+        cpuid_80000001_ebx,
     }
 }
 

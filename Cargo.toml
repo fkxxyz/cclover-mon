@@ -2,7 +2,7 @@
 name = "cclover-mon"
 version = "0.1.0"
 edition = "2024"
-license = "GPL-3.0-or-later"
+license = "GPL-2.0-or-later"
 build = "build.rs"
 
 [workspace]
@@ -20,6 +20,7 @@ serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 
 [build-dependencies]
+cc = "1"
 wasm-bindgen-cli-support = { version = "=0.2.129", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

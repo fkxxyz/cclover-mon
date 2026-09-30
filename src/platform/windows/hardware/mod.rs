@@ -2,12 +2,17 @@
 mod amd;
 #[cfg(target_arch = "x86_64")]
 mod board;
+mod coretemp;
 mod cpu;
 #[cfg(target_arch = "x86_64")]
 mod cros_ec;
 #[cfg(target_arch = "x86_64")]
 mod ec;
 mod intel;
+#[cfg(target_arch = "x86_64")]
+mod k10temp;
+#[cfg(target_arch = "x86_64")]
+mod k8temp;
 #[cfg(target_arch = "x86_64")]
 mod superio;
 #[cfg(target_arch = "x86_64")]
@@ -545,8 +550,8 @@ impl<T> Source<T> {
 }
 
 impl CpuRuntime {
-    fn collect(&self) -> std::io::Result<CpuObservation> {
-        match &self.collector {
+    fn collect(&mut self) -> std::io::Result<CpuObservation> {
+        match &mut self.collector {
             CpuCollector::Intel(collector) => {
                 collector
                     .collect(&self.session)
@@ -675,7 +680,8 @@ fn initialize_cpu() -> Result<CpuRuntime, InitFailure> {
     let info = cpu::detect();
     match info.vendor {
         cpu::Vendor::Intel => {
-            let collector = intel::Collector::new(info);
+            let collector = intel::Collector::new(info)
+                .map_err(|_| InitFailure::Retry(CollectionUnavailable::Unavailable))?;
             let session = open_module_session(INTEL_MSR_MODULE)?;
             Ok(CpuRuntime {
                 session,

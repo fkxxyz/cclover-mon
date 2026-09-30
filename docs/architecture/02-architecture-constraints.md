@@ -19,7 +19,7 @@ facets:
 
 - Rust owns application logic, shared model, sampling, history, presentation semantics, shared dashboard definition, and the top-level build; platform-native code may own desktop windowing/drawing behind a narrow in-process boundary.
 - Cargo is the top-level build system.
-- cclover-mon source code is distributed under `GPL-3.0-or-later`. Third-party components retain their upstream licenses; packaging must preserve required notices, source availability, and redistribution obligations instead of treating the project license as overriding them.
+- Project-owned cclover-mon source code is distributed under `GPL-2.0-or-later`. Vendored or derived third-party files retain their upstream licenses, SPDX identifiers, copyright notices, and redistribution obligations; the project license does not override them. A target that combines GPL-2.0-only Linux source must use only dependencies compatible with GPL version 2 and satisfy GPLv2 for the combined work.
 - Linux and Windows native APIs stay behind platform backends.
 - C++ exists only for APIs or SDKs that require C++ and is linked into the same executable.
 - Native collection is preferred over periodic subprocess polling.

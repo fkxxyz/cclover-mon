@@ -55,6 +55,7 @@ dependencies = [
 name = "cclover-mon"
 version = "0.1.0"
 dependencies = [
+ "cc",
  "cclover-core",
  "cclover-desktop",
  "cclover-presentation",

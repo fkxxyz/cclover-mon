@@ -83,6 +83,6 @@ Architecture documentation is under [`docs/architecture/`](docs/architecture/).
 
 ## License
 
-`cclover-mon` is licensed under the GNU General Public License, version 3 or later (`GPL-3.0-or-later`). See [`LICENSE`](LICENSE).
+`cclover-mon` is licensed under the GNU General Public License, version 2 or later (`GPL-2.0-or-later`). See [`LICENSE`](LICENSE).
 
 Third-party components retain their own licenses. Redistributed third-party binaries, notices, and corresponding-source obligations are handled under those component licenses rather than being relicensed as `cclover-mon` code.

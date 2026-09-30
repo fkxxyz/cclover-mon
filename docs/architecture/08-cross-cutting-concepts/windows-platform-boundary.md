@@ -47,7 +47,9 @@ The runtime talks directly to the documented buffered device IO-control interfac
 
 Diagnostic probes activate only source paths that can produce the requested metric. A temperature probe may initialize Super-I/O or EC when those sources expose temperature channels, but it must not read fan-only channels merely because production sampling composes both projections into one hardware batch; the inverse applies to fan probes.
 
-Super-I/O and EC compatibility knowledge may be ported from the pinned reviewed LibreHardwareMonitor upstream according to [ADR 010](../09-architecture-decisions/010-windows-hardware-telemetry-upstream.md). LibreHardwareMonitor is not loaded or shipped at runtime. Chip-family register behavior stays separate from manufacturer/model-specific channel naming; improving a channel label must not change sensor identity.
+Selected unchanged Linux hwmon source is the primary compatibility upstream for eligible CPU and Super-I/O hardware according to [ADR 012](../09-architecture-decisions/012-linux-hwmon-windows-compatibility.md). Imported driver code executes only through a project-owned minimal Linux compatibility facade and Windows transport; Linux kernel device/sysfs/lifecycle concepts do not cross the platform boundary. LibreHardwareMonitor remains a secondary reviewed source for board mappings, EC knowledge, migration comparison, or unsupported hardware families and is not loaded or shipped at runtime. Chip-family register behavior stays separate from manufacturer/model-specific channel naming; improving a channel label must not change sensor identity.
+
+The compatibility transport is authoritative for privileged hardware access. Imported Linux code does not gain arbitrary PCI, MSR, port-I/O, or register-write authority. Writes required only to perform a read protocol, such as bank/index/logical-device selection, may be exposed narrowly; persistent control, threshold, device-enable, PWM, or firmware-policy writes remain outside the telemetry capability unless separately decided.
 
 ## GPU runtime
 

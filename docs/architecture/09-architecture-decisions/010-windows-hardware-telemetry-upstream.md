@@ -1,5 +1,5 @@
 ---
-summary: "Defines Windows hardware telemetry ownership, PawnIO reuse, and LibreHardwareMonitor as a reviewed upstream hardware-compatibility knowledge source."
+summary: "Records the earlier LibreHardwareMonitor-first Windows hardware-compatibility strategy superseded by ADR 012."
 viewpoint: decision
 concerns:
   - architecture-coherence
@@ -19,7 +19,11 @@ facets:
 
 # ADR 010: Windows Hardware Telemetry Upstream
 
-## Decision
+## Status
+
+Superseded for hardware-compatibility upstream and synchronization strategy by [ADR 012](012-linux-hwmon-windows-compatibility.md). The coordinated Windows hardware-telemetry ownership, typed metric projections, identity semantics, source-local failure isolation, and read-only product boundary introduced here remain part of the current architecture and are defined by the active platform Views.
+
+## Historical Decision
 
 Windows motherboard and low-level CPU hardware telemetry is one platform subsystem that owns hardware discovery, long-lived PawnIO capabilities, bus synchronization, source retry state, and topology. Temperature, fan speed, and future voltage/power metrics are strongly typed projections of one coordinated hardware observation; they do not independently rediscover or reopen the same physical source.
 
@@ -78,13 +82,13 @@ Structured Windows metrics with stable native APIs remain independent collectors
 
 Linux does not mirror the Windows implementation. Linux uses kernel-exposed hwmon/sysfs sources and converges only at the same core-owned typed metric contracts.
 
-## Rationale
+## Historical Rationale
 
 Windows exposes motherboard sensors through heterogeneous Super-I/O and embedded-controller hardware rather than one stable system API. Reimplementing the compatibility database independently would duplicate years of hardware research, while embedding LHM itself would add CLR/runtime/deployment cost and couple cclover-mon to an unrelated object model. Treating LHM as reviewed upstream knowledge preserves its compatibility value without creating a runtime dependency.
 
 One hardware runtime also prevents each future metric from opening PawnIO, rediscovering the same chip, and independently serializing access to the same physical bus.
 
-## Consequences
+## Historical Consequences
 
 - Existing Intel package-temperature code moves under hardware telemetry rather than remaining a temperature-owned PawnIO runtime.
 - Fan speed becomes a separate typed shared metric; GPU fan fields remain part of `GpuSnapshot` because they are device telemetry from NVML/ADL.

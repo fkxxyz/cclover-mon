@@ -1,0 +1,3 @@
+#ifndef CCLOVER_LINUX_INIT_H
+#define CCLOVER_LINUX_INIT_H
+#endif

@@ -3,6 +3,7 @@ mod diagnostics;
 mod disk;
 mod gpu;
 mod gpu_adl;
+mod gpu_d3dkmt;
 mod gpu_nvml;
 mod hardware;
 mod memory;
@@ -12,6 +13,7 @@ mod network_device;
 mod pawnio;
 mod process;
 mod provision;
+mod temperature;
 
 use std::time::Instant;
 
@@ -33,6 +35,7 @@ pub struct Backend {
     gpus: gpu::Collector,
     hardware: hardware::Collector,
     network: network::Collector,
+    temperatures: temperature::Collector,
 }
 
 impl Backend {
@@ -41,6 +44,7 @@ impl Backend {
             gpus: gpu::Collector::new(),
             hardware: hardware::Collector::new(),
             network: network::Collector::new(),
+            temperatures: temperature::Collector::new(),
         }
     }
 
@@ -63,7 +67,7 @@ impl Backend {
     fn collect_probe_once(
         &mut self,
         kind: ProbeKind,
-        notes: Option<&mut Vec<String>>,
+        mut notes: Option<&mut Vec<String>>,
     ) -> ProbeSample {
         match kind {
             ProbeKind::Cpu => ProbeSample::Cpu(cpu::collect(notes)),
@@ -72,7 +76,9 @@ impl Backend {
             ProbeKind::Network => ProbeSample::Network(self.network.collect(notes)),
             ProbeKind::Disk => ProbeSample::Disk(disk::collect(notes)),
             ProbeKind::Temperatures => {
-                ProbeSample::Temperatures(self.hardware.collect_temperatures(notes))
+                let hardware = self.hardware.collect_temperatures(notes.as_deref_mut());
+                let native = self.temperatures.collect(notes);
+                ProbeSample::Temperatures(hardware::merge_temperature_sources([hardware, native]))
             }
             ProbeKind::Fans => ProbeSample::Fans(self.hardware.collect_fans(notes)),
             ProbeKind::Gpu => ProbeSample::Gpu(self.gpus.collect(notes)),
@@ -93,6 +99,9 @@ impl CoreCollector for Backend {
     fn collect(&mut self) -> RawSnapshot {
         let collected_at = Instant::now();
         let hardware = devlog::timed("collector.hardware", || self.hardware.collect(None));
+        let native_temperatures = devlog::timed("collector.temperature.native", || {
+            self.temperatures.collect(None)
+        });
         RawSnapshot {
             collected_at,
             cpu: devlog::timed("collector.cpu", || cpu::collect(None)),
@@ -102,7 +111,10 @@ impl CoreCollector for Backend {
             disks: devlog::timed("collector.disk", || disk::collect(None)),
             process_disk_io: Collection::unavailable(CollectionUnavailable::Unsupported),
             process_network_io: Collection::unavailable(CollectionUnavailable::Unsupported),
-            temperatures: hardware.temperatures,
+            temperatures: hardware::merge_temperature_sources([
+                hardware.temperatures,
+                native_temperatures,
+            ]),
             fans: hardware.fans,
             gpus: devlog::timed("collector.gpu", || self.gpus.collect(None)),
         }

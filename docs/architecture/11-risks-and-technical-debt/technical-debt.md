@@ -23,4 +23,4 @@ Presence is the state: every document in `technical-debt/` represents debt that 
 
 Current architecture-level technical debt:
 
-- [Windows CPU telemetry deterministic test seam](technical-debt/windows-cpu-telemetry-test-seam.md) — Medium-high priority; collector-level partial-success and failure semantics still depend on privileged live-hardware validation.
+- [Windows hardware telemetry deterministic test seam](technical-debt/windows-hardware-telemetry-test-seam.md) — Medium-high priority; collector policy across CPU, storage temperature, ACPI/battery, and GPU topology still depends too much on live-hardware outcomes.

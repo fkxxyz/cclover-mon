@@ -1,11 +1,13 @@
 use crate::core::model::{Collection, CollectionUnavailable, GpuId, GpuSnapshot};
 
 use super::diagnostics::report_issue;
-use super::{gpu_adl, gpu_nvml};
+use super::gpu_d3dkmt::VendorPresence;
+use super::{gpu_adl, gpu_d3dkmt, gpu_nvml};
 
 pub(super) struct Collector {
     nvml: Source<gpu_nvml::Session>,
     adl: Source<gpu_adl::Session>,
+    d3dkmt: Source<gpu_d3dkmt::Session>,
 }
 
 enum Source<T> {
@@ -19,6 +21,7 @@ impl Collector {
         Self {
             nvml: Source::Uninitialized,
             adl: Source::Uninitialized,
+            d3dkmt: Source::Uninitialized,
         }
     }
 
@@ -26,38 +29,84 @@ impl Collector {
         &mut self,
         mut notes: Option<&mut Vec<String>>,
     ) -> Collection<Vec<GpuSnapshot>> {
-        initialize_source(&mut self.nvml, gpu_nvml::Session::load, "NVML", &mut notes);
-        initialize_source(&mut self.adl, gpu_adl::Session::load, "ADL", &mut notes);
+        initialize_source(
+            &mut self.d3dkmt,
+            gpu_d3dkmt::Session::load,
+            "D3DKMT",
+            &mut notes,
+        );
+
+        let topology = match &self.d3dkmt {
+            Source::Available { session, .. } => Some(session.vendors()),
+            _ => None,
+        };
+        let expect_nvml = topology.is_none_or(|vendors| vendors.nvidia() != VendorPresence::Absent);
+        let expect_adl = topology.is_none_or(|vendors| vendors.amd() != VendorPresence::Absent);
+        let expect_d3dkmt =
+            topology.is_none_or(|vendors| vendors.intel() != VendorPresence::Absent);
+        if expect_nvml {
+            initialize_source(&mut self.nvml, gpu_nvml::Session::load, "NVML", &mut notes);
+        }
+        if expect_adl {
+            initialize_source(&mut self.adl, gpu_adl::Session::load, "ADL", &mut notes);
+        }
 
         let nvml_available = matches!(self.nvml, Source::Available { .. });
         let adl_available = matches!(self.adl, Source::Available { .. });
-        if !nvml_available && !adl_available {
+        let d3dkmt_available = matches!(self.d3dkmt, Source::Available { .. });
+        if topology.is_some() && !expect_nvml && !expect_adl && !expect_d3dkmt {
+            return Collection::unavailable(CollectionUnavailable::Unsupported);
+        }
+        if !nvml_available && !adl_available && !d3dkmt_available {
             report_unsupported(&self.nvml, "NVML", &mut notes);
             report_unsupported(&self.adl, "ADL", &mut notes);
+            report_unsupported(&self.d3dkmt, "D3DKMT", &mut notes);
             return Collection::unavailable(CollectionUnavailable::Unsupported);
         }
 
-        let mut degraded = !(nvml_available && adl_available);
-        let mut values = Vec::new();
-        if let Source::Available {
-            session,
-            degraded: source_degraded,
-        } = &self.nvml
-        {
-            degraded |= source_degraded;
-            collect_nvml(session, &mut values, &mut degraded, &mut notes);
-        } else {
-            report_unsupported(&self.nvml, "NVML", &mut notes);
+        let mut degraded = topology.is_none();
+        if expect_nvml && !nvml_available {
+            degraded = true;
         }
-        if let Source::Available {
-            session,
-            degraded: source_degraded,
-        } = &self.adl
-        {
-            degraded |= source_degraded;
-            collect_adl(session, &mut values, &mut degraded, &mut notes);
-        } else {
-            report_unsupported(&self.adl, "ADL", &mut notes);
+        if expect_adl && !adl_available {
+            degraded = true;
+        }
+        let mut values = Vec::new();
+        if expect_nvml {
+            if let Source::Available {
+                session,
+                degraded: source_degraded,
+            } = &self.nvml
+            {
+                degraded |= source_degraded;
+                collect_nvml(session, &mut values, &mut degraded, &mut notes);
+            } else {
+                report_unsupported(&self.nvml, "NVML", &mut notes);
+            }
+        }
+        if expect_adl {
+            if let Source::Available {
+                session,
+                degraded: source_degraded,
+            } = &self.adl
+            {
+                degraded |= source_degraded;
+                collect_adl(session, &mut values, &mut degraded, &mut notes);
+            } else {
+                report_unsupported(&self.adl, "ADL", &mut notes);
+            }
+        }
+        if expect_d3dkmt {
+            if let Source::Available {
+                session,
+                degraded: source_degraded,
+            } = &self.d3dkmt
+            {
+                degraded |= source_degraded;
+                collect_d3dkmt(session, &mut values, &mut degraded, &mut notes);
+            } else {
+                report_unsupported(&self.d3dkmt, "D3DKMT", &mut notes);
+            }
         }
 
         if degraded {
@@ -225,6 +274,42 @@ fn collect_adl(
             core_clock_mhz: telemetry.as_ref().and_then(|value| value.core_clock_mhz),
             fan_percent: telemetry.as_ref().and_then(|value| value.fan_percent),
             fan_rpm: telemetry.as_ref().and_then(|value| value.fan_rpm),
+        });
+    }
+}
+
+fn collect_d3dkmt(
+    session: &gpu_d3dkmt::Session,
+    values: &mut Vec<GpuSnapshot>,
+    degraded: &mut bool,
+    notes: &mut Option<&mut Vec<String>>,
+) {
+    values.reserve(session.devices().len());
+    for (index, device) in session.devices().iter().enumerate() {
+        let temperature_celsius = match session.temperature(index) {
+            Ok(value) => Some(value),
+            Err(status) => {
+                *degraded = true;
+                report_issue(notes, || {
+                    format!(
+                        "D3DKMT Intel GPU {} temperature unavailable: status {status}",
+                        device.stable_key()
+                    )
+                });
+                None
+            }
+        };
+        values.push(GpuSnapshot {
+            id: GpuId::from_opaque_key(format!("d3dkmt:{}", device.stable_key())),
+            name: device.name().to_owned(),
+            utilization_percent: None,
+            memory_used_bytes: None,
+            memory_total_bytes: None,
+            temperature_celsius,
+            power_watts: None,
+            core_clock_mhz: None,
+            fan_percent: None,
+            fan_rpm: None,
         });
     }
 }

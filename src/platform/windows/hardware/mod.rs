@@ -437,7 +437,7 @@ fn projected_collection<T>(requested: bool, degraded: bool, values: Vec<T>) -> C
     }
 }
 
-fn merge_temperature_sources(
+pub(super) fn merge_temperature_sources(
     sources: impl IntoIterator<Item = Collection<Vec<TemperatureSnapshot>>>,
 ) -> Collection<Vec<TemperatureSnapshot>> {
     merge_sources(sources)

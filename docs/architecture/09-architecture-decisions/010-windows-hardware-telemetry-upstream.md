@@ -74,7 +74,7 @@ Hardware telemetry is read-only product capability. Register writes required by 
 
 ## Scope Boundary
 
-Structured Windows metrics with stable native APIs remain independent collectors: CPU utilization, memory, processes, network interfaces, and disk I/O continue to use their direct Windows sources. GPU telemetry remains on NVML/ADL because those vendor APIs already provide a narrow, stable device model and identity.
+Structured Windows metrics with stable native APIs remain independent collectors: CPU utilization, memory, processes, network interfaces, disk I/O, storage temperature, ACPI thermal zones, and battery temperature continue to use their direct Windows sources. GPU telemetry remains outside the PawnIO hardware subsystem: NVML/ADL remain authoritative for NVIDIA/AMD device telemetry, while D3DKMT may supply Windows-native fields such as Intel GPU temperature when the graphics stack exposes them.
 
 Linux does not mirror the Windows implementation. Linux uses kernel-exposed hwmon/sysfs sources and converges only at the same core-owned typed metric contracts.
 

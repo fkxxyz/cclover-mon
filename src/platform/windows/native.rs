@@ -524,7 +524,7 @@ fn disk_performance(handle: HANDLE) -> io::Result<DISK_PERFORMANCE> {
     Ok(output)
 }
 
-fn storage_descriptor(handle: HANDLE) -> Option<(String, bool)> {
+pub(super) fn storage_descriptor(handle: HANDLE) -> Option<(String, bool)> {
     let query = STORAGE_PROPERTY_QUERY {
         PropertyId: StorageDeviceProperty,
         QueryType: PropertyStandardQuery,

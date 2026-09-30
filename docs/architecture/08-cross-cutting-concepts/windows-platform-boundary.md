@@ -27,14 +27,17 @@ Prefer direct structured native APIs that expose the required counters without s
 | swap/pagefile | native page-file accounting for actual configured capacity and occupancy; aggregate all active page files |
 | processes | one `NtQuerySystemInformation(SystemProcessInformation)` snapshot for identity, CPU counters, and working set |
 | network interfaces | IP Helper `GetIfTable2` for identity, state, and counters, correlated with Plug and Play device provenance for physical-interface selection; `InterfaceGuid` is the stable network identity source |
-| physical disks | `CreateFile(\\.\\PhysicalDriveN)` plus `DeviceIoControl(IOCTL_DISK_PERFORMANCE)`; storage properties provide stable identity where available; logical drive letters are resolved through volume disk extents only as associated display metadata |
+| physical disks | `CreateFile(\\.\\PhysicalDriveN)` plus `DeviceIoControl(IOCTL_DISK_PERFORMANCE)`; storage properties provide stable identity where available; `StorageDeviceTemperatureProperty` is the preferred storage-temperature source, with legacy ATA SMART used only as a compatibility fallback when the structured property is absent; logical drive letters are resolved through volume disk extents only as associated display metadata |
+| structured temperatures | SetupAPI-discovered ACPI thermal-zone and battery interfaces use their documented temperature IOCTLs; topology is discovered outside the sampling hot path and sampled directly without WMI |
 | hardware telemetry | coordinated CPU/Super-I/O/EC discovery and sampling through structured native interfaces or pinned signed PawnIO modules; typed temperature/fan projections share source topology and runtime ownership |
-| GPUs | dynamically loaded NVIDIA NVML and AMD ADL from installed display drivers |
+| GPUs | dynamically loaded NVIDIA NVML and AMD ADL from installed display drivers; D3DKMT adapter performance data supplies Intel GPU temperature when available |
 | per-process disk/network attribution | future ETW/WFP-class work; PawnIO is not the attribution mechanism |
 
 Do not introduce PDH for these basic collectors where the direct structured source already owns the semantic.
 
 Windows projects shared `swap` from actual page-file capacity and occupancy, not from system commit accounting. Physical-memory and page-file observations therefore remain distinct even when a Windows memory-status API exposes fields whose names contain page-file terminology.
+
+Storage temperature keeps the least-privilege structured query path independent from legacy ATA SMART. The normal storage-property query must not acquire read/write disk access merely because the SMART fallback requires it; fallback access failure affects only that optional source.
 
 ## PawnIO runtime
 
@@ -46,9 +49,9 @@ Diagnostic probes activate only source paths that can produce the requested metr
 
 Super-I/O and EC compatibility knowledge may be ported from the pinned reviewed LibreHardwareMonitor upstream according to [ADR 010](../09-architecture-decisions/010-windows-hardware-telemetry-upstream.md). LibreHardwareMonitor is not loaded or shipped at runtime. Chip-family register behavior stays separate from manufacturer/model-specific channel naming; improving a channel label must not change sensor identity.
 
-## Vendor GPU runtime
+## GPU runtime
 
-NVIDIA loads driver-installed `nvml.dll`, enumerates devices once, and derives GPU identity from NVML UUID. AMD loads driver-installed ADL according to process bitness, enumerates present AMD adapters once, and derives identity from ADL UDID with PCI location as fallback. Both adapters resolve only the read-only ABI needed by the collector and reuse sessions across samples. Missing libraries or individual query failures degrade only the relevant source/device/field.
+NVIDIA loads driver-installed `nvml.dll`, enumerates devices once, and derives GPU identity from NVML UUID. AMD loads driver-installed ADL according to process bitness, enumerates present AMD adapters once, and derives identity from ADL UDID with PCI location as fallback. Intel GPU temperature uses the Windows D3DKMT adapter-performance query rather than introducing another vendor runtime. D3DKMT establishes GPU-vendor topology before vendor runtimes are required. Vendor presence is tri-state: present, absent, or unknown. Only confirmed absence suppresses a vendor backend; incomplete topology discovery remains unknown and must not silently suppress a potentially applicable backend. GPU adapters retain only read-only state needed by sampling and reuse sessions across samples. Missing required vendor libraries, unsupported telemetry on a present or potentially present device, or individual query failures degrade only the relevant source/device/field.
 
 ## Capability and identity semantics
 

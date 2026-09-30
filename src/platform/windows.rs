@@ -8,6 +8,7 @@ mod hardware;
 mod memory;
 mod native;
 mod network;
+mod network_device;
 mod pawnio;
 mod process;
 mod provision;
@@ -31,6 +32,7 @@ pub fn prepare_machine_capability() {
 pub struct Backend {
     gpus: gpu::Collector,
     hardware: hardware::Collector,
+    network: network::Collector,
 }
 
 impl Backend {
@@ -38,6 +40,7 @@ impl Backend {
         Self {
             gpus: gpu::Collector::new(),
             hardware: hardware::Collector::new(),
+            network: network::Collector::new(),
         }
     }
 
@@ -66,7 +69,7 @@ impl Backend {
             ProbeKind::Cpu => ProbeSample::Cpu(cpu::collect(notes)),
             ProbeKind::Memory => ProbeSample::Memory(memory::collect(notes)),
             ProbeKind::Processes => ProbeSample::Processes(process::collect(notes)),
-            ProbeKind::Network => ProbeSample::Network(network::collect(notes)),
+            ProbeKind::Network => ProbeSample::Network(self.network.collect(notes)),
             ProbeKind::Disk => ProbeSample::Disk(disk::collect(notes)),
             ProbeKind::Temperatures => {
                 ProbeSample::Temperatures(self.hardware.collect_temperatures(notes))
@@ -95,7 +98,7 @@ impl CoreCollector for Backend {
             cpu: devlog::timed("collector.cpu", || cpu::collect(None)),
             memory: devlog::timed("collector.memory", || memory::collect(None)),
             processes: devlog::timed("collector.processes", || process::collect(None)),
-            networks: devlog::timed("collector.network", || network::collect(None)),
+            networks: devlog::timed("collector.network", || self.network.collect(None)),
             disks: devlog::timed("collector.disk", || disk::collect(None)),
             process_disk_io: Collection::unavailable(CollectionUnavailable::Unsupported),
             process_network_io: Collection::unavailable(CollectionUnavailable::Unsupported),

@@ -25,7 +25,7 @@ Prefer direct structured native APIs that expose the required counters without s
 | aggregate CPU | `GetSystemTimes`; `GetActiveProcessorCount(ALL_PROCESSOR_GROUPS)` provides logical-CPU scale for process CPU derivation |
 | physical memory | `GlobalMemoryStatusEx` |
 | processes | one `NtQuerySystemInformation(SystemProcessInformation)` snapshot for identity, CPU counters, and working set |
-| network interfaces | IP Helper `GetIfTable2`; `InterfaceGuid` is the stable network identity source |
+| network interfaces | IP Helper `GetIfTable2` for identity, state, and counters, correlated with Plug and Play device provenance for physical-interface selection; `InterfaceGuid` is the stable network identity source |
 | physical disks | `CreateFile(\\.\\PhysicalDriveN)` plus `DeviceIoControl(IOCTL_DISK_PERFORMANCE)`; storage properties provide stable identity where available; logical drive letters are resolved through volume disk extents only as associated display metadata |
 | hardware telemetry | coordinated CPU/Super-I/O/EC discovery and sampling through structured native interfaces or pinned signed PawnIO modules; typed temperature/fan projections share source topology and runtime ownership |
 | GPUs | dynamically loaded NVIDIA NVML and AMD ADL from installed display drivers |
@@ -55,7 +55,9 @@ Process identity is PID plus process creation time. Network interface index and 
 
 Disk I/O accounting remains physical-device based. Drive letters are mapped to physical disk numbers with `IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS` and cross the platform boundary only as structured associated labels. They never become `DiskId` values and never redefine the counter scope. Failure to resolve this auxiliary topology does not invalidate a successful physical-disk observation; the dashboard falls back to the physical disk's system label. [ADR 011](../09-architecture-decisions/011-physical-disk-display-aliases.md) owns this semantic.
 
-Physical-network selection uses `MIB_IF_ROW2` hardware-interface capability rather than adapter-name patterns.
+Windows network presentation represents active hardware-backed network adapters, not every active IP Helper interface. `GetIfTable2` remains authoritative for interface identity, operational state, and traffic counters, but `MIB_IF_ROW2.HardwareInterface` is only a candidate signal and is insufficient to establish physical-device provenance. Candidate interfaces are correlated with Windows Plug and Play device metadata; software/root-enumerated interfaces are excluded while hardware bus-backed adapters remain eligible. Classification is capability/provenance-based and must not depend on adapter aliases, vendor names, descriptions, or maintained product-name blacklists.
+
+Failure to resolve device provenance is distinct from a confirmed software interface. Classification uncertainty remains diagnosable and must not silently become a negative physical-device result; a hardware candidate with unknown provenance may remain visible only as degraded data.
 
 ## Desktop integration
 

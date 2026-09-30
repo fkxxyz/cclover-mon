@@ -13,7 +13,7 @@ use windows_sys::Win32::NetworkManagement::IpHelper::{
 };
 use windows_sys::Win32::NetworkManagement::Ndis::IfOperStatusUp;
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, GetLogicalDrives,
+    CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, GetDriveTypeW, GetLogicalDrives,
     IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS, OPEN_EXISTING,
 };
 use windows_sys::Win32::System::IO::DeviceIoControl;
@@ -25,7 +25,9 @@ use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORY
 use windows_sys::Win32::System::Threading::{
     ALL_PROCESSOR_GROUPS, GetActiveProcessorCount, GetSystemTimes,
 };
-use windows_sys::Win32::System::WindowsProgramming::SYSTEM_PROCESS_INFORMATION;
+use windows_sys::Win32::System::WindowsProgramming::{
+    DRIVE_FIXED, DRIVE_REMOVABLE, SYSTEM_PROCESS_INFORMATION,
+};
 
 const STATUS_INFO_LENGTH_MISMATCH: i32 = 0xC0000004_u32 as i32;
 const ERROR_SUCCESS: u32 = 0;
@@ -71,6 +73,23 @@ pub(super) struct NativeDisks {
 pub(super) struct DriveBinding {
     pub label: String,
     pub disk_numbers: Vec<u32>,
+}
+
+pub(super) struct DriveBindings {
+    pub bindings: Vec<DriveBinding>,
+    pub failures: Vec<DriveBindingFailure>,
+}
+
+pub(super) struct DriveBindingFailure {
+    pub label: String,
+    pub stage: DriveBindingStage,
+    pub error: io::Error,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum DriveBindingStage {
+    OpenVolume,
+    QueryExtents,
 }
 
 pub(super) fn system_cpu_times() -> io::Result<CpuTimes> {
@@ -290,19 +309,26 @@ pub(super) fn physical_disks() -> io::Result<NativeDisks> {
     })
 }
 
-pub(super) fn drive_bindings() -> io::Result<Vec<DriveBinding>> {
+pub(super) fn drive_bindings() -> io::Result<DriveBindings> {
     // SAFETY: GetLogicalDrives has no pointer arguments.
     let mask = unsafe { GetLogicalDrives() };
     if mask == 0 {
         return Err(io::Error::last_os_error());
     }
     let mut bindings = Vec::new();
+    let mut failures = Vec::new();
     for index in 0..26_u32 {
         if mask & (1_u32 << index) == 0 {
             continue;
         }
         let letter = (b'A' + index as u8) as char;
         let label = format!("{letter}:");
+        let root = wide_z(&format!("{label}\\"));
+        // SAFETY: root is a nul-terminated drive-root path.
+        let drive_type = unsafe { GetDriveTypeW(root.as_ptr()) };
+        if !matches!(drive_type, DRIVE_FIXED | DRIVE_REMOVABLE) {
+            continue;
+        }
         let path = format!(r"\\.\{label}");
         let wide = wide_z(&path);
         // SAFETY: wide is nul-terminated; zero desired access is sufficient for this metadata query.
@@ -318,21 +344,32 @@ pub(super) fn drive_bindings() -> io::Result<Vec<DriveBinding>> {
             )
         };
         if handle == INVALID_HANDLE_VALUE {
+            failures.push(DriveBindingFailure {
+                label,
+                stage: DriveBindingStage::OpenVolume,
+                error: io::Error::last_os_error(),
+            });
             continue;
         }
         let disk_numbers = volume_disk_numbers(handle);
         // SAFETY: handle was opened successfully and is closed exactly once here.
         unsafe { CloseHandle(handle) };
-        if let Ok(disk_numbers) = disk_numbers
-            && !disk_numbers.is_empty()
-        {
-            bindings.push(DriveBinding {
+        match disk_numbers {
+            Ok(disk_numbers) if !disk_numbers.is_empty() => {
+                bindings.push(DriveBinding {
+                    label,
+                    disk_numbers,
+                });
+            }
+            Ok(_) => {}
+            Err(error) => failures.push(DriveBindingFailure {
                 label,
-                disk_numbers,
-            });
+                stage: DriveBindingStage::QueryExtents,
+                error,
+            }),
         }
     }
-    Ok(bindings)
+    Ok(DriveBindings { bindings, failures })
 }
 
 fn volume_disk_numbers(handle: HANDLE) -> io::Result<Vec<u32>> {

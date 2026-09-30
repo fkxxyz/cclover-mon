@@ -17,7 +17,12 @@ pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Collection<Vec<Dis
                 });
             }
             let bindings = match native::drive_bindings() {
-                Ok(bindings) => bindings,
+                Ok(result) => {
+                    for failure in result.failures {
+                        report_issue(&mut notes, || drive_binding_failure_note(&failure));
+                    }
+                    result.bindings
+                }
                 Err(error) => {
                     report_issue(&mut notes, || {
                         format!("drive-letter topology collection failed: {error}")
@@ -67,4 +72,15 @@ pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Collection<Vec<Dis
             Collection::unavailable(unavailable_from_io(&error))
         }
     }
+}
+
+fn drive_binding_failure_note(failure: &native::DriveBindingFailure) -> String {
+    let action = match failure.stage {
+        native::DriveBindingStage::OpenVolume => "open volume",
+        native::DriveBindingStage::QueryExtents => "query volume disk extents",
+    };
+    format!(
+        "drive-letter topology incomplete for {}: {action} failed: {}",
+        failure.label, failure.error
+    )
 }

@@ -20,6 +20,8 @@ facets:
 
 Each native target builds one application executable containing the Rust application, required native C objects, any C++ compatibility shims, and generated Web monitor assets.
 
+Published distribution artifacts use the Cargo `dist` profile, which inherits the optimized `release` profile and sets `panic = "abort"`. A Rust panic is treated as an unrecoverable program defect, so shipped binaries terminate the process instead of paying for unwinding support. Normal development and validation continue to use their existing profiles and panic semantics.
+
 Linux and Windows builds include only their selected platform backend. Both native desktop paths consume the same `cclover-ui::NativeScene` contract. Windows uses Win32/GDI. Linux uses native Wayland layer-shell or X11 hosting with shared Cairo drawing. Neither native desktop path depends on Iced, winit, or wgpu. The same Linux process registers its system tray item through StatusNotifierItem on the desktop session D-Bus; no tray helper daemon or secondary executable is introduced. External native runtime libraries depend on the selected renderer and optional metric integrations.
 
 Windows deployment supports both `x86_64-pc-windows-msvc` and `i686-pc-windows-msvc`. Platform integration code must therefore remain pointer-width correct rather than assuming 64-bit Win32 handle or style types.

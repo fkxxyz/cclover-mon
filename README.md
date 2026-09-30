@@ -31,6 +31,17 @@ The executable is written to:
 target/release/cclover-mon
 ```
 
+For final distribution artifacts, use the size-oriented profile. It preserves normal
+`release` behavior for development while treating any Rust panic as an unrecoverable
+program bug:
+
+```bash
+cargo build --profile dist
+```
+
+The distribution executable is written to `target/dist/cclover-mon` (or the
+corresponding target-specific `dist` directory).
+
 Windows cross validation uses `cargo-xwin` through the repository validation entry point. It compiles target-specific tests and release builds for both supported targets, fixing `XWIN_ARCH=x86,x86_64` independently for every xwin invocation.
 
 ```bash

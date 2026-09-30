@@ -24,6 +24,7 @@ Prefer direct structured native APIs that expose the required counters without s
 | --- | --- |
 | aggregate CPU | `GetSystemTimes`; `GetActiveProcessorCount(ALL_PROCESSOR_GROUPS)` provides logical-CPU scale for process CPU derivation |
 | physical memory | `GlobalMemoryStatusEx` |
+| swap/pagefile | native page-file accounting for actual configured capacity and occupancy; aggregate all active page files |
 | processes | one `NtQuerySystemInformation(SystemProcessInformation)` snapshot for identity, CPU counters, and working set |
 | network interfaces | IP Helper `GetIfTable2` for identity, state, and counters, correlated with Plug and Play device provenance for physical-interface selection; `InterfaceGuid` is the stable network identity source |
 | physical disks | `CreateFile(\\.\\PhysicalDriveN)` plus `DeviceIoControl(IOCTL_DISK_PERFORMANCE)`; storage properties provide stable identity where available; logical drive letters are resolved through volume disk extents only as associated display metadata |
@@ -32,6 +33,8 @@ Prefer direct structured native APIs that expose the required counters without s
 | per-process disk/network attribution | future ETW/WFP-class work; PawnIO is not the attribution mechanism |
 
 Do not introduce PDH for these basic collectors where the direct structured source already owns the semantic.
+
+Windows projects shared `swap` from actual page-file capacity and occupancy, not from system commit accounting. Physical-memory and page-file observations therefore remain distinct even when a Windows memory-status API exposes fields whose names contain page-file terminology.
 
 ## PawnIO runtime
 

@@ -21,6 +21,8 @@ facets:
 
 Platform backends implement core-owned collection contracts and translate native state into core-owned platform-neutral types. `core` never imports a platform backend. Native desktop startup enters the shared `cclover-desktop` host contract; platform hosts own native realization.
 
+Shared metric names are semantic contracts, not aliases for similarly named native fields. In the shared memory model, `swap` means actual paging-backing capacity and occupancy. Platform commit limits, commit charge, reservation budgets, or other virtual-memory accounting must not be projected as swap merely because a native API uses page-file terminology. A platform collector may combine distinct native sources when required to preserve the shared semantic.
+
 Cross-cutting platform rules are split by responsibility:
 
 - [Native Language Boundary](native-language-boundary.md) — safe Rust, C/C++ selection, and FFI ownership.

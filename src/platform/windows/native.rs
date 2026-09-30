@@ -21,13 +21,17 @@ use windows_sys::Win32::System::Ioctl::{
     DISK_PERFORMANCE, IOCTL_DISK_PERFORMANCE, IOCTL_STORAGE_QUERY_PROPERTY, PropertyStandardQuery,
     STORAGE_DEVICE_DESCRIPTOR, STORAGE_PROPERTY_QUERY, StorageDeviceProperty, VOLUME_DISK_EXTENTS,
 };
-use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+use windows_sys::Win32::System::ProcessStatus::{ENUM_PAGE_FILE_INFORMATION, K32EnumPageFilesW};
+use windows_sys::Win32::System::SystemInformation::{
+    GetSystemInfo, GlobalMemoryStatusEx, MEMORYSTATUSEX, SYSTEM_INFO,
+};
 use windows_sys::Win32::System::Threading::{
     ALL_PROCESSOR_GROUPS, GetActiveProcessorCount, GetSystemTimes,
 };
 use windows_sys::Win32::System::WindowsProgramming::{
     DRIVE_FIXED, DRIVE_REMOVABLE, SYSTEM_PROCESS_INFORMATION,
 };
+use windows_sys::core::BOOL;
 
 const STATUS_INFO_LENGTH_MISMATCH: i32 = 0xC0000004_u32 as i32;
 const ERROR_SUCCESS: u32 = 0;
@@ -43,8 +47,10 @@ pub(super) struct CpuTimes {
 pub(super) struct MemoryStatus {
     pub total_phys: u64,
     pub avail_phys: u64,
-    pub total_page_file: u64,
-    pub avail_page_file: u64,
+}
+pub(super) struct PageFileStatus {
+    pub total_bytes: u64,
+    pub used_bytes: u64,
 }
 pub(super) struct NativeProcess {
     pub pid: usize,
@@ -132,8 +138,82 @@ pub(super) fn memory_status() -> io::Result<MemoryStatus> {
     Ok(MemoryStatus {
         total_phys: value.ullTotalPhys,
         avail_phys: value.ullAvailPhys,
-        total_page_file: value.ullTotalPageFile,
-        avail_page_file: value.ullAvailPageFile,
+    })
+}
+
+#[derive(Default)]
+struct PageFileAccumulator {
+    total_pages: u64,
+    used_pages: u64,
+    overflowed: bool,
+}
+
+unsafe extern "system" fn accumulate_page_file(
+    context: *mut core::ffi::c_void,
+    info: *mut ENUM_PAGE_FILE_INFORMATION,
+    _filename: windows_sys::core::PCWSTR,
+) -> BOOL {
+    // SAFETY: K32EnumPageFilesW invokes this callback with the context pointer supplied by
+    // page_file_status and a valid ENUM_PAGE_FILE_INFORMATION for the duration of the call.
+    let accumulator = unsafe { &mut *context.cast::<PageFileAccumulator>() };
+    // SAFETY: info is supplied by K32EnumPageFilesW and remains valid for this callback.
+    let info = unsafe { &*info };
+
+    match accumulator.total_pages.checked_add(info.TotalSize as u64) {
+        Some(total) => accumulator.total_pages = total,
+        None => accumulator.overflowed = true,
+    }
+    match accumulator.used_pages.checked_add(info.TotalInUse as u64) {
+        Some(used) => accumulator.used_pages = used,
+        None => accumulator.overflowed = true,
+    }
+    1
+}
+
+pub(super) fn page_file_status() -> io::Result<PageFileStatus> {
+    let mut system_info = SYSTEM_INFO::default();
+    // SAFETY: system_info is a valid writable SYSTEM_INFO value.
+    unsafe { GetSystemInfo(&mut system_info) };
+
+    let mut accumulator = PageFileAccumulator::default();
+    // SAFETY: the callback and context remain valid for the synchronous enumeration call.
+    if unsafe {
+        K32EnumPageFilesW(
+            Some(accumulate_page_file),
+            (&mut accumulator as *mut PageFileAccumulator).cast(),
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    if accumulator.overflowed {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "page-file page count overflow",
+        ));
+    }
+
+    page_file_bytes(
+        system_info.dwPageSize as u64,
+        accumulator.total_pages,
+        accumulator.used_pages,
+    )
+}
+
+pub(super) fn page_file_bytes(
+    page_size: u64,
+    total_pages: u64,
+    used_pages: u64,
+) -> io::Result<PageFileStatus> {
+    let total_bytes = total_pages.checked_mul(page_size).ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidData, "page-file total byte overflow")
+    })?;
+    let used_bytes = used_pages.checked_mul(page_size).ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidData, "page-file used byte overflow")
+    })?;
+    Ok(PageFileStatus {
+        total_bytes,
+        used_bytes,
     })
 }
 

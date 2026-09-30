@@ -79,7 +79,7 @@ A failed provisioning attempt may clean up only state it created during that att
 
 Provisioning requires administrator authority. The ordinary application process must not remain elevated merely to perform installation work: when provisioning is required, the same executable may relaunch into a narrowly scoped elevated provisioning mode, perform the idempotent machine change, then terminate that elevated mode. No secondary helper executable or daemon is deployed.
 
-Provisioning privilege and runtime device-access privilege are distinct. Successful one-time installation does not imply that a later non-elevated process can open the PawnIO device. cclover-mon follows the installed driver's access policy and does not modify the signed INF, broaden the device ACL, proxy PawnIO through an elevated helper, or elevate unrelated collectors merely to bypass that policy. Runtime access denial is a metric-local permission failure.
+Provisioning privilege and runtime device-access privilege are distinct. Successful one-time installation does not imply that a later non-elevated process can open the PawnIO device. Normal application execution supports both elevated and non-elevated sessions: an elevated session may use PawnIO-backed telemetry when the installed device policy permits it, while a non-elevated session remains a fully supported application mode even when PawnIO-backed metrics are unavailable. cclover-mon follows the installed driver's access policy and does not modify the signed INF, broaden the device ACL, proxy PawnIO through an elevated helper, or automatically elevate the sampling path merely to bypass that policy. Runtime access denial is a metric-local permission failure.
 
 Declining elevation, installation failure, required reboot, signature rejection, incompatible driver state, or runtime access denial fails closed for PawnIO-backed metrics. None of these conditions justifies disabling Windows driver-signature enforcement or installing the unrestricted/test-signed PawnIO package.
 
@@ -117,4 +117,4 @@ Requiring users to install PawnIO manually breaks the desired portable single-fi
 - Multiple application instances can coexist without unloading shared driver state.
 - PawnIO failure degrades only dependent sensors.
 - Normal sampling remains cheap because provisioning is outside the sampling cadence and process-owned handles are reused.
-- Runtime access remains subject to the installed PawnIO device policy; changing that policy requires a separate security decision rather than an implicit packaging workaround.
+- Runtime access remains subject to the installed PawnIO device policy; both elevated and non-elevated application sessions are supported, and changing that policy requires a separate security decision rather than an implicit packaging workaround.

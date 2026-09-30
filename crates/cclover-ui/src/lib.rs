@@ -325,27 +325,25 @@ impl<'a> DashboardUi<'a> {
                 },
             ));
         }
-        if dashboard.fan_count() != 0 {
-            left.push(section(FAN_SECTION));
-            for index in 0..dashboard.fan_count() {
-                let fan = dashboard
-                    .fan(index)
-                    .expect("dashboard fan count and lookup must agree");
-                left.push(small_graph_card(
-                    fan.name(),
-                    fan.value(),
-                    GraphSpec {
-                        values: fan.history().unwrap_or(&EMPTY_GRAPH_VALUES),
-                        min: 0.0,
-                        max: 1.0,
-                        auto_scale: true,
-                        line: Tone::Accent,
-                        fill_alpha: 0.10,
-                        capacity,
-                        height: SMALL_GRAPH_CARD_GEOMETRY.graph_height,
-                    },
-                ));
-            }
+        left.push(section(FAN_SECTION));
+        for index in 0..dashboard.fan_count() {
+            let fan = dashboard
+                .fan(index)
+                .expect("dashboard fan count and lookup must agree");
+            left.push(small_graph_card(
+                fan.name(),
+                fan.value(),
+                GraphSpec {
+                    values: fan.history().unwrap_or(&EMPTY_GRAPH_VALUES),
+                    min: 0.0,
+                    max: 1.0,
+                    auto_scale: true,
+                    line: Tone::Accent,
+                    fill_alpha: 0.10,
+                    capacity,
+                    height: SMALL_GRAPH_CARD_GEOMETRY.graph_height,
+                },
+            ));
         }
 
         let mut right = vec![metric_card(MetricCardParams {
@@ -881,7 +879,11 @@ mod tests {
     fn dashboard_tree_drives_dynamic_height() {
         let empty = MonitorState::default();
         let empty_ui = DashboardUi::new(Dashboard::new(&empty));
-        assert_eq!(empty_ui.left.len(), 3);
+        assert_eq!(empty_ui.left.len(), 4);
+        assert!(matches!(
+            empty_ui.left.last(),
+            Some(Block::Section(section)) if section.text.as_ref() == FAN_SECTION
+        ));
         assert_eq!(empty_ui.right.len(), 3);
 
         let mut populated = MonitorState::default();
@@ -891,7 +893,7 @@ mod tests {
             celsius: 50.0,
         }]);
         let populated_ui = DashboardUi::new(Dashboard::new(&populated));
-        assert_eq!(populated_ui.left.len(), 4);
+        assert_eq!(populated_ui.left.len(), 5);
         assert!(populated_ui.height() > empty_ui.height());
     }
 

@@ -21,11 +21,11 @@ The native runtime owns the only sampler. Each completed typed `MonitorState` is
 
 When HTTP is enabled, the same completed state is projected into two explicit wire schemas:
 
-- the internal browser transport used by SSE `/events`;
+- the internal rendered-dashboard transport used by SSE `/events`;
 - the independently versioned public `/api/v1/*` contract.
 
-The browser transport may evolve with the bundled Web client. The public API schema must not change merely because core or browser-transport types change. Split `/api/v1` endpoints are views over one API-v1 projection, not separate serialization authorities. Core model types are not wire schemas.
+The browser stream carries the already-rendered dashboard produced from `cclover-presentation` and `cclover-ui`; browser JavaScript is transport/DOM glue only and does not receive raw `MonitorState` or reconstruct dashboard semantics. The public API schema must not change merely because the bundled Web renderer changes. Split `/api/v1` endpoints are views over one API-v1 projection, not separate serialization authorities. Core model types are not wire schemas.
 
-The current browser dashboard transport carries compact card-oriented process projections. A future process-oriented Web view must explicitly project `ProcessDomainSnapshot` rather than reconstruct a process domain from Top-N card lists.
+A future process-oriented Web view must be added to the shared presentation/UI authority or explicitly projected through an appropriate transport; it must not reconstruct a process domain from Top-N card lists in browser code.
 
 Enabling desktop, terminal, or HTTP delivery never creates another sampler, collector set, or sampling cadence. Slow clients must not create unbounded state queues.

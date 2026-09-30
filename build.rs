@@ -1,9 +1,9 @@
 use std::env;
 use std::fs;
-#[cfg(any(feature = "http", feature = "ebpf-io"))]
+#[cfg(feature = "ebpf-io")]
 use std::path::Path;
 use std::path::PathBuf;
-#[cfg(any(feature = "http", feature = "ebpf-io"))]
+#[cfg(feature = "ebpf-io")]
 use std::process::Command;
 
 fn main() {
@@ -11,7 +11,7 @@ fn main() {
         configure_windows_resources();
         build_windows_hwmon_compat();
     }
-    #[cfg(any(feature = "http", feature = "ebpf-io"))]
+    #[cfg(feature = "ebpf-io")]
     build_optional_capabilities();
 }
 
@@ -152,20 +152,13 @@ fn configure_windows_resources() {
     }
 }
 
-#[cfg(any(feature = "http", feature = "ebpf-io"))]
+#[cfg(feature = "ebpf-io")]
 fn build_optional_capabilities() {
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").expect("target arch");
-    if target_arch == "wasm32" {
-        return;
-    }
-
-    let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"));
-    #[cfg(feature = "ebpf-io")]
     if env::var_os("CARGO_CFG_TARGET_OS").as_deref() == Some(std::ffi::OsStr::new("linux")) {
+        let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"));
         build_linux_bpf(&out, &target_arch);
     }
-    #[cfg(feature = "http")]
-    build_web_bundle(&out);
 }
 
 #[cfg(feature = "ebpf-io")]
@@ -198,84 +191,6 @@ fn build_linux_bpf(out: &Path, target_arch: &str) {
     );
     write_bpf_abi_layouts(out, bpf_arch, &clang, disk_source, network_source);
     println!("cargo:rustc-link-lib=bpf");
-}
-
-#[cfg(feature = "http")]
-fn build_web_bundle(out: &Path) {
-    println!("cargo:rerun-if-changed=Cargo.toml");
-    println!("cargo:rerun-if-changed=Cargo.lock");
-    println!("cargo:rerun-if-changed=src/web_bundle");
-    println!("cargo:rerun-if-changed=crates/cclover-core");
-    println!("cargo:rerun-if-changed=crates/cclover-presentation");
-    println!("cargo:rerun-if-changed=crates/cclover-ui");
-    println!("cargo:rerun-if-changed=crates/cclover-web-ui");
-
-    let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest dir"));
-    let web_target_dir = env::var_os("CARGO_TARGET_DIR")
-        .map(PathBuf::from)
-        .map(|path| {
-            if path.is_absolute() {
-                path
-            } else {
-                manifest_dir.join(path)
-            }
-        })
-        .unwrap_or_else(|| manifest_dir.join("target"))
-        .join("cclover-web");
-    let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let mut command = Command::new(cargo);
-    command
-        .current_dir(&manifest_dir)
-        .args([
-            "build",
-            "--release",
-            "--locked",
-            "--target",
-            "wasm32-unknown-unknown",
-            "--bin",
-            "cclover-mon-web",
-        ])
-        .env("CARGO_TARGET_DIR", &web_target_dir);
-    isolate_nested_cargo(&mut command);
-    let status = command
-        .status()
-        .unwrap_or_else(|error| panic!("failed to build embedded web frontend: {error}"));
-    assert!(
-        status.success(),
-        "failed to build embedded web frontend; install the target with `rustup target add wasm32-unknown-unknown`"
-    );
-
-    let wasm = web_target_dir
-        .join("wasm32-unknown-unknown")
-        .join("release")
-        .join("cclover-mon-web.wasm");
-    let web_out = out.join("web");
-    let mut bindgen = wasm_bindgen_cli_support::Bindgen::new();
-    bindgen
-        .input_path(&wasm)
-        .out_name("cclover_mon_web")
-        .typescript(false);
-    bindgen
-        .web(true)
-        .expect("failed to select wasm-bindgen web output");
-    bindgen
-        .generate(&web_out)
-        .unwrap_or_else(|error| panic!("failed to generate embedded web bindings: {error}"));
-}
-
-#[cfg(feature = "http")]
-fn isolate_nested_cargo(command: &mut Command) {
-    command
-        .env_remove("RUSTFLAGS")
-        .env_remove("CARGO_ENCODED_RUSTFLAGS")
-        .env_remove("RUSTC_LINKER");
-
-    for (key, _) in env::vars_os() {
-        let key_text = key.to_string_lossy();
-        if key_text.starts_with("CARGO_CFG_") || key_text.starts_with("CARGO_FEATURE_") {
-            command.env_remove(key);
-        }
-    }
 }
 
 #[cfg(feature = "ebpf-io")]

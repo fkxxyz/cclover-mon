@@ -44,6 +44,15 @@ describe("validation profiles", () => {
     ]);
   });
 
+  test("web browser validation is isolated from normal development profiles", () => {
+    expect(validationSteps("web-browser").map((step) => step.command)).toEqual([
+      ["cargo", "build", "--locked", "--release"],
+      ["bun", "web-browser-smoke.ts"],
+    ]);
+    expect(validationSteps("fast").some((step) => step.command.includes("web-browser-smoke.ts"))).toBe(false);
+    expect(validationSteps("linux").some((step) => step.command.includes("web-browser-smoke.ts"))).toBe(false);
+  });
+
   test("portable profile is exactly the three host-portable profiles in order", () => {
     expect(validationSteps("portable")).toEqual([
       ...VALIDATION_PROFILES.fast,

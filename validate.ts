@@ -89,11 +89,17 @@ const WINDOWS_NATIVE_STEPS: readonly ValidationStep[] = [
   },
 ];
 
+const WEB_BROWSER_STEPS: readonly ValidationStep[] = [
+  { name: "web release build", command: ["cargo", "build", "--locked", "--release"] },
+  { name: "Chromium web runtime smoke", command: ["bun", "web-browser-smoke.ts"] },
+];
+
 export const VALIDATION_PROFILES = {
   fast: FAST_STEPS,
   linux: LINUX_STEPS,
   windows: WINDOWS_STEPS,
   "windows-native": WINDOWS_NATIVE_STEPS,
+  "web-browser": WEB_BROWSER_STEPS,
   portable: [...FAST_STEPS, ...LINUX_STEPS, ...WINDOWS_STEPS],
 } as const;
 
@@ -116,7 +122,7 @@ export function formatValidationStep(step: ValidationStep): string {
 }
 
 function usage(): void {
-  console.log("usage: bun validate.ts <fast|linux|windows|windows-native|portable>");
+  console.log("usage: bun validate.ts <fast|linux|windows|windows-native|web-browser|portable>");
 }
 
 function isValidationProfile(value: string): value is ValidationProfile {

@@ -8,34 +8,24 @@ build = "build.rs"
 [workspace]
 members = ["crates/cclover-core", "crates/cclover-presentation", "crates/cclover-ui", "crates/cclover-tui", "crates/cclover-web-ui", "crates/cclover-desktop"]
 
-[[bin]]
-name = "cclover-mon-web"
-path = "src/web_bundle/main.rs"
-required-features = ["http"]
-
 [features]
 default = ["http", "ebpf-io"]
-http = ["dep:serde", "dep:serde_json", "dep:wasm-bindgen-cli-support"]
+http = ["dep:cclover-web-ui", "dep:serde", "dep:serde_json"]
 ebpf-io = []
 
 [dependencies]
 cclover-core = { path = "crates/cclover-core" }
 cclover-presentation = { path = "crates/cclover-presentation" }
+cclover-web-ui = { path = "crates/cclover-web-ui", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 
 [build-dependencies]
 cc = "1"
-wasm-bindgen-cli-support = { version = "=0.2.129", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cclover-desktop = { path = "crates/cclover-desktop" }
 cclover-tui = { path = "crates/cclover-tui" }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-cclover-web-ui = { path = "crates/cclover-web-ui" }
-wasm-bindgen = "=0.2.129"
-web-sys = { version = "=0.3.106", features = ["console", "EventSource", "MessageEvent"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"

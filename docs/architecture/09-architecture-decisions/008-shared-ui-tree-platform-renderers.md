@@ -39,7 +39,7 @@ Native desktop rendering is platform-owned. Windows uses the Win32 window/messag
 
 For native desktop rendering, `cclover-ui::NativeScene` is the final shared lowering step. It contains renderer-ready primitives and absolute geometry derived from the dashboard tree. Platform-native hosts execute that scene; they do not repeat dashboard layout calculations. Web is not required to consume `NativeScene` and may lower the higher-level dashboard tree through browser-native layout/drawing instead. `NativeScene` is therefore a native rendering contract, not a generic cross-platform GUI toolkit.
 
-Web remains a separate renderer. It should reuse the shared dashboard structure and visual tokens but may map them to browser-native layout and drawing rather than consuming desktop pixel primitives. Browser transport remains the existing explicit HTTP/SSE boundary.
+Web remains a separate renderer, but rendering stays in native Rust rather than a browser WASM runtime. `cclover-web-ui` lowers the shared dashboard structure and visual tokens to HTML/SVG/CSS in the native process. SSE carries rendered dashboard markup; a small static JavaScript adapter only installs updates into the DOM. The browser therefore does not reconstruct dashboard semantics.
 
 Do not rebuild a general-purpose widget framework. The shared tree exists only to describe this fixed monitor dashboard. Add abstractions only when multiple renderers need the same dashboard rule.
 
@@ -67,11 +67,11 @@ Maintaining fully independent platform UIs would create a different problem: eve
 Renderer adapters own only realization details:
 
 - font API and text measurement;
-- native/browser drawing calls;
-- surface/buffer lifecycle;
+- native drawing or Web HTML/SVG generation;
+- surface/buffer or DOM lifecycle;
 - clipping implementation;
 - DPI/device scaling;
-- window/event-loop integration.
+- window/event-loop or browser update integration.
 
 Platform desktop hosts additionally own tray integration, placement, pointer passthrough, taskbar/Alt+Tab behavior, and native lifecycle policy.
 
@@ -79,19 +79,19 @@ No renderer may infer metric availability, ranking, formatting, graph range, or 
 
 ## Web Boundary
 
-Web is not required to consume a desktop `Text(x, y)`/`Rect(x, y)` scene. Browser layout mechanisms differ materially from native desktop surfaces. Shared UI authority therefore stops at the renderer-neutral dashboard tree and style/layout tokens. A native renderer may lower that tree into absolute drawing primitives; a Web renderer may lower it into DOM/CSS/Canvas/SVG.
+Web is not required to consume a desktop `Text(x, y)`/`Rect(x, y)` scene. Browser layout mechanisms differ materially from native desktop surfaces. Shared UI authority therefore stops at the renderer-neutral dashboard tree and style/layout tokens. A native renderer lowers that tree into absolute drawing primitives; `cclover-web-ui` lowers it server-side into HTML/SVG/CSS. Browser JavaScript remains generic transport/DOM glue.
 
 Changing a dashboard card should change the shared tree once. Renderer changes should be required only when introducing a genuinely new renderer-neutral element kind.
 
 ## Migration Outcome
 
-The migration is complete. Windows consumes `NativeScene` through a narrow C ABI and renders with Win32/GDI; Linux consumes the same scene through native Wayland/X11 hosting with Cairo; Web consumes the higher-level dashboard tree through browser-native DOM/CSS/SVG. Iced, winit, and wgpu are no longer renderer dependencies.
+The migration is complete. Windows consumes `NativeScene` through a narrow C ABI and renders with Win32/GDI; Linux consumes the same scene through native Wayland/X11 hosting with Cairo; Web lowers the higher-level dashboard tree to HTML/SVG/CSS in native Rust and streams rendered updates to a thin browser client. Iced, winit, wgpu, `wasm-bindgen`, and `web-sys` are not renderer dependencies.
 
 ## Consequences
 
 - UI consistency is enforced above renderer implementations instead of by sharing one graphics framework.
 - Native desktop compatibility failures are isolated to small platform renderers/hosts.
-- Web uses browser-native DOM/CSS/SVG without duplicating dashboard semantics.
+- Web uses native Rust HTML/SVG generation plus browser DOM installation without duplicating dashboard semantics or requiring WebAssembly.
 - New platform renderers implement a small stable element vocabulary instead of every monitor card independently.
 - Exact glyph metrics may differ by native font stack; structure, values, geometry policy, colors, graph semantics, and ordering remain shared.
 - The shared UI tree must stay application-specific and small; turning it into a generic toolkit would recreate the abstraction cost this decision removes.

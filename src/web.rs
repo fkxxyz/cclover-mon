@@ -22,7 +22,7 @@ use crate::core::model::MonitorState;
 #[cfg(feature = "http")]
 use crate::web_api::{ApiV1Slice, ApiV1State};
 #[cfg(feature = "http")]
-use crate::web_transport::WebMonitorState;
+use cclover_presentation::Dashboard;
 
 pub const DEFAULT_HTTP_BIND: SocketAddr =
     SocketAddr::new(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), 9847);
@@ -34,21 +34,20 @@ const INDEX_HTML: &str = r#"<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>cclover-mon</title>
+  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <script type="module" src="/bootstrap.js"></script>
+  <div id="cclover-root"></div>
+  <script src="/bootstrap.js"></script>
 </body>
 </html>
 "#;
 
 #[cfg(feature = "http")]
-const BOOTSTRAP_JS: &str = r#"import init from './cclover_mon_web.js';
-await init({ module_or_path: './cclover_mon_web_bg.wasm' });
+const BOOTSTRAP_JS: &str = r#"const root = document.getElementById('cclover-root');
+const events = new EventSource('/events');
+events.onmessage = event => { root.innerHTML = JSON.parse(event.data); };
 "#;
-#[cfg(feature = "http")]
-const WEB_JS: &str = include_str!(concat!(env!("OUT_DIR"), "/web/cclover_mon_web.js"));
-#[cfg(feature = "http")]
-const WEB_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/web/cclover_mon_web_bg.wasm"));
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct HttpConfig {
@@ -71,7 +70,7 @@ pub struct StateHub {
 
 #[cfg(feature = "http")]
 struct HubState {
-    latest_transport_json: Arc<str>,
+    latest_dashboard_json: Arc<str>,
     #[cfg(feature = "http")]
     latest_api_v1: Arc<ApiV1State>,
     #[cfg(feature = "http")]
@@ -83,9 +82,9 @@ struct HubState {
 impl StateHub {
     fn new() -> Self {
         let default_state = MonitorState::default();
-        let latest_transport = Arc::new(WebMonitorState::from(&default_state));
-        let latest_transport_json: Arc<str> = serde_json::to_string(latest_transport.as_ref())
-            .expect("default browser transport state must serialize")
+        let dashboard_html = cclover_web_ui::render(Dashboard::new(&default_state));
+        let latest_dashboard_json: Arc<str> = serde_json::to_string(&dashboard_html)
+            .expect("default browser dashboard must serialize")
             .into();
         #[cfg(feature = "http")]
         let latest_api_v1 = Arc::new(ApiV1State::from(&default_state));
@@ -95,7 +94,7 @@ impl StateHub {
             .into();
         Self {
             inner: Arc::new(Mutex::new(HubState {
-                latest_transport_json,
+                latest_dashboard_json,
                 #[cfg(feature = "http")]
                 latest_api_v1,
                 #[cfg(feature = "http")]
@@ -106,9 +105,9 @@ impl StateHub {
     }
 
     pub fn publish(&self, state: &MonitorState) {
-        let latest_transport = Arc::new(WebMonitorState::from(state));
-        let Ok(transport_json) = serde_json::to_string(latest_transport.as_ref()) else {
-            eprintln!("cclover-mon: failed to serialize browser transport state");
+        let dashboard_html = cclover_web_ui::render(Dashboard::new(state));
+        let Ok(dashboard_json) = serde_json::to_string(&dashboard_html) else {
+            eprintln!("cclover-mon: failed to serialize browser dashboard");
             return;
         };
         #[cfg(feature = "http")]
@@ -118,18 +117,18 @@ impl StateHub {
             eprintln!("cclover-mon: failed to serialize API v1 state");
             return;
         };
-        let transport_json: Arc<str> = transport_json.into();
+        let dashboard_json: Arc<str> = dashboard_json.into();
         #[cfg(feature = "http")]
         let api_v1_json: Arc<str> = api_v1_json.into();
         let mut inner = self.inner.lock().expect("HTTP state hub lock poisoned");
-        inner.latest_transport_json = Arc::clone(&transport_json);
+        inner.latest_dashboard_json = Arc::clone(&dashboard_json);
         #[cfg(feature = "http")]
         {
             inner.latest_api_v1 = latest_api_v1;
             inner.latest_api_v1_json = api_v1_json;
         }
         inner.subscribers.retain(|subscriber| {
-            match subscriber.try_send(Arc::clone(&transport_json)) {
+            match subscriber.try_send(Arc::clone(&dashboard_json)) {
                 Ok(()) | Err(TrySendError::Full(_)) => true,
                 Err(TrySendError::Disconnected(_)) => false,
             }
@@ -149,7 +148,7 @@ impl StateHub {
     fn subscribe(&self) -> (Arc<str>, Receiver<Arc<str>>) {
         let (sender, receiver) = mpsc::sync_channel(1);
         let mut inner = self.inner.lock().expect("HTTP state hub lock poisoned");
-        let latest = Arc::clone(&inner.latest_transport_json);
+        let latest = Arc::clone(&inner.latest_dashboard_json);
         inner.subscribers.push(sender);
         (latest, receiver)
     }
@@ -307,14 +306,14 @@ fn handle_connection(
             "text/javascript; charset=utf-8",
             BOOTSTRAP_JS.as_bytes(),
         ),
-        "/cclover_mon_web.js" => write_response(
-            &mut stream,
-            200,
-            "text/javascript; charset=utf-8",
-            WEB_JS.as_bytes(),
-        ),
-        "/cclover_mon_web_bg.wasm" => {
-            write_response(&mut stream, 200, "application/wasm", WEB_WASM)
+        "/style.css" => {
+            let stylesheet = cclover_web_ui::stylesheet();
+            write_response(
+                &mut stream,
+                200,
+                "text/css; charset=utf-8",
+                stylesheet.as_bytes(),
+            )
         }
         "/api/v1/state" => write_json_response(&mut stream, hub.latest_api_v1_json().as_bytes()),
         "/api/v1/cpu" => write_api_slice(&mut stream, &hub, ApiV1Slice::Cpu),
@@ -426,7 +425,7 @@ fn write_response(
     };
     write!(
         stream,
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; style-src 'unsafe-inline'; object-src 'none'\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: default-src 'self'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; object-src 'none'\r\nConnection: close\r\n\r\n",
         body.len()
     )?;
     stream.write_all(body)?;
@@ -509,24 +508,20 @@ mod tests {
     fn state_hub_sends_latest_then_updates() {
         let hub = StateHub::new();
         let (initial, receiver) = hub.subscribe();
-        let initial_state: WebMonitorState = serde_json::from_str(&initial).unwrap();
-        let initial_state = MonitorState::from(initial_state);
-        assert_eq!(initial_state.history_capacity, 0);
+        let initial_html: String = serde_json::from_str(&initial).unwrap();
+        assert!(initial_html.contains("cclover-panel"));
 
-        let updated = MonitorState {
-            history_capacity: 42,
-            ..MonitorState::default()
-        };
+        let mut updated = MonitorState::default();
+        updated.snapshot.cpu_percent = Collection::Available(42.0);
         hub.publish(&updated);
         let received = receiver.recv_timeout(Duration::from_millis(50)).unwrap();
-        let received: WebMonitorState = serde_json::from_str(&received).unwrap();
-        let received = MonitorState::from(received);
-        assert_eq!(received.history_capacity, 42);
+        let received_html: String = serde_json::from_str(&received).unwrap();
+        assert_ne!(received_html, initial_html);
     }
 
     #[cfg(feature = "http")]
     #[test]
-    fn embedded_http_server_serves_page_and_wasm() {
+    fn embedded_http_server_serves_page_and_static_assets() {
         let server = HttpServer::start(HttpConfig {
             bind: "127.0.0.1:0".parse().unwrap(),
         })
@@ -535,14 +530,13 @@ mod tests {
         let page = get(server.local_addr(), "/");
         assert!(page.starts_with("HTTP/1.1 200 OK\r\n"));
         assert!(page.contains("/bootstrap.js"));
+        assert!(page.contains("/style.css"));
 
-        let wasm = get_bytes(server.local_addr(), "/cclover_mon_web_bg.wasm");
-        assert!(wasm.starts_with(b"HTTP/1.1 200 OK\r\n"));
-        let wasm_content_type = b"Content-Type: application/wasm";
-        assert!(
-            wasm.windows(wasm_content_type.len())
-                .any(|bytes| bytes == wasm_content_type)
-        );
+        let js = get(server.local_addr(), "/bootstrap.js");
+        assert!(js.contains("new EventSource('/events')"));
+        let css = get(server.local_addr(), "/style.css");
+        assert!(css.contains("Content-Type: text/css; charset=utf-8"));
+        assert!(css.contains(".cclover-panel"));
     }
 
     #[cfg(feature = "http")]

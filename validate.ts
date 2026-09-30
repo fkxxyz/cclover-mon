@@ -94,7 +94,7 @@ export const VALIDATION_PROFILES = {
   linux: LINUX_STEPS,
   windows: WINDOWS_STEPS,
   "windows-native": WINDOWS_NATIVE_STEPS,
-  all: [...FAST_STEPS, ...LINUX_STEPS, ...WINDOWS_STEPS],
+  portable: [...FAST_STEPS, ...LINUX_STEPS, ...WINDOWS_STEPS],
 } as const;
 
 export type ValidationProfile = keyof typeof VALIDATION_PROFILES;
@@ -116,7 +116,7 @@ export function formatValidationStep(step: ValidationStep): string {
 }
 
 function usage(): void {
-  console.log("usage: bun validate.ts <fast|linux|windows|windows-native|all>");
+  console.log("usage: bun validate.ts <fast|linux|windows|windows-native|portable>");
 }
 
 function isValidationProfile(value: string): value is ValidationProfile {

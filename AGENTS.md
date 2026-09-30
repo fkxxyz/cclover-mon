@@ -129,7 +129,7 @@ Run Windows-host deterministic tests with:
 bun validate.ts windows-native
 ```
 
-`bun validate.ts all` runs the portable fast/Linux/Windows-cross profiles when the required Linux and cargo-xwin toolchains are available. Windows-host execution remains a separate `windows-native` profile because it requires a Windows runner. GitHub Actions invokes these same profiles; do not maintain a separate CI-only validation command set.
+`bun validate.ts portable` runs the host-portable fast/Linux/Windows-cross profiles when the required Linux and cargo-xwin toolchains are available. Windows-host execution remains a separate `windows-native` profile because it requires a Windows runner. GitHub Actions invokes these same profiles; do not maintain a separate CI-only validation command set.
 
 The Windows cross profile sets `XWIN_ARCH=x86,x86_64` on every individual `cargo xwin` subprocess. Do not invoke cargo-xwin from new automation outside this validation authority unless the same per-invocation rule is preserved.
 

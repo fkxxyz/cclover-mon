@@ -44,8 +44,8 @@ describe("validation profiles", () => {
     ]);
   });
 
-  test("all profile is exactly the three focused profiles in order", () => {
-    expect(validationSteps("all")).toEqual([
+  test("portable profile is exactly the three host-portable profiles in order", () => {
+    expect(validationSteps("portable")).toEqual([
       ...VALIDATION_PROFILES.fast,
       ...VALIDATION_PROFILES.linux,
       ...VALIDATION_PROFILES.windows,

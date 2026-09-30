@@ -43,7 +43,7 @@ On a Windows host, run the deterministic Windows test suite with:
 bun validate.ts windows-native
 ```
 
-For local preflight and Linux validation, use `bun validate.ts fast` and `bun validate.ts linux`. `bun validate.ts all` runs the portable fast/Linux/Windows-cross profiles; CI additionally runs `windows-native` on a Windows runner.
+For local preflight and Linux validation, use `bun validate.ts fast` and `bun validate.ts linux`. `bun validate.ts portable` runs the host-portable fast/Linux/Windows-cross profiles; CI additionally runs `windows-native` on a Windows runner.
 
 The 32-bit executable is written to:
 

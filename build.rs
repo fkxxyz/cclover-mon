@@ -204,14 +204,24 @@ fn build_linux_bpf(out: &Path, target_arch: &str) {
 fn build_web_bundle(out: &Path) {
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=Cargo.lock");
-    println!("cargo:rerun-if-changed=src");
+    println!("cargo:rerun-if-changed=src/web_bundle");
     println!("cargo:rerun-if-changed=crates/cclover-core");
     println!("cargo:rerun-if-changed=crates/cclover-presentation");
     println!("cargo:rerun-if-changed=crates/cclover-ui");
     println!("cargo:rerun-if-changed=crates/cclover-web-ui");
 
     let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest dir"));
-    let web_target_dir = out.join("web-target");
+    let web_target_dir = env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .map(|path| {
+            if path.is_absolute() {
+                path
+            } else {
+                manifest_dir.join(path)
+            }
+        })
+        .unwrap_or_else(|| manifest_dir.join("target"))
+        .join("cclover-web");
     let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let mut command = Command::new(cargo);
     command

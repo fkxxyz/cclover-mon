@@ -8,6 +8,11 @@ build = "build.rs"
 [workspace]
 members = ["crates/cclover-core", "crates/cclover-presentation", "crates/cclover-ui", "crates/cclover-tui", "crates/cclover-web-ui", "crates/cclover-desktop"]
 
+[[bin]]
+name = "cclover-mon-web"
+path = "src/web_bundle/main.rs"
+required-features = ["http"]
+
 [features]
 default = ["http", "ebpf-io"]
 http = ["dep:serde", "dep:serde_json", "dep:wasm-bindgen-cli-support"]

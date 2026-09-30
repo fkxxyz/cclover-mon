@@ -1,8 +1,13 @@
 #![deny(unsafe_code)]
 
 #[cfg(all(target_arch = "wasm32", feature = "http"))]
+mod client;
+#[cfg(all(target_arch = "wasm32", feature = "http"))]
+mod transport;
+
+#[cfg(all(target_arch = "wasm32", feature = "http"))]
 fn main() {
-    if let Err(error) = cclover_mon::web_client::run() {
+    if let Err(error) = client::run() {
         web_sys::console::error_1(&error);
     }
 }

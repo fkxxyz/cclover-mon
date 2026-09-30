@@ -273,14 +273,20 @@ pub fn run_tui(states: StateSource) -> std::io::Result<()> {
         if ui.wait_for_quit(Duration::from_millis(100))? {
             return Ok(());
         }
+        let mut redraw = ui.size_changed()?;
         loop {
             match receiver.try_recv() {
-                Ok(next) => state = next,
+                Ok(next) => {
+                    state = next;
+                    redraw = true;
+                }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => return Ok(()),
             }
         }
-        ui.draw(Dashboard::new(&state))?;
+        if redraw {
+            ui.draw(Dashboard::new(&state))?;
+        }
     }
 }
 

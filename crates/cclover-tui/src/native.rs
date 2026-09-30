@@ -94,6 +94,7 @@ unsafe extern "C" {
     fn cclover_tui_enter(out: *mut *mut c_void) -> i32;
     fn cclover_tui_leave(ui: *mut c_void);
     fn cclover_tui_draw(ui: *mut c_void, frame: *const NativeFrame) -> i32;
+    fn cclover_tui_size_changed(ui: *mut c_void, changed: *mut i32) -> i32;
     fn cclover_tui_wait_for_quit(ui: *mut c_void, timeout_ms: u32, quit: *mut i32) -> i32;
 }
 
@@ -132,6 +133,13 @@ impl Terminal {
         };
         // SAFETY: all pointers in `native` reference frame/view storage alive for this synchronous call.
         check(unsafe { cclover_tui_draw(self.handle, &native) })
+    }
+
+    pub(crate) fn size_changed(&mut self) -> io::Result<bool> {
+        let mut changed = 0;
+        // SAFETY: `self.handle` is valid until Drop and `changed` is writable for the call.
+        check(unsafe { cclover_tui_size_changed(self.handle, &mut changed) })?;
+        Ok(changed != 0)
     }
 
     pub(crate) fn wait_for_quit(&mut self, wait: Duration) -> io::Result<bool> {

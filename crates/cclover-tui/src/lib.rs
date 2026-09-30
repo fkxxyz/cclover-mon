@@ -25,6 +25,10 @@ impl TerminalUi {
         self.terminal.draw(&frame)
     }
 
+    pub fn size_changed(&mut self) -> io::Result<bool> {
+        self.terminal.size_changed()
+    }
+
     pub fn wait_for_quit(&mut self, wait: Duration) -> io::Result<bool> {
         self.terminal.wait_for_quit(wait)
     }

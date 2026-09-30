@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, VecDeque};
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::model::{
+use cclover_core::model::{
     Collection, CollectionUnavailable, DiskId, DiskMetadata, DiskSnapshot, FanId, FanSnapshot,
     GpuId, GpuSnapshot, MemorySnapshot, MonitorHistory, MonitorState, NetworkDirectionHistory,
     NetworkId, NetworkSnapshot, ProcessCpuUsage, ProcessDiskIo, ProcessInstanceId,
@@ -816,13 +816,13 @@ mod tests {
         assert_eq!(decoded.snapshot.process_disk_io.value(), Some(&Vec::new()));
         assert_eq!(
             decoded.snapshot.process_network_io.status(),
-            crate::core::model::CollectionStatus::Unavailable(
+            cclover_core::model::CollectionStatus::Unavailable(
                 CollectionUnavailable::PermissionDenied
             )
         );
         assert_eq!(
             decoded.snapshot.networks.status(),
-            crate::core::model::CollectionStatus::Degraded
+            cclover_core::model::CollectionStatus::Degraded
         );
     }
 }

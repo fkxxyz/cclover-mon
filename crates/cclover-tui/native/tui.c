@@ -25,6 +25,8 @@ typedef struct {
 #else
     struct termios termios;
 #endif
+    unsigned width;
+    unsigned height;
     int active;
 } CcloverTui;
 
@@ -229,6 +231,8 @@ int cclover_tui_draw(CcloverTui *ui, const CcloverTuiFrame *frame) {
     if (ui == NULL || frame == NULL) return EINVAL;
     unsigned width, height;
     terminal_size(&width, &height);
+    ui->width = width;
+    ui->height = height;
     fputs("\x1b[2J", stdout);
     CcloverText heading = {(const uint8_t *)"cclover-mon  ·  q / Esc / Ctrl-C: quit", 39};
     write_text(0, 0, width, heading);
@@ -261,6 +265,14 @@ int cclover_tui_draw(CcloverTui *ui, const CcloverTuiFrame *frame) {
     }
     fflush(stdout);
     return ferror(stdout) ? EIO : 0;
+}
+
+int cclover_tui_size_changed(CcloverTui *ui, int *changed) {
+    if (ui == NULL || changed == NULL) return EINVAL;
+    unsigned width, height;
+    terminal_size(&width, &height);
+    *changed = width != ui->width || height != ui->height;
+    return 0;
 }
 
 int cclover_tui_wait_for_quit(CcloverTui *ui, uint32_t timeout_ms, int *quit) {

@@ -9,7 +9,7 @@
 #include "windows_geometry.h"
 
 #define CCLOVER_WM_TRAY (WM_APP + 7)
-#define CCLOVER_TIMER_ID 1
+#define CCLOVER_WM_STATE (WM_APP + 8)
 #define CCLOVER_MENU_QUIT 1001
 #define CCLOVER_MARGIN 16
 #ifndef WM_DPICHANGED
@@ -417,20 +417,18 @@ static LRESULT CALLBACK cclover_wndproc(HWND hwnd, UINT message, WPARAM wparam, 
         InvalidateRect(hwnd, NULL, FALSE);
         return 0;
     }
-    case WM_TIMER: {
-        if (wparam == CCLOVER_TIMER_ID) {
-            uint32_t poll = host->callbacks->poll(host->context);
-            if (poll & CCLOVER_POLL_QUIT) {
-                DestroyWindow(hwnd);
-                return 0;
-            }
-            if (poll & CCLOVER_POLL_FRAME) {
-                CcloverScene scene;
-                cclover_refresh_display(host, hwnd);
-                cclover_scene(host, &scene);
-                cclover_place(host, hwnd, scene.width, scene.height);
-                InvalidateRect(hwnd, NULL, FALSE);
-            }
+    case CCLOVER_WM_STATE: {
+        uint32_t poll = host->callbacks->poll(host->context);
+        if (poll & CCLOVER_POLL_QUIT) {
+            DestroyWindow(hwnd);
+            return 0;
+        }
+        if (poll & CCLOVER_POLL_FRAME) {
+            CcloverScene scene;
+            cclover_refresh_display(host, hwnd);
+            cclover_scene(host, &scene);
+            cclover_place(host, hwnd, scene.width, scene.height);
+            InvalidateRect(hwnd, NULL, FALSE);
         }
         return 0;
     }
@@ -467,7 +465,6 @@ static LRESULT CALLBACK cclover_wndproc(HWND hwnd, UINT message, WPARAM wparam, 
         if (lparam == WM_RBUTTONUP || lparam == WM_CONTEXTMENU) cclover_tray_menu(hwnd);
         return 0;
     case WM_DESTROY: {
-        KillTimer(hwnd, CCLOVER_TIMER_ID);
         Shell_NotifyIconW(NIM_DELETE, &host->tray);
         cclover_release_resources(host);
         PostQuitMessage(0);
@@ -476,6 +473,16 @@ static LRESULT CALLBACK cclover_wndproc(HWND hwnd, UINT message, WPARAM wparam, 
     default:
         return DefWindowProcW(hwnd, message, wparam, lparam);
     }
+}
+
+DWORD cclover_win32_prepare_wake(void) {
+    MSG message;
+    PeekMessageW(&message, NULL, WM_USER, WM_USER, PM_NOREMOVE);
+    return GetCurrentThreadId();
+}
+
+void cclover_win32_wake(DWORD thread_id) {
+    PostThreadMessageW(thread_id, CCLOVER_WM_STATE, 0, 0);
 }
 
 int cclover_win32_run(void *context, const CcloverCallbacks *callbacks) {
@@ -539,10 +546,13 @@ int cclover_win32_run(void *context, const CcloverCallbacks *callbacks) {
 
     cclover_place(&host, hwnd, scene.width, scene.height);
     cclover_add_tray(hwnd, &host);
-    SetTimer(hwnd, CCLOVER_TIMER_ID, 100, NULL);
     InvalidateRect(hwnd, NULL, FALSE);
 
     while (GetMessageW(&message, NULL, 0, 0) > 0) {
+        if (message.hwnd == NULL && message.message == CCLOVER_WM_STATE) {
+            PostMessageW(hwnd, CCLOVER_WM_STATE, 0, 0);
+            continue;
+        }
         TranslateMessage(&message);
         DispatchMessageW(&message);
     }

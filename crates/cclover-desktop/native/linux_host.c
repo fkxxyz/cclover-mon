@@ -368,7 +368,12 @@ static void x11_policy(Display *display, Window window) {
                             ShapeSet, Unsorted);
 }
 
-int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks) {
+static void cclover_drain_wake_fd(int fd) {
+    char buffer[64];
+    while (read(fd, buffer, sizeof(buffer)) > 0) {}
+}
+
+int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks, int wake_fd) {
     CcloverHost host = { .context = context, .callbacks = callbacks };
     CcloverScene scene;
     Display *display = XOpenDisplay(NULL);
@@ -427,7 +432,7 @@ int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks) {
     fd = ConnectionNumber(display);
 
     while (running) {
-        struct pollfd pfd = { fd, POLLIN, 0 };
+        struct pollfd pfds[2] = {{ fd, POLLIN, 0 }, { wake_fd, POLLIN, 0 }};
         uint32_t status = callbacks->poll(context);
         if (status & CCLOVER_POLL_QUIT) break;
         if (status & CCLOVER_POLL_FRAME) {
@@ -453,7 +458,8 @@ int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks) {
             XFlush(display);
             dirty = 0;
         }
-        poll(&pfd, 1, 100);
+        if (poll(pfds, 2, -1) > 0 && (pfds[1].revents & POLLIN))
+            cclover_drain_wake_fd(wake_fd);
     }
 
     cairo_destroy(cr);
@@ -948,7 +954,7 @@ static int wayland_draw(WaylandHost *host, const CcloverScene *scene) {
     return 0;
 }
 
-int cclover_linux_wayland_run(void *context, const CcloverCallbacks *callbacks) {
+int cclover_linux_wayland_run(void *context, const CcloverCallbacks *callbacks, int wake_fd) {
     WaylandHost host;
     CcloverScene scene;
     struct wl_registry *registry;
@@ -1012,7 +1018,7 @@ int cclover_linux_wayland_run(void *context, const CcloverCallbacks *callbacks) 
     fd = wl_display_get_fd(host.globals.display);
 
     while (!host.closed) {
-        struct pollfd pfd = { fd, POLLIN, 0 };
+        struct pollfd pfds[2] = {{ fd, POLLIN, 0 }, { wake_fd, POLLIN, 0 }};
         uint32_t status = callbacks->poll(context);
         if (status & CCLOVER_POLL_QUIT) break;
         if (status & CCLOVER_POLL_FRAME) {
@@ -1047,11 +1053,12 @@ int cclover_linux_wayland_run(void *context, const CcloverCallbacks *callbacks) 
         }
 
         wl_display_flush(host.globals.display);
-        if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
+        if (poll(pfds, 2, -1) > 0 && (pfds[0].revents & POLLIN)) {
             if (wl_display_dispatch(host.globals.display) < 0) break;
         } else {
             wl_display_dispatch_pending(host.globals.display);
         }
+        if (pfds[1].revents & POLLIN) cclover_drain_wake_fd(wake_fd);
     }
 
     if (host.layer_surface) zwlr_layer_surface_v1_destroy(host.layer_surface);

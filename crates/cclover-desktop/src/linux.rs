@@ -2,11 +2,14 @@
 
 use std::error::Error;
 use std::ffi::c_void;
+use std::io::Write;
+use std::os::fd::AsRawFd;
+use std::os::unix::net::UnixStream;
 use std::ptr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::native::{DesktopApp, HostCallbacks, NativeContext};
+use crate::native::{DesktopApp, HostCallbacks, NativeContext, NativeStateBridge};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DisplayServer {
@@ -15,8 +18,16 @@ enum DisplayServer {
 }
 
 unsafe extern "C" {
-    fn cclover_linux_wayland_run(context: *mut c_void, callbacks: *const HostCallbacks) -> i32;
-    fn cclover_linux_x11_run(context: *mut c_void, callbacks: *const HostCallbacks) -> i32;
+    fn cclover_linux_wayland_run(
+        context: *mut c_void,
+        callbacks: *const HostCallbacks,
+        wake_fd: i32,
+    ) -> i32;
+    fn cclover_linux_x11_run(
+        context: *mut c_void,
+        callbacks: *const HostCallbacks,
+        wake_fd: i32,
+    ) -> i32;
     fn cclover_linux_tray_start(
         quit_context: *mut c_void,
         quit_fn: unsafe extern "C" fn(*mut c_void),
@@ -25,14 +36,19 @@ unsafe extern "C" {
     fn cclover_linux_tray_stop(tray: *mut c_void);
 }
 
+struct TrayQuitContext {
+    quit: Arc<AtomicBool>,
+    wake: Arc<UnixStream>,
+}
+
 struct NativeTray {
     handle: *mut c_void,
-    quit_context: *mut Arc<AtomicBool>,
+    quit_context: *mut TrayQuitContext,
 }
 
 impl NativeTray {
-    fn start(quit: Arc<AtomicBool>) -> Option<Self> {
-        let quit_context = Box::into_raw(Box::new(quit));
+    fn start(quit: Arc<AtomicBool>, wake: Arc<UnixStream>) -> Option<Self> {
+        let quit_context = Box::into_raw(Box::new(TrayQuitContext { quit, wake }));
         let mut handle = ptr::null_mut();
         // SAFETY: `quit_context` remains owned by this wrapper until the native tray thread is stopped.
         let result = unsafe {
@@ -66,22 +82,34 @@ impl Drop for NativeTray {
 
 unsafe extern "C" fn tray_quit_callback(context: *mut c_void) {
     // SAFETY: native tray stores the pointer supplied by NativeTray::start until tray stop completes.
-    let quit = unsafe { &*context.cast::<Arc<AtomicBool>>() };
-    quit.store(true, Ordering::Relaxed);
+    let context = unsafe { &*context.cast::<TrayQuitContext>() };
+    context.quit.store(true, Ordering::Relaxed);
+    let _ = (&*context.wake).write(&[1]);
 }
 
 pub fn run(app: DesktopApp) -> Result<(), Box<dyn Error>> {
     let display = display_server()?;
+    let (wake_reader, wake_writer) = UnixStream::pair()?;
+    wake_reader.set_nonblocking(true)?;
+    wake_writer.set_nonblocking(true)?;
+    let wake_writer = Arc::new(wake_writer);
+    let state_wake = Arc::clone(&wake_writer);
+    let bridge = NativeStateBridge::spawn(app.receiver, move || {
+        let _ = (&*state_wake).write(&[1]);
+    });
     let quit = Arc::new(AtomicBool::new(false));
-    let _tray = NativeTray::start(Arc::clone(&quit));
+    let _tray = NativeTray::start(Arc::clone(&quit), Arc::clone(&wake_writer));
 
-    let mut context = Box::new(NativeContext::new(app.receiver, Some(quit)));
+    let mut context = Box::new(NativeContext::new(bridge.pending(), Some(quit)));
     let callbacks = HostCallbacks::new();
-    // SAFETY: context and callbacks remain alive for the full synchronous native host loop.
+    let wake_fd = wake_reader.as_raw_fd();
+    // SAFETY: context, callbacks, and wake_reader remain alive for the full synchronous native host loop.
     let result = unsafe {
         match display {
-            DisplayServer::Wayland => cclover_linux_wayland_run(context.as_ptr(), &callbacks),
-            DisplayServer::X11 => cclover_linux_x11_run(context.as_ptr(), &callbacks),
+            DisplayServer::Wayland => {
+                cclover_linux_wayland_run(context.as_ptr(), &callbacks, wake_fd)
+            }
+            DisplayServer::X11 => cclover_linux_x11_run(context.as_ptr(), &callbacks, wake_fd),
         }
     };
     if result == 0 {

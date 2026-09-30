@@ -12,6 +12,18 @@ fn linux_tray_tolerates_late_status_notifier_watcher() {
 }
 
 #[test]
+fn native_desktop_hosts_use_event_driven_state_wakeups() {
+    let linux = include_str!("../crates/cclover-desktop/native/linux_host.c");
+    let windows = include_str!("../crates/cclover-desktop/native/windows_host.c");
+
+    assert!(linux.contains("poll(pfds, 2, -1)"));
+    assert!(!linux.contains("poll(&pfd, 1, 100)"));
+    assert!(windows.contains("CCLOVER_WM_STATE"));
+    assert!(!windows.contains("SetTimer("));
+    assert!(!windows.contains("WM_TIMER"));
+}
+
+#[test]
 fn native_desktop_hosting_stays_in_desktop_crate() {
     for (path, source) in [("src/main.rs", include_str!("../src/main.rs"))] {
         for forbidden in [

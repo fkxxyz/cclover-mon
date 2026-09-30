@@ -3,8 +3,11 @@
 use std::ffi::c_void;
 use std::ptr;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use cclover_core::model::MonitorState;
 use cclover_presentation::Dashboard;
@@ -68,7 +71,7 @@ impl DesktopApp {
 }
 
 pub(crate) struct NativeContext {
-    receiver: Receiver<MonitorState>,
+    pending: Arc<Mutex<Option<MonitorState>>>,
     state: MonitorState,
     frame: Option<FrameStorage>,
     frame_dirty: bool,
@@ -77,10 +80,13 @@ pub(crate) struct NativeContext {
 }
 
 impl NativeContext {
-    pub(crate) fn new(receiver: Receiver<MonitorState>, quit: Option<Arc<AtomicBool>>) -> Self {
+    pub(crate) fn new(
+        pending: Arc<Mutex<Option<MonitorState>>>,
+        quit: Option<Arc<AtomicBool>>,
+    ) -> Self {
         let state = MonitorState::default();
         Self {
-            receiver,
+            pending,
             state,
             frame: None,
             frame_dirty: true,
@@ -99,10 +105,11 @@ impl NativeContext {
             flags |= POLL_QUIT;
         }
 
-        let mut latest = None;
-        while let Ok(state) = self.receiver.try_recv() {
-            latest = Some(state);
-        }
+        let latest = self
+            .pending
+            .lock()
+            .expect("native pending state lock poisoned")
+            .take();
         if let Some(state) = latest {
             self.state = state;
             self.frame_dirty = true;
@@ -113,6 +120,69 @@ impl NativeContext {
 
     pub(crate) fn as_ptr(&mut self) -> *mut c_void {
         (self as *mut Self).cast::<c_void>()
+    }
+}
+
+pub(crate) struct NativeStateBridge {
+    pending: Arc<Mutex<Option<MonitorState>>>,
+    stop: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl NativeStateBridge {
+    pub(crate) fn spawn<F>(receiver: Receiver<MonitorState>, wake: F) -> Self
+    where
+        F: Fn() + Send + 'static,
+    {
+        Self::spawn_with_timeout(receiver, wake, Duration::from_secs(1))
+    }
+
+    fn spawn_with_timeout<F>(receiver: Receiver<MonitorState>, wake: F, timeout: Duration) -> Self
+    where
+        F: Fn() + Send + 'static,
+    {
+        let pending = Arc::new(Mutex::new(None));
+        let bridge_pending = Arc::clone(&pending);
+        let stop = Arc::new(AtomicBool::new(false));
+        let bridge_stop = Arc::clone(&stop);
+        let thread = thread::Builder::new()
+            .name("cclover-mon-desktop-state".to_owned())
+            .spawn(move || {
+                while !bridge_stop.load(Ordering::Acquire) {
+                    match receiver.recv_timeout(timeout) {
+                        Ok(state) => {
+                            if bridge_stop.load(Ordering::Acquire) {
+                                break;
+                            }
+                            *bridge_pending
+                                .lock()
+                                .expect("native pending state lock poisoned") = Some(state);
+                            wake();
+                        }
+                        Err(RecvTimeoutError::Timeout) => {}
+                        Err(RecvTimeoutError::Disconnected) => break,
+                    }
+                }
+            })
+            .expect("failed to spawn native desktop state bridge");
+        Self {
+            pending,
+            stop,
+            thread: Some(thread),
+        }
+    }
+
+    pub(crate) fn pending(&self) -> Arc<Mutex<Option<MonitorState>>> {
+        Arc::clone(&self.pending)
+    }
+}
+
+impl Drop for NativeStateBridge {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
 }
 
@@ -500,6 +570,17 @@ mod tests {
             height: 100,
             primitives,
         }
+    }
+
+    #[test]
+    fn state_bridge_drop_stops_and_joins_worker() {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let bridge =
+            NativeStateBridge::spawn_with_timeout(receiver, || {}, Duration::from_millis(1));
+
+        drop(bridge);
+
+        assert!(sender.try_send(MonitorState::default()).is_err());
     }
 
     #[test]

@@ -23,4 +23,5 @@ Presence is the state: every document in `technical-debt/` represents debt that 
 
 Current architecture-level technical debt:
 
+- [Native event-loop validation seam](technical-debt/native-event-loop-validation-seam.md) — Medium priority; native wakeup-to-frame scheduling still lacks a deterministic behavioral test seam independent of real X11, Wayland, or Win32 runtimes.
 - [Windows AMD Family 10h upstream authority](technical-debt/windows-amd-family10-upstream-authority.md) — Low-medium priority; Family 10h still retains a second temperature-algorithm authority because the pinned official PawnIO transport cannot execute upstream Erratum 319 validation.

@@ -127,19 +127,15 @@ Run both supported Windows cross-builds and compile target-specific tests with:
 bun validate.ts windows
 ```
 
-Run Windows-host deterministic tests with:
+Run Windows-host validation from Linux/WSL through the repository-owned host bridge:
 
 ```bash
-bun validate.ts windows-native
+bun windows-validate.ts doctor
+bun windows-validate.ts windows-native
+bun windows-validate.ts windows-etw-runtime
 ```
 
-Run the real-Windows FileIo ETW disk-attribution smoke with sufficient ETW session-control authority:
-
-```bash
-bun validate.ts windows-etw-runtime
-```
-
-That profile uses the production probe with a known local write workload and a pre-opened file; it is runtime evidence, not a replacement for the broader ETW semantic-validation debt. See `docs/maintenance/windows-native-validation.md`.
+`validate.ts` remains the validation-plan authority, including required host and privilege; `windows-validate.ts` only supplies host execution. `windows-etw-runtime` uses the production probe with a known local write workload and a pre-opened file; it is runtime evidence, not a replacement for the broader ETW semantic-validation debt. See `docs/maintenance/windows-native-validation.md` for one-time bridge provisioning and nonstandard host/path configuration.
 
 Run the real-browser Web smoke test only when Chromium/Chrome is available:
 

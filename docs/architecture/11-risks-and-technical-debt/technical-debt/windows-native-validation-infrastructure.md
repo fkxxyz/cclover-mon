@@ -1,5 +1,5 @@
 ---
-summary: "Records the missing repository-owned execution/provisioning path for reproducible Windows-native validation from Linux or WSL development environments."
+summary: "Records the remaining fresh-session acceptance gap for the repository-owned Windows native validation bridge."
 viewpoint: assurance
 concerns:
   - maintainability
@@ -16,37 +16,38 @@ facets:
 
 # Windows Native Validation Infrastructure
 
-**Priority:** Medium-high
+**Priority:** Low-medium
 
 ## Root cause
 
-The repository defines native Windows validation profiles, but invoking them from the project's common Linux/WSL development environment still depends on machine-local host-interoperability and privilege setup that is not owned, discovered, or provisioned by the repository. Cross-build validation is therefore reproducible while real Windows execution remains environment-specific.
+The repository now owns Windows-host validation discovery, path translation, ordinary execution, privilege routing, and one-time elevated Scheduled Task provisioning, but that complete bridge has not yet been exercised from a clean supported WSL/Linux-to-Windows session after introduction. The remaining debt is acceptance evidence for the execution contract rather than missing structure.
 
 ## Evidence
 
-`validate.ts` provides `windows-native` for deterministic tests on a Windows host and `windows-etw-runtime` for the real ETW disk-attribution smoke. During ETW implementation, both x86 and x64 cross-builds were reproducible, but the active Linux-side automation environment had neither an available `cmd`/PowerShell interop command nor a mounted Windows host path, so the freshly built executable could not be launched on the host from that environment. Previously provisioned administrator bridges are machine-local state rather than a repository contract and are not discoverable from a clean session.
+`validate.ts` owns validation commands plus required host and privilege metadata. `windows-validate.ts` resolves the current repository/worktree and delegates Windows-host execution through `tools/windows-validation/host.ts`; the Windows runner invokes only `bun validate.ts <profile>`. Deterministic tests cover profile privilege authority, WSL path translation, configured path-prefix translation, arbitrary worktree suffixes, and rejection of non-Windows profiles.
+
+The active implementation session is a native Linux environment mounting a WSL filesystem at `/run/media/...`; it has neither WSL interop nor a configured Windows PowerShell transport. `bun windows-validate.ts doctor` therefore correctly reports that host mapping/transport is unavailable, but this environment cannot supply the final real-Windows ordinary/elevated execution evidence.
 
 ## Governing constraint
 
-Any Windows-native validation that the project relies on should have one reproducible invocation contract that tells a fresh maintainer or agent how to reach a Windows host, how ordinary and elevated execution differ, and how repository paths/artifacts are made visible to the host. Validation profiles remain the authority for what is executed; host transport must not duplicate their command lists.
+Any Windows-native validation that the project relies on has one repository-owned invocation contract. `validate.ts` remains authoritative for what is executed and what privilege it requires; the host bridge owns only how that profile reaches Windows. Machine-local configuration may describe PowerShell reachability and path mappings but must not contain validation commands or privilege policy.
 
 ## Scope discovery
 
-Review `validate.ts` Windows-native profiles, GitHub/CI Windows runners, WSL-to-Windows invocation helpers, administrator/scheduled-task bridges, path translation for repository artifacts, and maintenance documentation for runtime validation. Include Windows-native acceptance work for ETW, NDU, hardware telemetry, and native desktop behavior. Exclude metric-specific semantic assertions, which belong in their feature-specific debt records.
+Review `validate.ts` execution metadata, `windows-validate.ts`, `tools/windows-validation/`, GitHub/CI Windows runners, WSL-to-Windows path translation, administrator Scheduled Task provisioning, and `docs/maintenance/windows-native-validation.md`. Include Windows-native acceptance work for ETW, NDU, hardware telemetry, and native desktop behavior. Exclude metric-specific semantic assertions, which belong in their feature-specific debt records.
 
 ## Maintenance consequence
 
-Native Windows regressions can require session-specific setup knowledge before tests can even run. New maintainers or agents may repeat bridge discovery, fall back to manual clicking, or incorrectly treat cross-compilation as runtime evidence. Privileged collectors are especially costly because a missing elevation path can make otherwise automated validation appear unavailable.
+Until a clean-session acceptance run is recorded, deterministic tests can prove the bridge's policy and path logic but cannot prove that current Windows PowerShell, Scheduled Task, UNC/worktree access, Bun/Cargo execution, and exit-code propagation cooperate on the supported development host. A fresh maintainer may still encounter a machine-integration defect that repository-only tests cannot expose.
 
 ## Repair direction
 
-Define the smallest repository-owned host-execution contract that can invoke an existing `validate.ts` profile on a Windows host from the supported development environment. Reuse native Windows runners directly when already on Windows. For WSL development, document or provide one stable bridge entry with explicit ordinary/elevated modes and deterministic path translation. Keep privilege provisioning outside metric collectors and avoid a general remote-execution framework.
+From a supported WSL/Linux-to-Windows development session, provision the bridge once with `bun windows-validate.ts install`, then start a fresh shell and run `doctor`, `windows-native`, and one elevated profile through `windows-validate.ts`. Fix only defects exposed at this host-execution boundary; do not add another transport or duplicate validation commands unless the supported development environment requires it.
 
 ## Exit criteria
 
-- A clean development session can discover one documented command/path for ordinary Windows-host execution and one for elevated execution when required.
-- The bridge invokes existing `validate.ts` profiles rather than maintaining duplicate validation command lists.
-- Repository/worktree paths are translated deterministically and work for both the main tree and temporary worktrees.
-- The path works without interactive UAC prompts after its documented one-time provisioning step, where local policy permits that setup.
-- A fresh-session test demonstrates `windows-native` and one privileged native profile can be launched without relying on remembered machine-local details.
+- A fresh development session passes `bun windows-validate.ts doctor` without remembered setup steps beyond documented one-time provisioning.
+- `bun windows-validate.ts windows-native` executes the ordinary Windows-host profile from the current checkout/worktree and propagates its result.
+- `bun windows-validate.ts windows-etw-runtime` reaches the provisioned elevated path without an interactive UAC prompt after installation and propagates its result.
+- The same path works from a temporary Git worktree, proving path translation is not tied to the main checkout.
 - Scope discovery confirms Windows-native feature validation no longer has separate ad hoc host-launch mechanisms.

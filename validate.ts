@@ -6,11 +6,31 @@ export interface ValidationStep {
   env?: Readonly<Record<string, string>>;
 }
 
+export type ValidationHost = "local" | "windows";
+export type ValidationPrivilege = "ordinary" | "elevated";
+
+export interface ValidationExecution {
+  host: ValidationHost;
+  privilege: ValidationPrivilege;
+}
+
+interface ValidationProfileDefinition {
+  steps: readonly ValidationStep[];
+  execution: ValidationExecution;
+}
+
 const FAST_STEPS: readonly ValidationStep[] = [
   { name: "architecture dependency gate", command: ["bun", "archgate.ts"] },
   {
     name: "validation policy tests",
-    command: ["bun", "test", "archgate.test.ts", "validate.test.ts", "sync-linux-hwmon.test.ts"],
+    command: [
+      "bun",
+      "test",
+      "archgate.test.ts",
+      "validate.test.ts",
+      "windows-validate.test.ts",
+      "sync-linux-hwmon.test.ts",
+    ],
   },
   { name: "Rust formatting", command: ["cargo", "fmt", "--all", "--check"] },
   { name: "architecture documentation", command: ["bun", "archdoc.ts", "check"] },
@@ -128,20 +148,48 @@ const SERVER_STEPS: readonly ValidationStep[] = [
 ];
 
 export const VALIDATION_PROFILES = {
-  fast: FAST_STEPS,
-  linux: LINUX_STEPS,
-  windows: WINDOWS_STEPS,
-  "windows-native": WINDOWS_NATIVE_STEPS,
-  "windows-etw-runtime": WINDOWS_ETW_RUNTIME_STEPS,
-  "web-browser": WEB_BROWSER_STEPS,
-  server: SERVER_STEPS,
-  portable: [...FAST_STEPS, ...LINUX_STEPS, ...WINDOWS_STEPS],
-} as const;
+  fast: {
+    steps: FAST_STEPS,
+    execution: { host: "local", privilege: "ordinary" },
+  },
+  linux: {
+    steps: LINUX_STEPS,
+    execution: { host: "local", privilege: "ordinary" },
+  },
+  windows: {
+    steps: WINDOWS_STEPS,
+    execution: { host: "local", privilege: "ordinary" },
+  },
+  "windows-native": {
+    steps: WINDOWS_NATIVE_STEPS,
+    execution: { host: "windows", privilege: "ordinary" },
+  },
+  "windows-etw-runtime": {
+    steps: WINDOWS_ETW_RUNTIME_STEPS,
+    execution: { host: "windows", privilege: "elevated" },
+  },
+  "web-browser": {
+    steps: WEB_BROWSER_STEPS,
+    execution: { host: "local", privilege: "ordinary" },
+  },
+  server: {
+    steps: SERVER_STEPS,
+    execution: { host: "local", privilege: "ordinary" },
+  },
+  portable: {
+    steps: [...FAST_STEPS, ...LINUX_STEPS, ...WINDOWS_STEPS],
+    execution: { host: "local", privilege: "ordinary" },
+  },
+} as const satisfies Record<string, ValidationProfileDefinition>;
 
 export type ValidationProfile = keyof typeof VALIDATION_PROFILES;
 
 export function validationSteps(profile: ValidationProfile): readonly ValidationStep[] {
-  return VALIDATION_PROFILES[profile];
+  return VALIDATION_PROFILES[profile].steps;
+}
+
+export function validationExecution(profile: ValidationProfile): ValidationExecution {
+  return VALIDATION_PROFILES[profile].execution;
 }
 
 function quote(value: string): string {
@@ -162,7 +210,7 @@ function usage(): void {
   );
 }
 
-function isValidationProfile(value: string): value is ValidationProfile {
+export function isValidationProfile(value: string): value is ValidationProfile {
   return value in VALIDATION_PROFILES;
 }
 

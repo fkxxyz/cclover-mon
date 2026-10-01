@@ -4,6 +4,7 @@ import {
   VALIDATION_PROFILES,
   XWIN_ARCH,
   formatValidationStep,
+  validationExecution,
   validationSteps,
 } from "./validate";
 
@@ -11,7 +12,14 @@ describe("validation profiles", () => {
   test("fast profile keeps architecture enforcement cheap and deterministic", () => {
     expect(validationSteps("fast").map((step) => step.command)).toEqual([
       ["bun", "archgate.ts"],
-      ["bun", "test", "archgate.test.ts", "validate.test.ts", "sync-linux-hwmon.test.ts"],
+      [
+        "bun",
+        "test",
+        "archgate.test.ts",
+        "validate.test.ts",
+        "windows-validate.test.ts",
+        "sync-linux-hwmon.test.ts",
+      ],
       ["cargo", "fmt", "--all", "--check"],
       ["bun", "archdoc.ts", "check"],
     ]);
@@ -53,6 +61,10 @@ describe("validation profiles", () => {
       ["bun", "prepare-windows-deps.ts"],
       ["cargo", "test", "--locked", "-p", "cclover-mon", "--no-default-features"],
     ]);
+    expect(validationExecution("windows-native")).toEqual({
+      host: "windows",
+      privilege: "ordinary",
+    });
   });
 
   test("Windows ETW runtime validation is isolated and uses the production probe", () => {
@@ -79,6 +91,10 @@ describe("validation profiles", () => {
         step.command.includes("windows-etw-disk-smoke.ts"),
       ),
     ).toBe(false);
+    expect(validationExecution("windows-etw-runtime")).toEqual({
+      host: "windows",
+      privilege: "elevated",
+    });
   });
 
   test("web browser validation is isolated from normal development profiles", () => {
@@ -100,9 +116,9 @@ describe("validation profiles", () => {
 
   test("portable profile is exactly the three host-portable profiles in order", () => {
     expect(validationSteps("portable")).toEqual([
-      ...VALIDATION_PROFILES.fast,
-      ...VALIDATION_PROFILES.linux,
-      ...VALIDATION_PROFILES.windows,
+      ...VALIDATION_PROFILES.fast.steps,
+      ...VALIDATION_PROFILES.linux.steps,
+      ...VALIDATION_PROFILES.windows.steps,
     ]);
   });
 });

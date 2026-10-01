@@ -4,14 +4,15 @@ use crate::core::model::CollectionUnavailable;
 use crate::core::model::FanSnapshot;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use crate::core::model::GpuSnapshot;
+#[cfg(target_os = "linux")]
+use crate::core::model::ProcessDiskIoCounter;
+use crate::core::model::ProcessNetworkIoCounter;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use crate::core::model::TemperatureSnapshot;
 use crate::core::model::{
     Collection, CollectionStatus, CpuCounter, DiskCounter, MemorySnapshot, NetworkCounter,
     ProcessCounter,
 };
-#[cfg(target_os = "linux")]
-use crate::core::model::{ProcessDiskIoCounter, ProcessNetworkIoCounter};
 #[cfg(target_os = "windows")]
 use crate::platform::ProbeKind;
 use crate::platform::ProbeReport;
@@ -22,7 +23,6 @@ pub(crate) enum ProbeSample {
     Memory(Collection<MemorySnapshot>),
     Processes(Collection<Vec<ProcessCounter>>),
     Network(Collection<Vec<NetworkCounter>>),
-    #[cfg(target_os = "linux")]
     NetworkAttribution(Collection<Vec<ProcessNetworkIoCounter>>),
     Disk(Collection<Vec<DiskCounter>>),
     #[cfg(target_os = "linux")]
@@ -44,7 +44,6 @@ impl ProbeSample {
             Self::Memory(value) => value.is_observable(),
             Self::Processes(value) => value.is_observable(),
             Self::Network(value) => value.is_observable(),
-            #[cfg(target_os = "linux")]
             Self::NetworkAttribution(value) => value.is_observable(),
             Self::Disk(value) => value.is_observable(),
             #[cfg(target_os = "linux")]
@@ -66,7 +65,6 @@ impl ProbeSample {
             Self::Memory(value) => report_memory(value, notes),
             Self::Processes(value) => report_processes(value, notes),
             Self::Network(value) => report_networks(value, notes),
-            #[cfg(target_os = "linux")]
             Self::NetworkAttribution(value) => report_network_attribution(value, notes),
             Self::Disk(value) => report_disks(value, notes),
             #[cfg(target_os = "linux")]
@@ -195,7 +193,6 @@ fn report_networks(value: Collection<Vec<NetworkCounter>>, notes: Vec<String>) -
     }
 }
 
-#[cfg(target_os = "linux")]
 fn report_network_attribution(
     value: Collection<Vec<ProcessNetworkIoCounter>>,
     notes: Vec<String>,

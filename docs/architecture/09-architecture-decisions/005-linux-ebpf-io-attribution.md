@@ -31,12 +31,14 @@ The initial Linux implementation defines these layer semantics explicitly:
 - neither metric is physical media traffic or wire-equivalent traffic.
 
 
-The required product semantics are:
+The required shared dimensions are:
 
 ```text
 disk    = TGID × storage-device identity × read/write bytes
 network = TGID × interface identity      × RX/TX bytes
 ```
+
+The exact byte-accounting layer is platform-owned. Linux deliberately reports socket-payload-attributed bytes because those are the reliable native semantics of this backend. Another platform may use a native network-usage accounting source with a different byte layer when it preserves trustworthy process identity, interface identity, direction, relative bandwidth usage, and stable within-backend semantics. Cross-platform byte-for-byte equivalence is not a product requirement.
 
 The kernel side aggregates counters before userspace reads them. The normal application remains a single application process; no BCC runtime, helper daemon, or periodically spawned monitoring command is part of the production architecture.
 
@@ -57,7 +59,7 @@ libbpf CO-RE keeps Linux-specific tracing code behind the platform boundary whil
 - eBPF unavailability becomes an explicit unavailable-metric state, not a fabricated zero.
 - Disk and network collectors may maintain kernel-side correlation state whose size and lifetime must be bounded.
 - Network attribution semantics require explicit validation across TCP, UDP, loopback, tunnels, bridges, VPNs, and namespaces.
-- Windows must implement the same shared semantic model with Windows-native facilities; eBPF itself never becomes a shared-core dependency.
+- Windows must implement the same process × interface × direction product dimensions and user intent with Windows-native facilities; its byte-accounting layer may differ. eBPF itself never becomes a shared-core dependency.
 
 ## Rejected Alternatives
 

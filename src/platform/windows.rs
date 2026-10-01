@@ -8,7 +8,9 @@ mod gpu_nvml;
 mod hardware;
 mod memory;
 mod native;
+mod ndu;
 mod network;
+mod network_attribution;
 mod network_device;
 mod pawnio;
 mod process;
@@ -35,6 +37,7 @@ pub struct Backend {
     gpus: gpu::Collector,
     hardware: hardware::Collector,
     network: network::Collector,
+    network_attribution: network_attribution::Collector,
     temperatures: temperature::Collector,
 }
 
@@ -44,6 +47,7 @@ impl Backend {
             gpus: gpu::Collector::new(),
             hardware: hardware::Collector::new(),
             network: network::Collector::new(),
+            network_attribution: network_attribution::Collector::new(),
             temperatures: temperature::Collector::new(),
         }
     }
@@ -82,9 +86,11 @@ impl Backend {
             }
             ProbeKind::Fans => ProbeSample::Fans(self.hardware.collect_fans(notes)),
             ProbeKind::Gpu => ProbeSample::Gpu(self.gpus.collect(notes)),
-            ProbeKind::NetworkAttribution | ProbeKind::DiskAttribution => {
-                ProbeSample::Unsupported(kind)
+            ProbeKind::NetworkAttribution => {
+                let processes = process::collect(notes.as_deref_mut());
+                ProbeSample::NetworkAttribution(self.network_attribution.collect(&processes, notes))
             }
+            ProbeKind::DiskAttribution => ProbeSample::Unsupported(kind),
         }
     }
 }
@@ -98,6 +104,11 @@ impl Default for Backend {
 impl CoreCollector for Backend {
     fn collect(&mut self) -> RawSnapshot {
         let collected_at = Instant::now();
+        let networks = devlog::timed("collector.network", || self.network.collect(None));
+        let processes = devlog::timed("collector.processes", || process::collect(None));
+        let process_network_io = devlog::timed("collector.network-attribution", || {
+            self.network_attribution.collect(&processes, None)
+        });
         let hardware = devlog::timed("collector.hardware", || self.hardware.collect(None));
         let native_temperatures = devlog::timed("collector.temperature.native", || {
             self.temperatures.collect(None)
@@ -106,11 +117,11 @@ impl CoreCollector for Backend {
             collected_at,
             cpu: devlog::timed("collector.cpu", || cpu::collect(None)),
             memory: devlog::timed("collector.memory", || memory::collect(None)),
-            processes: devlog::timed("collector.processes", || process::collect(None)),
-            networks: devlog::timed("collector.network", || self.network.collect(None)),
+            processes,
+            networks,
             disks: devlog::timed("collector.disk", || disk::collect(None)),
             process_disk_io: Collection::unavailable(CollectionUnavailable::Unsupported),
-            process_network_io: Collection::unavailable(CollectionUnavailable::Unsupported),
+            process_network_io,
             temperatures: hardware::merge_temperature_sources([
                 hardware.temperatures,
                 native_temperatures,

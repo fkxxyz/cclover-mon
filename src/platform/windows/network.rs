@@ -8,6 +8,20 @@ use super::network_device::{self, NetworkDeviceClass};
 
 const PROVENANCE_RETRY_INTERVAL: Duration = Duration::from_secs(30);
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct InterfaceIdentity {
+    pub id: NetworkId,
+    pub name: String,
+}
+
+pub(super) fn identity_for_luid(luid: u64) -> std::io::Result<InterfaceIdentity> {
+    let (guid, name) = native::network_identity_from_luid(luid)?;
+    Ok(InterfaceIdentity {
+        id: NetworkId::from_opaque_key(guid),
+        name,
+    })
+}
+
 pub(super) struct Collector {
     candidate_ids: Vec<String>,
     classifications: Vec<NetworkDeviceClass>,

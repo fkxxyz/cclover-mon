@@ -8,6 +8,7 @@ A lightweight native desktop system monitor with a compact always-on-screen pane
 - Memory and swap usage
 - Top 8 processes by CPU and memory
 - Network throughput for active physical interfaces
+- Per-process network attribution on Linux and Windows
 - Physical block-device I/O throughput
 - Hardware temperatures from hwmon
 - 60-sample history graphs
@@ -15,7 +16,7 @@ A lightweight native desktop system monitor with a compact always-on-screen pane
 ## Platform Support
 
 - **Linux:** supported. Uses native `/proc` and `/sys` data sources and Wayland layer-shell placement.
-- **Windows:** supported native collectors for CPU, memory, processes, network interfaces, physical disks, temperatures, and NVIDIA/AMD GPU telemetry. Per-process disk/network attribution is not implemented.
+- **Windows:** supported native collectors for CPU, memory, processes, network interfaces, physical disks, temperatures, NVIDIA/AMD GPU telemetry, and per-process network attribution through NDU. Per-process disk attribution is not implemented. NDU uses an undocumented Windows ABI, so compatibility and real-host acceptance coverage remain explicitly tracked.
 
 ## Build
 

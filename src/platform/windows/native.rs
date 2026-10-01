@@ -9,9 +9,10 @@ use windows_sys::Wdk::System::SystemInformation::{
 };
 use windows_sys::Win32::Foundation::{CloseHandle, FILETIME, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::NetworkManagement::IpHelper::{
-    FreeMibTable, GetIfTable2, MIB_IF_ROW2, MIB_IF_TABLE2,
+    ConvertInterfaceLuidToAlias, ConvertInterfaceLuidToGuid, FreeMibTable, GetIfTable2,
+    MIB_IF_ROW2, MIB_IF_TABLE2,
 };
-use windows_sys::Win32::NetworkManagement::Ndis::IfOperStatusUp;
+use windows_sys::Win32::NetworkManagement::Ndis::{IfOperStatusUp, NET_LUID_LH};
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, GetDriveTypeW, GetLogicalDrives,
     IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS, OPEN_EXISTING,
@@ -325,6 +326,25 @@ pub(super) fn network_interfaces() -> io::Result<Vec<NativeNetwork>> {
     Ok(result)
 }
 
+pub(super) fn network_identity_from_luid(luid: u64) -> io::Result<(String, String)> {
+    let luid = NET_LUID_LH { Value: luid };
+    let mut guid = windows_sys::core::GUID::default();
+    // SAFETY: luid and guid are valid input/output objects for the documented conversion API.
+    let status = unsafe { ConvertInterfaceLuidToGuid(&luid, &mut guid) };
+    if status != ERROR_SUCCESS {
+        return Err(io::Error::from_raw_os_error(status as i32));
+    }
+
+    let mut alias = [0_u16; 257];
+    // SAFETY: alias is writable for the supplied character count and luid is valid.
+    let status = unsafe { ConvertInterfaceLuidToAlias(&luid, alias.as_mut_ptr(), alias.len()) };
+    if status != ERROR_SUCCESS {
+        return Err(io::Error::from_raw_os_error(status as i32));
+    }
+
+    Ok((guid_key(&guid), utf16_z(&alias)))
+}
+
 pub(super) fn physical_disks() -> io::Result<NativeDisks> {
     let mut disks = Vec::new();
     let mut fallback_identities = 0;
@@ -593,7 +613,9 @@ fn ansi_field(buffer: &[u8], offset: u32) -> Option<String> {
     Some(String::from_utf8_lossy(&tail[..len]).trim().to_owned())
 }
 fn guid_string(row: &MIB_IF_ROW2) -> String {
-    let g = row.InterfaceGuid;
+    guid_key(&row.InterfaceGuid)
+}
+fn guid_key(g: &windows_sys::core::GUID) -> String {
     format!(
         "{:08x}-{:04x}-{:04x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
         g.data1,

@@ -4,10 +4,9 @@ use std::ffi::c_void;
 use std::ptr;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+
+use crossbeam_channel::{Receiver, Sender, bounded, select};
 
 use cclover_core::model::MonitorState;
 use cclover_presentation::Dashboard;
@@ -27,7 +26,7 @@ macro_rules! abi_rust_type {
     (const_command_ptr) => { *const NativeCommand };
     (const_point_ptr) => { *const NativePoint };
     (const_damage_rect_ptr) => { *const NativeDamageRect };
-    (poll_fn) => { unsafe extern "C" fn(*mut c_void) -> u32 };
+    (state_fn) => { unsafe extern "C" fn(*mut c_void) -> u32 };
     (scene_fn) => {
         unsafe extern "C" fn(*mut c_void, *mut c_void, MeasureTextFn, *mut SceneView)
     };
@@ -76,14 +75,10 @@ pub(crate) struct NativeContext {
     frame: Option<FrameStorage>,
     frame_dirty: bool,
     static_revision: u64,
-    quit: Option<Arc<AtomicBool>>,
 }
 
 impl NativeContext {
-    pub(crate) fn new(
-        pending: Arc<Mutex<Option<MonitorState>>>,
-        quit: Option<Arc<AtomicBool>>,
-    ) -> Self {
+    pub(crate) fn new(pending: Arc<Mutex<Option<MonitorState>>>) -> Self {
         let state = MonitorState::default();
         Self {
             pending,
@@ -91,20 +86,10 @@ impl NativeContext {
             frame: None,
             frame_dirty: true,
             static_revision: 0,
-            quit,
         }
     }
 
-    fn poll(&mut self) -> u32 {
-        let mut flags = 0;
-        if self
-            .quit
-            .as_ref()
-            .is_some_and(|quit| quit.load(Ordering::Relaxed))
-        {
-            flags |= POLL_QUIT;
-        }
-
+    fn take_state(&mut self) -> u32 {
         let latest = self
             .pending
             .lock()
@@ -113,9 +98,9 @@ impl NativeContext {
         if let Some(state) = latest {
             self.state = state;
             self.frame_dirty = true;
-            flags |= POLL_FRAME;
+            return STATE_CHANGED;
         }
-        flags
+        0
     }
 
     pub(crate) fn as_ptr(&mut self) -> *mut c_void {
@@ -125,7 +110,7 @@ impl NativeContext {
 
 pub(crate) struct NativeStateBridge {
     pending: Arc<Mutex<Option<MonitorState>>>,
-    stop: Arc<AtomicBool>,
+    shutdown: Sender<()>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -134,40 +119,31 @@ impl NativeStateBridge {
     where
         F: Fn() + Send + 'static,
     {
-        Self::spawn_with_timeout(receiver, wake, Duration::from_secs(1))
-    }
-
-    fn spawn_with_timeout<F>(receiver: Receiver<MonitorState>, wake: F, timeout: Duration) -> Self
-    where
-        F: Fn() + Send + 'static,
-    {
         let pending = Arc::new(Mutex::new(None));
         let bridge_pending = Arc::clone(&pending);
-        let stop = Arc::new(AtomicBool::new(false));
-        let bridge_stop = Arc::clone(&stop);
+        let (shutdown, shutdown_receiver) = bounded(1);
         let thread = thread::Builder::new()
             .name("cclover-mon-desktop-state".to_owned())
             .spawn(move || {
-                while !bridge_stop.load(Ordering::Acquire) {
-                    match receiver.recv_timeout(timeout) {
-                        Ok(state) => {
-                            if bridge_stop.load(Ordering::Acquire) {
-                                break;
+                loop {
+                    select! {
+                        recv(shutdown_receiver) -> _ => break,
+                        recv(receiver) -> state => match state {
+                            Ok(state) => {
+                                *bridge_pending
+                                    .lock()
+                                    .expect("native pending state lock poisoned") = Some(state);
+                                wake();
                             }
-                            *bridge_pending
-                                .lock()
-                                .expect("native pending state lock poisoned") = Some(state);
-                            wake();
-                        }
-                        Err(RecvTimeoutError::Timeout) => {}
-                        Err(RecvTimeoutError::Disconnected) => break,
+                            Err(_) => break,
+                        },
                     }
                 }
             })
             .expect("failed to spawn native desktop state bridge");
         Self {
             pending,
-            stop,
+            shutdown,
             thread: Some(thread),
         }
     }
@@ -179,7 +155,7 @@ impl NativeStateBridge {
 
 impl Drop for NativeStateBridge {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Release);
+        let _ = self.shutdown.try_send(());
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -189,7 +165,7 @@ impl Drop for NativeStateBridge {
 impl HostCallbacks {
     pub(crate) const fn new() -> Self {
         Self {
-            poll: poll_callback,
+            take_state: take_state_callback,
             scene: scene_callback,
         }
     }
@@ -501,10 +477,10 @@ fn build_frame(
     FrameStorage::from_scene(scene, previous, previous_static_revision)
 }
 
-unsafe extern "C" fn poll_callback(context: *mut c_void) -> u32 {
+unsafe extern "C" fn take_state_callback(context: *mut c_void) -> u32 {
     // SAFETY: platform hosts receive this pointer from `run` and use it only synchronously.
     let context = unsafe { &mut *(context.cast::<NativeContext>()) };
-    context.poll()
+    context.take_state()
 }
 
 unsafe extern "C" fn scene_callback(
@@ -574,9 +550,8 @@ mod tests {
 
     #[test]
     fn state_bridge_drop_stops_and_joins_worker() {
-        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-        let bridge =
-            NativeStateBridge::spawn_with_timeout(receiver, || {}, Duration::from_millis(1));
+        let (sender, receiver) = bounded(1);
+        let bridge = NativeStateBridge::spawn(receiver, || {});
 
         drop(bridge);
 

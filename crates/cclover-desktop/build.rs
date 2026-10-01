@@ -81,7 +81,7 @@ fn c_field(name: &str, field_type: &str) -> String {
         "const_command_ptr" => format!("const CcloverCommand *{name};"),
         "const_point_ptr" => format!("const CcloverPoint *{name};"),
         "const_damage_rect_ptr" => format!("const CcloverDamageRect *{name};"),
-        "poll_fn" => format!("uint32_t (*{name})(void *context);"),
+        "state_fn" => format!("uint32_t (*{name})(void *context);"),
         "scene_fn" => format!(
             "void (*{name})(void *context, void *measure_context, float (*measure_text)(void *measure_context, const uint8_t *text, size_t text_len, uint32_t text_size, uint32_t flags), CcloverScene *scene);"
         ),

@@ -52,7 +52,17 @@ static const char MENU_XML[] =
     "  <method name='Event'>"
     "   <arg type='i' direction='in'/><arg type='s' direction='in'/><arg type='v' direction='in'/><arg type='u' direction='in'/>"
     "  </method>"
+    "  <method name='EventGroup'>"
+    "   <arg type='a(isvu)' direction='in'/><arg type='ai' direction='out'/>"
+    "  </method>"
     "  <method name='AboutToShow'><arg type='i' direction='in'/><arg type='b' direction='out'/></method>"
+    "  <method name='AboutToShowGroup'>"
+    "   <arg type='ai' direction='in'/><arg type='ai' direction='out'/><arg type='ai' direction='out'/>"
+    "  </method>"
+    "  <signal name='ItemsPropertiesUpdated'>"
+    "   <arg type='a(ia{sv})'/><arg type='a(ias)'/>"
+    "  </signal>"
+    "  <signal name='LayoutUpdated'><arg type='u'/><arg type='i'/></signal>"
     "  <property name='Version' type='u' access='read'/>"
     "  <property name='TextDirection' type='s' access='read'/>"
     "  <property name='Status' type='s' access='read'/>"
@@ -106,6 +116,18 @@ static GVariant *item_get_property(GDBusConnection *connection, const gchar *sen
     return NULL;
 }
 
+static gboolean menu_item_exists(gint32 id) {
+    return id == 0 || id == 1;
+}
+
+static gboolean menu_handle_event(CcloverLinuxTray *tray, gint32 id, const gchar *event_id) {
+    if (!menu_item_exists(id)) return FALSE;
+    if (id == 1 && g_str_equal(event_id, "clicked") && tray->quit_fn != NULL) {
+        tray->quit_fn(tray->quit_context);
+    }
+    return TRUE;
+}
+
 static void menu_method_call(GDBusConnection *connection, const gchar *sender, const gchar *object_path,
                              const gchar *interface_name, const gchar *method_name, GVariant *parameters,
                              GDBusMethodInvocation *invocation, gpointer user_data) {
@@ -141,15 +163,55 @@ static void menu_method_call(GDBusConnection *connection, const gchar *sender, c
         GVariant *data;
         guint32 timestamp;
         g_variant_get(parameters, "(i&svu)", &id, &event_id, &data, &timestamp);
-        (void)data; (void)timestamp;
-        if (id == 1 && g_str_equal(event_id, "clicked") && tray->quit_fn != NULL) {
-            tray->quit_fn(tray->quit_context);
-        }
+        (void)timestamp;
+        menu_handle_event(tray, id, event_id);
+        g_variant_unref(data);
         g_dbus_method_invocation_return_value(invocation, NULL);
+        return;
+    }
+    if (g_str_equal(method_name, "EventGroup")) {
+        GVariant *events = g_variant_get_child_value(parameters, 0);
+        GVariantBuilder errors;
+        g_variant_builder_init(&errors, G_VARIANT_TYPE("ai"));
+        for (gsize i = 0; i < g_variant_n_children(events); ++i) {
+            GVariant *event = g_variant_get_child_value(events, i);
+            gint32 id;
+            const gchar *event_id;
+            GVariant *data;
+            guint32 timestamp;
+            g_variant_get(event, "(i&svu)", &id, &event_id, &data, &timestamp);
+            (void)timestamp;
+            if (!menu_handle_event(tray, id, event_id)) {
+                g_variant_builder_add(&errors, "i", id);
+            }
+            g_variant_unref(data);
+            g_variant_unref(event);
+        }
+        g_variant_unref(events);
+        g_dbus_method_invocation_return_value(
+            invocation, g_variant_new("(@ai)", g_variant_builder_end(&errors)));
         return;
     }
     if (g_str_equal(method_name, "AboutToShow")) {
         g_dbus_method_invocation_return_value(invocation, g_variant_new("(b)", FALSE));
+        return;
+    }
+    if (g_str_equal(method_name, "AboutToShowGroup")) {
+        GVariant *ids = g_variant_get_child_value(parameters, 0);
+        GVariantBuilder updates;
+        GVariantBuilder errors;
+        g_variant_builder_init(&updates, G_VARIANT_TYPE("ai"));
+        g_variant_builder_init(&errors, G_VARIANT_TYPE("ai"));
+        for (gsize i = 0; i < g_variant_n_children(ids); ++i) {
+            gint32 id;
+            g_variant_get_child(ids, i, "i", &id);
+            if (!menu_item_exists(id)) g_variant_builder_add(&errors, "i", id);
+        }
+        g_variant_unref(ids);
+        g_dbus_method_invocation_return_value(
+            invocation,
+            g_variant_new("(@ai@ai)", g_variant_builder_end(&updates),
+                          g_variant_builder_end(&errors)));
         return;
     }
     g_dbus_method_invocation_return_dbus_error(invocation, "com.canonical.dbusmenu.Error.UnknownMethod", "unknown menu method");

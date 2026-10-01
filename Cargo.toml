@@ -26,6 +26,7 @@ cc = "1"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cclover-desktop = { path = "crates/cclover-desktop" }
 cclover-tui = { path = "crates/cclover-tui" }
+crossbeam-channel = "0.5"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"

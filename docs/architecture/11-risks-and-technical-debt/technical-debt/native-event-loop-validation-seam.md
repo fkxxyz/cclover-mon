@@ -26,7 +26,7 @@ Native desktop event-loop scheduling is implemented directly against real X11, W
 
 ## Evidence
 
-Current validation can prove structural properties such as the absence of periodic 100 ms polling and can compile both Linux and Windows host implementations. Full behavioral validation of the sequence from state publication through native wakeup, state consumption, and redraw still depends on a usable real desktop environment. Linux runtime validation can additionally be blocked before the event loop by compositor or layer-shell capability, while Windows cross-compilation cannot execute the Win32 message loop.
+Current validation can prove structural properties such as the absence of periodic GUI polling, explicit interruptible shutdown of the shared desktop state bridge, and separation of Linux state-ready and lifecycle wake sources; it can also compile both Linux and Windows host implementations. Full behavioral validation of the sequence from state publication through native wakeup, state consumption, and redraw still depends on a usable real desktop environment. Linux runtime validation can additionally be blocked before the event loop by compositor or layer-shell capability, while Windows cross-compilation cannot execute the Win32 message loop.
 
 ## Governing constraint
 
@@ -38,7 +38,7 @@ Review the shared desktop state bridge, Linux X11 and Wayland wait/dispatch path
 
 ## Maintenance consequence
 
-Changes to wake primitives, shutdown ordering, display dispatch, or message routing can compile successfully while still introducing lost wakes, duplicate frame requests, or shutdown races. Without a deterministic behavioral seam, maintainers must rely on platform-specific runtime checks for confidence, increasing verification cost and making regressions easier to miss when the required environment is unavailable.
+Changes to wake primitives, display dispatch, or message routing can compile successfully while still introducing lost wakes or duplicate frame requests. Explicit shutdown channels now remove the former timeout-driven desktop-worker shutdown path, but without a complete deterministic host behavioral seam, maintainers still rely on platform-specific runtime checks for end-to-end confidence.
 
 ## Repair direction
 

@@ -1,7 +1,6 @@
 define_native_abi! {
     constants {
-        POLL_FRAME => CCLOVER_POLL_FRAME = 1;
-        POLL_QUIT => CCLOVER_POLL_QUIT = 2;
+        STATE_CHANGED => CCLOVER_STATE_CHANGED = 1;
         COMMAND_FILL_RECT => CCLOVER_CMD_FILL_RECT = 1;
         COMMAND_STROKE_RECT => CCLOVER_CMD_STROKE_RECT = 2;
         COMMAND_TEXT => CCLOVER_CMD_TEXT = 3;
@@ -57,7 +56,7 @@ define_native_abi! {
         }
 
         HostCallbacks => CcloverCallbacks {
-            poll: poll_fn,
+            take_state: state_fn,
             scene: scene_fn,
         }
     }

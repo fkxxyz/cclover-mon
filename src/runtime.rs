@@ -1,8 +1,8 @@
 use std::hash::{Hash, Hasher};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
+
+use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TrySendError, bounded};
 
 use crate::core::model::MonitorState;
 use crate::core::{SampleCycle, Sampler};
@@ -16,7 +16,7 @@ pub struct StateSource {
 
 struct HubState {
     latest: Option<MonitorState>,
-    subscribers: Vec<SyncSender<MonitorState>>,
+    subscribers: Vec<Sender<MonitorState>>,
 }
 
 impl Hash for StateSource {
@@ -36,7 +36,7 @@ impl StateSource {
     }
 
     pub fn subscribe(&self) -> Receiver<MonitorState> {
-        let (sender, receiver) = mpsc::sync_channel(1);
+        let (sender, receiver) = bounded(1);
         let mut inner = self.inner.lock().expect("native state hub lock poisoned");
         if let Some(latest) = &inner.latest {
             let _ = sender.try_send(latest.clone());
@@ -59,7 +59,7 @@ impl StateSource {
 
 pub struct NativeRuntime {
     states: StateSource,
-    stop: Arc<AtomicBool>,
+    shutdown: Sender<()>,
     sampler_thread: Option<JoinHandle<()>>,
 }
 
@@ -67,13 +67,12 @@ impl NativeRuntime {
     pub fn start(web_state: Option<StateHub>) -> std::io::Result<Self> {
         let states = StateSource::new();
         let sampler_states = states.clone();
-        let stop = Arc::new(AtomicBool::new(false));
-        let sampler_stop = Arc::clone(&stop);
+        let (shutdown, shutdown_receiver) = bounded(1);
         let sampler_thread = thread::Builder::new()
             .name("cclover-mon-sampler".to_owned())
             .spawn(move || {
                 let mut sampler = Sampler::new(Backend::new());
-                while !sampler_stop.load(Ordering::Acquire) {
+                loop {
                     let cycle = SampleCycle::begin();
                     let state = sampler.sample();
                     sampler_states.publish(&state);
@@ -81,15 +80,17 @@ impl NativeRuntime {
                         web_state.publish(&state);
                     }
                     let remaining = cycle.remaining();
-                    if !remaining.is_zero() {
-                        thread::sleep(remaining);
+                    // Sampling cadence supplies the deadline; the shutdown channel can interrupt it immediately.
+                    match shutdown_receiver.recv_timeout(remaining) {
+                        Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
+                        Err(RecvTimeoutError::Timeout) => {}
                     }
                 }
             })?;
 
         Ok(Self {
             states,
-            stop,
+            shutdown,
             sampler_thread: Some(sampler_thread),
         })
     }
@@ -101,7 +102,7 @@ impl NativeRuntime {
 
 impl Drop for NativeRuntime {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Release);
+        let _ = self.shutdown.try_send(());
         if let Some(thread) = self.sampler_thread.take() {
             let _ = thread.join();
         }

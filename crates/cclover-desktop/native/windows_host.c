@@ -418,12 +418,8 @@ static LRESULT CALLBACK cclover_wndproc(HWND hwnd, UINT message, WPARAM wparam, 
         return 0;
     }
     case CCLOVER_WM_STATE: {
-        uint32_t poll = host->callbacks->poll(host->context);
-        if (poll & CCLOVER_POLL_QUIT) {
-            DestroyWindow(hwnd);
-            return 0;
-        }
-        if (poll & CCLOVER_POLL_FRAME) {
+        uint32_t state = host->callbacks->take_state(host->context);
+        if (state & CCLOVER_STATE_CHANGED) {
             CcloverScene scene;
             cclover_refresh_display(host, hwnd);
             cclover_scene(host, &scene);

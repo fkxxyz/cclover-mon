@@ -260,7 +260,7 @@ fn run_perf(limit: PerfLimit, mut work: impl FnMut()) {
 }
 
 pub fn run_tui(states: StateSource) -> std::io::Result<()> {
-    use std::sync::mpsc::TryRecvError;
+    use crossbeam_channel::TryRecvError;
 
     let receiver = states.subscribe();
     let mut ui = TerminalUi::enter()?;

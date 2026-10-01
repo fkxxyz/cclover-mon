@@ -13,14 +13,44 @@ fn linux_tray_tolerates_late_status_notifier_watcher() {
 
 #[test]
 fn native_desktop_hosts_use_event_driven_state_wakeups() {
+    let bridge = include_str!("../crates/cclover-desktop/src/native.rs");
     let linux = include_str!("../crates/cclover-desktop/native/linux_host.c");
     let windows = include_str!("../crates/cclover-desktop/native/windows_host.c");
 
-    assert!(linux.contains("poll(pfds, 2, -1)"));
+    assert!(bridge.contains("select!"));
+    assert!(!bridge.contains("recv_timeout"));
+    assert!(linux.contains("poll(pfds, 3, -1)"));
     assert!(!linux.contains("poll(&pfd, 1, 100)"));
+    assert!(linux.contains("state_wake_fd"));
+    assert!(linux.contains("quit_wake_fd"));
+    assert!(!linux.contains("CCLOVER_POLL_QUIT"));
     assert!(windows.contains("CCLOVER_WM_STATE"));
     assert!(!windows.contains("SetTimer("));
     assert!(!windows.contains("WM_TIMER"));
+}
+
+#[test]
+fn linux_dbusmenu_v4_exposes_grouped_methods() {
+    let source = include_str!("../crates/cclover-desktop/native/linux_tray.c");
+
+    assert!(source.contains("g_variant_new_uint32(4)"));
+    for method in ["EventGroup", "AboutToShowGroup"] {
+        assert!(
+            source.contains(&format!("<method name='{method}'>")),
+            "D-BusMenu version 4 declaration must expose {method}"
+        );
+        assert!(
+            source.contains(&format!("g_str_equal(method_name, \"{method}\")")),
+            "D-BusMenu version 4 declaration must implement {method}"
+        );
+    }
+    assert_eq!(
+        source
+            .matches("menu_handle_event(tray, id, event_id)")
+            .count(),
+        2,
+        "single and grouped events must share one menu-event handler"
+    );
 }
 
 #[test]
@@ -165,7 +195,7 @@ fn linux_incremental_rendering_preserves_steady_state_fast_path() {
         .expect("Linux host must provide a Wayland lifecycle")
         .1;
     let frame_poll = wayland_run
-        .split_once("if (status & CCLOVER_POLL_FRAME) {")
+        .split_once("if (status & CCLOVER_STATE_CHANGED) {")
         .expect("Wayland host must react to new frames")
         .1
         .split_once("if (host.configured && host.dirty) {")
@@ -176,7 +206,7 @@ fn linux_incremental_rendering_preserves_steady_state_fast_path() {
             .matches("cclover_scene(&host.host, &scene);")
             .count(),
         1,
-        "one POLL_FRAME must lower exactly one NativeScene"
+        "one state change must lower exactly one NativeScene"
     );
 
     let static_layer = source

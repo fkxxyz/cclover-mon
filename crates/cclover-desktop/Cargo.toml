@@ -9,6 +9,7 @@ build = "build.rs"
 cclover-core = { path = "../cclover-core" }
 cclover-presentation = { path = "../cclover-presentation" }
 cclover-ui = { path = "../cclover-ui" }
+crossbeam-channel = "0.5"
 
 [build-dependencies]
 cc = "1"

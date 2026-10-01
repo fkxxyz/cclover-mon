@@ -23,6 +23,7 @@ Presence is the state: every document in `technical-debt/` represents debt that 
 
 Current architecture-level technical debt:
 
+- [Native C host textual module boundaries](technical-debt/native-c-host-textual-module-boundaries.md) — Low-medium priority; Linux and Windows host responsibilities are physically separated but still share one C translation unit, so cross-fragment dependencies are not compiler-enforced.
 - [Native event-loop validation seam](technical-debt/native-event-loop-validation-seam.md) — Medium priority; native wakeup-to-frame scheduling still lacks a deterministic behavioral test seam independent of real X11, Wayland, or Win32 runtimes.
 - [TUI terminal cell width](technical-debt/tui-terminal-cell-width.md) — Low-medium priority; terminal layout still approximates visible width by Unicode scalar count instead of one shared display-cell width authority.
 - [Windows AMD Family 10h upstream authority](technical-debt/windows-amd-family10-upstream-authority.md) — Low-medium priority; Family 10h still retains a second temperature-algorithm authority because the pinned official PawnIO transport cannot execute upstream Erratum 319 validation.

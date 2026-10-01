@@ -1,3 +1,7 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
 #[test]
 fn linux_tray_tolerates_late_status_notifier_watcher() {
     let source = include_str!("../crates/cclover-desktop/native/linux_tray.c");
@@ -13,9 +17,9 @@ fn linux_tray_tolerates_late_status_notifier_watcher() {
 
 #[test]
 fn native_desktop_hosts_use_event_driven_state_wakeups() {
-    let bridge = include_str!("../crates/cclover-desktop/src/native.rs");
-    let linux = include_str!("../crates/cclover-desktop/native/linux_host.c");
-    let windows = include_str!("../crates/cclover-desktop/native/windows_host.c");
+    let bridge = rust_native();
+    let linux = linux_native();
+    let windows = windows_native();
 
     assert!(bridge.contains("select!"));
     assert!(!bridge.contains("recv_timeout"));
@@ -131,13 +135,13 @@ fn graphical_renderers_do_not_regain_cross_platform_gui_frameworks() {
 
 #[test]
 fn native_scene_abi_has_one_declarative_authority() {
-    let rust_bridge = include_str!("../crates/cclover-desktop/src/native.rs");
+    let rust_bridge = rust_native();
     let build_script = include_str!("../crates/cclover-desktop/build.rs");
     let spec = include_str!("../crates/cclover-desktop/src/native_abi_spec.rs");
     let handwritten_header = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("crates/cclover-desktop/native/native_scene.h");
 
-    assert!(rust_bridge.contains("include!(\"native_abi_spec.rs\")"));
+    assert!(rust_bridge.contains("include!(\"../native_abi_spec.rs\")"));
     assert!(build_script.contains("include!(\"src/native_abi_spec.rs\")"));
     assert!(spec.contains("NativeCommand => CcloverCommand"));
     assert!(
@@ -149,8 +153,8 @@ fn native_scene_abi_has_one_declarative_authority() {
 #[test]
 fn native_text_layout_uses_realized_renderer_metrics() {
     let scene = include_str!("../crates/cclover-ui/src/scene.rs");
-    let linux = include_str!("../crates/cclover-desktop/native/linux_host.c");
-    let windows = include_str!("../crates/cclover-desktop/native/windows_host.c");
+    let linux = linux_native();
+    let windows = windows_native();
 
     assert!(scene.contains("NativeTextMeasurer"));
     assert!(scene.contains("text.width(&cell.text, cell.size, cell.weight)"));
@@ -188,7 +192,7 @@ fn native_text_layout_uses_realized_renderer_metrics() {
 
 #[test]
 fn linux_incremental_rendering_preserves_steady_state_fast_path() {
-    let source = include_str!("../crates/cclover-desktop/native/linux_host.c");
+    let source = linux_native();
 
     let wayland_run = source
         .split_once("int cclover_linux_wayland_run")
@@ -268,7 +272,7 @@ fn linux_incremental_rendering_preserves_steady_state_fast_path() {
 
 #[test]
 fn linux_desktop_surface_preserves_panel_window_policy() {
-    let source = include_str!("../crates/cclover-desktop/native/linux_host.c");
+    let source = linux_native();
 
     for required in [
         "_NET_WM_STATE_SKIP_TASKBAR",
@@ -289,7 +293,7 @@ fn linux_desktop_surface_preserves_panel_window_policy() {
 
 #[test]
 fn windows_desktop_surface_preserves_panel_window_policy() {
-    let source = include_str!("../crates/cclover-desktop/native/windows_host.c");
+    let source = windows_native();
 
     for required in [
         "GetShellWindow()",
@@ -311,4 +315,92 @@ fn windows_desktop_surface_preserves_panel_window_policy() {
             "Windows desktop host must preserve native panel policy primitive: {required}"
         );
     }
+}
+fn rust_native() -> &'static str {
+    static SOURCE: OnceLock<String> = OnceLock::new();
+    SOURCE
+        .get_or_init(|| read_rust_module_tree("crates/cclover-desktop/src/native.rs"))
+        .as_str()
+}
+
+fn linux_native() -> &'static str {
+    static SOURCE: OnceLock<String> = OnceLock::new();
+    SOURCE
+        .get_or_init(|| read_c_host_tree("crates/cclover-desktop/native/linux_host.c"))
+        .as_str()
+}
+
+fn windows_native() -> &'static str {
+    static SOURCE: OnceLock<String> = OnceLock::new();
+    SOURCE
+        .get_or_init(|| read_c_host_tree("crates/cclover-desktop/native/windows_host.c"))
+        .as_str()
+}
+
+fn read_rust_module_tree(root_file: &str) -> String {
+    let root = workspace_path(root_file);
+    let module_dir = root.with_extension("");
+    let mut files = vec![root];
+    collect_source_files(&module_dir, &["rs"], &mut files);
+    read_sources(files)
+}
+
+fn read_c_host_tree(root_file: &str) -> String {
+    let root = workspace_path(root_file);
+    let stem = root
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .and_then(|stem| stem.strip_suffix("_host"))
+        .expect("native C host root must follow <platform>_host.c naming");
+    let module_dir = root
+        .parent()
+        .expect("native C host root must have a parent directory")
+        .join(stem);
+    let mut files = vec![root];
+    collect_source_files(&module_dir, &["c", "h", "inc"], &mut files);
+    read_sources(files)
+}
+
+fn workspace_path(relative: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join(relative)
+}
+
+fn collect_source_files(root: &Path, extensions: &[&str], files: &mut Vec<PathBuf>) {
+    if !root.exists() {
+        return;
+    }
+    let mut entries = fs::read_dir(root)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", root.display()))
+        .map(|entry| {
+            entry
+                .expect("source directory entry must be readable")
+                .path()
+        })
+        .collect::<Vec<_>>();
+    entries.sort();
+    for path in entries {
+        if path.is_dir() {
+            collect_source_files(&path, extensions, files);
+            continue;
+        }
+        if path.file_name().and_then(|name| name.to_str()) == Some("tests.rs") {
+            continue;
+        }
+        let extension = path.extension().and_then(|extension| extension.to_str());
+        if extension.is_some_and(|extension| extensions.contains(&extension)) {
+            files.push(path);
+        }
+    }
+}
+
+fn read_sources(mut files: Vec<PathBuf>) -> String {
+    files.sort();
+    files
+        .into_iter()
+        .map(|path| {
+            fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }

@@ -22,7 +22,7 @@ export const DOMAIN_RULES: Readonly<Record<Domain, DomainRule>> = {
     forbidden: ["platform", "presentation", "ui", "tui"],
   },
   platform: {
-    workspaceCrates: [],
+    workspaceCrates: ["cclover-platform"],
     forbidden: ["presentation", "ui", "tui"],
   },
   presentation: {

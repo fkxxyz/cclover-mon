@@ -5,7 +5,7 @@ import { LINUX_HWMON } from "./deps/linux-hwmon";
 
 const cacheRoot = process.env.CCLOVER_MON_DEPS_CACHE ?? join(homedir(), ".cache", "cclover-mon", "deps");
 const cache = join(cacheRoot, "linux-kernel");
-const vendorRoot = join(import.meta.dir, "vendor", "linux");
+const vendorRoot = join(import.meta.dir, "crates", "cclover-platform", "vendor", "linux");
 
 function run(command: string[], cwd?: string): string {
   const result = Bun.spawnSync({ cmd: command, cwd, stdout: "pipe", stderr: "pipe" });

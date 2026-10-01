@@ -51,8 +51,10 @@ src/app.rs                 应用状态、采样订阅、UI 更新流
 src/core/model.rs          共享类型化快照与历史模型
 src/core/sampler.rs        delta/rate 推导、Top-N、采样状态
 src/core/history.rs        有界历史更新
-src/platform/linux/        Linux 原生采集器，按指标职责拆分
-src/platform/windows.rs    Windows 后端；当前采集器仍为占位实现
+crates/cclover-platform/src/linux/    Linux 原生采集器，按指标职责拆分
+crates/cclover-platform/src/windows/  Windows 后端组合与指标采集器
+crates/cclover-platform/native/       platform 自有 eBPF 与 Windows hwmon 原生源码
+crates/cclover-platform/vendor/       platform 自有 vendored 上游源码
 src/presentation.rs        渲染器中立的 dashboard 展示模型与格式化
 src/ui/mod.rs              共享 Iced 桌面前端
 src/ui/layout.rs           Iced 面板结构与单一来源的面板尺寸计算

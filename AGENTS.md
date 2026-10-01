@@ -57,8 +57,10 @@ crates/cclover-desktop/native/linux_host.c    Wayland/X11 + Cairo host/drawing
 crates/cclover-core/src/model.rs    shared typed snapshots and history model
 crates/cclover-core/src/sampler.rs  delta/rate derivation, Top-N, sampling state
 crates/cclover-core/src/history.rs  bounded history updates
-src/platform/linux/        Linux native collectors split by metric responsibility
-src/platform/windows.rs    Windows backend composition; metric collectors live under src/platform/windows/
+crates/cclover-platform/src/linux/       Linux native collectors split by metric responsibility
+crates/cclover-platform/src/windows/     Windows backend composition and metric collectors
+crates/cclover-platform/native/          platform-owned eBPF and Windows hwmon native sources
+crates/cclover-platform/vendor/          platform-owned vendored upstream sources
 crates/cclover-presentation/src/lib.rs  renderer-neutral dashboard presentation model and formatting
 crates/cclover-tui/src/lib.rs           terminal frontend rendering and terminal lifecycle
 crates/cclover-ui/src/lib.rs            shared graphical dashboard tree, style tokens, geometry

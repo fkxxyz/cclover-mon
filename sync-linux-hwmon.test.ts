@@ -19,7 +19,7 @@ describe("vendored Linux hwmon snapshot", () => {
 
   for (const file of LINUX_HWMON.files) {
     test(`${file.path} matches the declared upstream digest`, async () => {
-      const vendorPath = join(import.meta.dir, "vendor", "linux", file.path.replace(/^drivers\//, ""));
+      const vendorPath = join(import.meta.dir, "crates", "cclover-platform", "vendor", "linux", file.path.replace(/^drivers\//, ""));
       expect(await sha256(vendorPath)).toBe(file.sha256);
       const source = await readFile(vendorPath, "utf8");
       expect(source.slice(0, 256)).toContain("SPDX-License-Identifier:");

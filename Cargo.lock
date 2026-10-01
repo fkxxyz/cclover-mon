@@ -32,16 +32,25 @@ dependencies = [
 name = "cclover-mon"
 version = "0.1.0"
 dependencies = [
- "cc",
  "cclover-core",
  "cclover-desktop",
+ "cclover-platform",
  "cclover-presentation",
  "cclover-tui",
  "cclover-web-ui",
  "crossbeam-channel",
- "libc",
  "serde",
  "serde_json",
+ "windows-sys",
+]
+
+[[package]]
+name = "cclover-platform"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "cclover-core",
+ "libc",
  "windows-sys",
 ]
 

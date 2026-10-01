@@ -52,7 +52,7 @@ app composition root ───────→ frontend
               OS APIs / native libraries
 ```
 
-The application composition root selects the platform backend and enabled frontends. `core` owns the platform-neutral model and sampling contracts and does not depend on `platform`. Platform-specific types remain below the platform boundary. Graphical dashboard structure has one authority in `cclover-ui`; the terminal frontend consumes presentation semantics directly because terminal layout is materially different.
+The application composition root selects the platform backend and enabled frontends. `cclover-platform` owns the Linux/Windows collector implementations and platform-native collection build assets; it implements core-owned collection contracts. `core` owns the platform-neutral model and sampling contracts and does not depend on `platform`. Platform-specific types remain below the platform boundary. Graphical dashboard structure has one authority in `cclover-ui`; the terminal frontend consumes presentation semantics directly because terminal layout is materially different.
 
 Detailed building-block Views:
 

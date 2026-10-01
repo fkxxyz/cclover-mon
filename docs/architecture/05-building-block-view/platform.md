@@ -17,7 +17,7 @@ facets:
 
 # Platform
 
-A platform backend is the batch composition point. Metric-specific OS access, parsing, source fan-in, and mutable collector state belong to the corresponding metric responsibility rather than to one monolithic backend.
+`cclover-platform` is the platform implementation boundary. A platform backend is its batch composition point. Metric-specific OS access, parsing, source fan-in, native collection build assets, and mutable collector state belong to the corresponding platform/metric responsibility rather than to the application composition root or one monolithic backend.
 
 ```text
 platform backend

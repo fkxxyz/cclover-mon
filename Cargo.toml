@@ -3,15 +3,14 @@ name = "cclover-mon"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-2.0-or-later"
-build = "build.rs"
 
 [workspace]
-members = ["crates/cclover-core", "crates/cclover-presentation", "crates/cclover-ui", "crates/cclover-tui", "crates/cclover-web-ui", "crates/cclover-desktop"]
+members = ["crates/cclover-core", "crates/cclover-platform", "crates/cclover-presentation", "crates/cclover-ui", "crates/cclover-tui", "crates/cclover-web-ui", "crates/cclover-desktop"]
 
 [features]
 default = ["http", "ebpf-io"]
 http = ["dep:cclover-web-ui", "dep:serde", "dep:serde_json"]
-ebpf-io = []
+ebpf-io = ["cclover-platform/ebpf-io"]
 
 [dependencies]
 cclover-core = { path = "crates/cclover-core" }
@@ -20,46 +19,16 @@ cclover-web-ui = { path = "crates/cclover-web-ui", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 
-[build-dependencies]
-cc = "1"
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cclover-desktop = { path = "crates/cclover-desktop" }
 cclover-tui = { path = "crates/cclover-tui" }
 crossbeam-channel = "0.5"
 
-[target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2"
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
+cclover-platform = { path = "crates/cclover-platform", default-features = false }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { version = "0.61.2", features = [
-    "Wdk_Graphics_Direct3D",
-    "Wdk_System_SystemInformation",
-    "Wdk_System_SystemServices",
-    "Win32_Devices_DeviceAndDriverInstallation",
-    "Win32_Devices_Properties",
-    "Win32_Foundation",
-    "Win32_NetworkManagement_IpHelper",
-    "Win32_NetworkManagement_Ndis",
-    "Win32_Security",
-    "Win32_Security_Authorization",
-    "Win32_Security_Cryptography",
-    "Win32_Storage_FileSystem",
-    "Win32_System_Diagnostics_Etw",
-    "Win32_System_Console",
-    "Win32_System_IO",
-    "Win32_System_Ioctl",
-    "Win32_System_LibraryLoader",
-    "Win32_System_Memory",
-    "Win32_System_ProcessStatus",
-    "Win32_System_Power",
-    "Win32_System_Registry",
-    "Win32_System_SystemInformation",
-    "Win32_System_Threading",
-    "Win32_System_Time",
-    "Win32_System_WindowsProgramming",
-    "Win32_UI_Shell",
-] }
+windows-sys = { version = "0.61.2", features = ["Win32_System_Console"] }
 
 [profile.dist]
 inherits = "release"

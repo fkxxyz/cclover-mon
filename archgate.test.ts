@@ -21,9 +21,9 @@ const cases: Array<[string, string, string, number]> = [
   ["workspace core -> presentation crate", "crates/cclover-core/src/model.rs", "use cclover_presentation::Dashboard;", 1],
   ["workspace presentation -> core crate allowed", "crates/cclover-presentation/src/lib.rs", "use cclover_core::model::MonitorState;", 0],
   ["workspace presentation -> platform", "crates/cclover-presentation/src/lib.rs", "use crate::platform::Backend;", 1],
-  ["platform -> core allowed", "src/platform/linux/mod.rs", "use crate::core::Collector;", 0],
-  ["platform -> presentation", "src/platform/linux/mod.rs", "use crate::presentation::Dashboard;", 1],
-  ["platform -> ui", "src/platform/linux/mod.rs", "use crate::ui::PanelLayout;", 1],
+  ["platform -> core allowed", "crates/cclover-platform/src/linux/mod.rs", "use cclover_core::Collector;", 0],
+  ["platform -> presentation", "crates/cclover-platform/src/linux/mod.rs", "use cclover_presentation::Dashboard;", 1],
+  ["platform -> ui", "crates/cclover-platform/src/linux/mod.rs", "use cclover_ui::PanelLayout;", 1],
   ["presentation -> core allowed", "src/presentation.rs", "use crate::core::model::MonitorState;", 0],
   ["presentation -> platform", "src/presentation.rs", "use crate::platform::Backend;", 1],
   ["presentation -> ui", "src/presentation.rs", "crate::ui::render();", 1],
@@ -56,7 +56,7 @@ describe("architecture dependency rules", () => {
   test("every domain pair follows the declarative policy", () => {
     const sourceFiles = {
       core: "src/core/model.rs",
-      platform: "src/platform/linux/mod.rs",
+      platform: "crates/cclover-platform/src/linux/mod.rs",
       presentation: "src/presentation.rs",
       ui: "src/ui/layout.rs",
       tui: "src/tui.rs",

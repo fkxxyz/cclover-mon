@@ -1,6 +1,6 @@
 # cclover-mon
 
-A lightweight native desktop system monitor with a compact always-on-screen panel.
+A lightweight native system monitor for Linux and Windows, with interactive desktop/TUI frontends and a separate headless server artifact.
 
 ## Features
 
@@ -16,7 +16,7 @@ A lightweight native desktop system monitor with a compact always-on-screen pane
 ## Platform Support
 
 - **Linux:** supported. Uses native `/proc` and `/sys` data sources and Wayland layer-shell placement.
-- **Windows:** supported native collectors for CPU, memory, processes, network interfaces, physical disks, temperatures, NVIDIA/AMD GPU telemetry, and per-process network attribution through NDU. Per-process disk attribution is not implemented. NDU uses an undocumented Windows ABI, so compatibility and real-host acceptance coverage remain explicitly tracked.
+- **Windows:** supported native collectors for CPU, memory, processes, network interfaces, physical disks, temperatures, NVIDIA/AMD GPU telemetry, per-process network attribution through NDU, and per-process disk attribution through FileIo ETW. NDU uses an undocumented Windows ABI, and representative real-host ETW semantic coverage remains explicitly tracked.
 
 ## Build
 
@@ -26,11 +26,19 @@ Requires a Rust toolchain with Cargo.
 cargo build --release
 ```
 
-The executable is written to:
+The interactive executable is written to:
 
 ```text
 target/release/cclover-mon
 ```
+
+Build the independent headless server product with:
+
+```bash
+cargo build --release -p cclover-server
+```
+
+Its executable is written to `target/release/cclover-mon-server`. It does not depend on the desktop/TUI crates or Linux GUI libraries.
 
 For final distribution artifacts, use the size-oriented profile. It preserves normal
 `release` behavior for development while treating any Rust panic as an unrecoverable
@@ -55,7 +63,7 @@ On a Windows host, run the deterministic Windows test suite with:
 bun validate.ts windows-native
 ```
 
-For local preflight and Linux validation, use `bun validate.ts fast` and `bun validate.ts linux`. `bun validate.ts portable` runs the host-portable fast/Linux/Windows-cross profiles; CI additionally runs `windows-native` on a Windows runner.
+For local preflight and Linux validation, use `bun validate.ts fast` and `bun validate.ts linux`. Use `bun validate.ts server` for the headless product dependency/runtime/SIGTERM smoke. `bun validate.ts portable` runs the host-portable fast/Linux/Windows-cross profiles; CI additionally runs `windows-native` on a Windows runner.
 
 The 32-bit executable is written to:
 
@@ -74,6 +82,15 @@ Or run the built executable directly:
 ```bash
 ./target/release/cclover-mon
 ```
+
+For headless operation:
+
+```bash
+./target/release/cclover-mon-server
+./target/release/cclover-mon-server --bind 0.0.0.0:9847
+```
+
+The server defaults to `127.0.0.1:9847`. `/healthz` reports HTTP liveness, while `/readyz` becomes ready after the first real sample. Linux service files are under `packaging/server/systemd/`; Windows SCM installation support is under `packaging/server/windows/`.
 
 ### Wayland
 

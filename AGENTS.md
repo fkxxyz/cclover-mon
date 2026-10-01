@@ -64,7 +64,10 @@ crates/cclover-platform/vendor/          platform-owned vendored upstream source
 crates/cclover-presentation/src/lib.rs  renderer-neutral dashboard presentation model and formatting
 crates/cclover-tui/src/lib.rs           terminal frontend rendering and terminal lifecycle
 crates/cclover-ui/src/lib.rs            shared graphical dashboard tree, style tokens, geometry
-crates/cclover-web-ui/src/lib.rs       server-side HTML/SVG/CSS renderer boundary
+crates/cclover-web-ui/src/lib.rs        server-side HTML/SVG/CSS renderer boundary
+crates/cclover-runtime/src/             shared native sampler execution, state publication, shutdown
+crates/cclover-http/src/                shared HTTP/SSE/API transport over published MonitorState
+crates/cclover-server/src/              headless cclover-mon-server composition root and service lifecycle
 docs/architecture/         architecture Views and governance data
 archdoc.ts                 architecture documentation navigator and validator
 ```
@@ -144,6 +147,12 @@ Run the real-browser Web smoke test only when Chromium/Chrome is available:
 bun validate.ts web-browser
 ```
 
+Run the headless server build/dependency/runtime/SIGTERM smoke with:
+
+```bash
+bun validate.ts server
+```
+
 `web-browser` is intentionally separate from `fast`, `linux`, and `portable`; ordinary development and builds do not require a browser. CI provisions Chromium/Chrome explicitly for this profile.
 
 `bun validate.ts portable` runs the host-portable fast/Linux/Windows-cross profiles when the required Linux and cargo-xwin toolchains are available. Windows-host execution remains a separate `windows-native` profile because it requires a Windows runner. GitHub Actions invokes these same profiles; do not maintain a separate CI-only validation command set.
@@ -155,6 +164,7 @@ For Linux UI or window-placement changes, also perform a real Wayland runtime ch
 ## Common Pitfalls
 
 - Native Linux desktop rendering requires Cairo, X11/Xext, Wayland client libraries, and the checked-in generated layer-shell protocol sources. Do not reintroduce Iced/winit/wgpu to avoid native host work.
+- `cclover-mon-server` is an independent product artifact. It must not depend on `cclover-desktop`, `cclover-tui`, Cairo, X11, Wayland, or desktop-session integration. Shared sampling belongs in `cclover-runtime`; shared HTTP/API delivery belongs in `cclover-http`.
 - Every `cargo xwin` build must use exactly `XWIN_ARCH=x86,x86_64`, including builds targeting only `i686-pc-windows-msvc` or only `x86_64-pc-windows-msvc`. Do not omit it or switch to a per-target value: cargo-xwin's default architecture set differs, and changing this setting can force CRT/SDK cache re-download/re-splat work.
 - Linux is implemented and runtime-validated. Windows native collectors for CPU, memory, processes, network interfaces, physical disks, temperatures, NVIDIA/AMD GPU telemetry, per-process network attribution through NDU, and per-process disk attribution through FileIo ETW are implemented. Windows ETW disk attribution is cross-build validated but still requires representative real-Windows runtime validation of event schema/completion-byte semantics. NDU uses an undocumented Windows ABI; preserve the isolated wrapper and keep real-Windows compatibility and end-to-end acceptance gaps aligned with the corresponding technical-debt records.
 - Static compilation is insufficient for UI changes. Previous runtime checks caught layout overlap and virtual block devices that passed Rust tests and Clippy.
@@ -180,10 +190,20 @@ Development launch:
 cargo run --release
 ```
 
-Built executable:
+Built interactive executable:
 
 ```text
 target/release/cclover-mon
+```
+
+Headless server build and executable:
+
+```bash
+cargo build --release -p cclover-server
+```
+
+```text
+target/release/cclover-mon-server
 ```
 
 Windows cross-build validation:

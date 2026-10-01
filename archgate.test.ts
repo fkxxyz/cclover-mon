@@ -60,6 +60,9 @@ describe("architecture dependency rules", () => {
       presentation: "src/presentation.rs",
       ui: "src/ui/layout.rs",
       tui: "src/tui.rs",
+      runtime: "crates/cclover-runtime/src/lib.rs",
+      http: "crates/cclover-http/src/lib.rs",
+      server_app: "crates/cclover-server/src/main.rs",
     } as const;
 
     for (const from of DOMAIN_NAMES) {

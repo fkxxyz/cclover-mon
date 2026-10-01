@@ -78,6 +78,21 @@ const WINDOWS_STEPS: readonly ValidationStep[] = [
       command: ["cargo", "xwin", "build", "--locked", "--release", "--target", target],
       env: { XWIN_ARCH },
     },
+    {
+      name: `Windows server release build (${target})`,
+      command: [
+        "cargo",
+        "xwin",
+        "build",
+        "--locked",
+        "--release",
+        "-p",
+        "cclover-server",
+        "--target",
+        target,
+      ],
+      env: { XWIN_ARCH },
+    },
   ]),
 ];
 
@@ -103,6 +118,15 @@ const WEB_BROWSER_STEPS: readonly ValidationStep[] = [
   { name: "Chromium web runtime smoke", command: ["bun", "web-browser-smoke.ts"] },
 ];
 
+const SERVER_STEPS: readonly ValidationStep[] = [
+  { name: "server tests", command: ["cargo", "test", "--locked", "-p", "cclover-server"] },
+  {
+    name: "server release build",
+    command: ["cargo", "build", "--locked", "--release", "-p", "cclover-server"],
+  },
+  { name: "server headless runtime smoke", command: ["bun", "server-smoke.ts"] },
+];
+
 export const VALIDATION_PROFILES = {
   fast: FAST_STEPS,
   linux: LINUX_STEPS,
@@ -110,6 +134,7 @@ export const VALIDATION_PROFILES = {
   "windows-native": WINDOWS_NATIVE_STEPS,
   "windows-etw-runtime": WINDOWS_ETW_RUNTIME_STEPS,
   "web-browser": WEB_BROWSER_STEPS,
+  server: SERVER_STEPS,
   portable: [...FAST_STEPS, ...LINUX_STEPS, ...WINDOWS_STEPS],
 } as const;
 
@@ -133,7 +158,7 @@ export function formatValidationStep(step: ValidationStep): string {
 
 function usage(): void {
   console.log(
-    "usage: bun validate.ts <fast|linux|windows|windows-native|windows-etw-runtime|web-browser|portable>",
+    "usage: bun validate.ts <fast|linux|windows|windows-native|windows-etw-runtime|web-browser|server|portable>",
   );
 }
 

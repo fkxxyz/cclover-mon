@@ -52,7 +52,7 @@ app composition root ───────→ frontend
               OS APIs / native libraries
 ```
 
-The application composition root selects the platform backend and enabled frontends. `cclover-platform` owns the Linux/Windows collector implementations and platform-native collection build assets; it implements core-owned collection contracts. `core` owns the platform-neutral model and sampling contracts and does not depend on `platform`. Platform-specific types remain below the platform boundary. Graphical dashboard structure has one authority in `cclover-ui`; the terminal frontend consumes presentation semantics directly because terminal layout is materially different.
+Each product composition root selects its host and transport set. The interactive root composes desktop/TUI and optional HTTP; `cclover-server` composes only the shared sampling runtime and HTTP transport. `cclover-runtime` owns the native sampler thread, latest-state publication, subscriptions, and cooperative shutdown primitive; it depends on core/platform but not on any frontend or transport. `cclover-http` subscribes to that state source and owns HTTP/Web/API projection. `cclover-platform` owns the Linux/Windows collector implementations and platform-native collection build assets; it implements core-owned collection contracts. `core` owns the platform-neutral model and sampling contracts and does not depend on `platform`. Platform-specific types remain below the platform boundary. Graphical dashboard structure has one authority in `cclover-ui`; the terminal frontend consumes presentation semantics directly because terminal layout is materially different.
 
 Detailed building-block Views:
 

@@ -1,40 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
-
-use serde::Serialize;
-
-use crate::core::model::{
-    Collection, CollectionUnavailable, DiskSnapshot, FanSnapshot, GpuSnapshot, MemorySnapshot,
-    MonitorHistory, MonitorState, NetworkDirectionHistory, NetworkSnapshot, ProcessCpuUsage,
-    ProcessDiskIo, ProcessMemoryUsage, ProcessNetworkIo, SystemSnapshot, TemperatureSnapshot,
-};
-
-#[derive(Clone, Debug, Default, Serialize)]
-pub(crate) struct ApiV1State {
-    snapshot: ApiV1Snapshot,
-    history: ApiV1History,
-    history_capacity: usize,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ApiV1Slice {
-    Cpu,
-    Memory,
-    Disks,
-    Networks,
-    Temperatures,
-    Fans,
-    Gpus,
-    GpuMemoryLegacy,
-    Processes,
-    HistoryCpu,
-    HistoryMemory,
-    HistoryGpus,
-    HistoryGpuMemoryLegacy,
-    HistoryDisks,
-    HistoryNetworks,
-    HistoryTemperatures,
-    HistoryFans,
-}
+use super::model::*;
 
 impl ApiV1State {
     pub(crate) fn serialize_slice(&self, slice: ApiV1Slice) -> serde_json::Result<String> {
@@ -113,10 +77,3 @@ impl ApiV1State {
         }
     }
 }
-
-mod projection;
-mod schema;
-mod slices;
-
-use schema::*;
-use slices::*;

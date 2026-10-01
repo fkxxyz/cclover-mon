@@ -5,29 +5,32 @@ edition = "2024"
 license = "GPL-2.0-or-later"
 
 [workspace]
-members = ["crates/cclover-core", "crates/cclover-platform", "crates/cclover-presentation", "crates/cclover-ui", "crates/cclover-tui", "crates/cclover-web-ui", "crates/cclover-desktop"]
+members = ["crates/cclover-core", "crates/cclover-platform", "crates/cclover-presentation", "crates/cclover-ui", "crates/cclover-tui", "crates/cclover-web-ui", "crates/cclover-desktop", "crates/cclover-runtime", "crates/cclover-http", "crates/cclover-server"]
 
 [features]
 default = ["http", "ebpf-io"]
-http = ["dep:cclover-web-ui", "dep:serde", "dep:serde_json"]
+http = ["dep:cclover-http"]
 ebpf-io = ["cclover-platform/ebpf-io"]
 
 [dependencies]
 cclover-core = { path = "crates/cclover-core" }
 cclover-presentation = { path = "crates/cclover-presentation" }
-cclover-web-ui = { path = "crates/cclover-web-ui", optional = true }
-serde = { version = "1", features = ["derive"], optional = true }
-serde_json = { version = "1", optional = true }
+cclover-http = { path = "crates/cclover-http", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cclover-desktop = { path = "crates/cclover-desktop" }
+cclover-runtime = { path = "crates/cclover-runtime" }
 cclover-tui = { path = "crates/cclover-tui" }
 crossbeam-channel = "0.5"
 
 [target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
 cclover-platform = { path = "crates/cclover-platform", default-features = false }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+signal-hook = "0.3"
+
 [target.'cfg(target_os = "windows")'.dependencies]
+ctrlc = "3"
 windows-sys = { version = "0.61.2", features = ["Win32_System_Console"] }
 
 [profile.dist]

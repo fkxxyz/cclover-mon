@@ -1,0 +1,16 @@
+[Unit]
+Description=cclover-mon headless system monitor
+After=network.target
+
+[Service]
+Type=simple
+User=cclover-mon
+Group=cclover-mon
+DynamicUser=yes
+ExecStart=/usr/bin/cclover-mon-server
+Restart=on-failure
+RestartSec=2s
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

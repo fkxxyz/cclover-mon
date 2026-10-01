@@ -34,6 +34,19 @@ jobs:
           libcairo2-dev libx11-dev libxext-dev libxrender-dev libwayland-dev
       - run: bun validate.ts linux
 
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install native build dependencies
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          clang libbpf-dev libelf-dev pkg-config
+      - run: bun validate.ts server
+
   windows-cross:
     runs-on: ubuntu-latest
     steps:

@@ -2,8 +2,6 @@
 
 pub mod core;
 pub mod presentation;
-#[cfg(all(not(target_arch = "wasm32"), feature = "http"))]
-pub(crate) mod web_api;
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 pub mod cli;

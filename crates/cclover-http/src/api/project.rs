@@ -1,4 +1,11 @@
-use super::*;
+use cclover_core::model::{
+    DiskSnapshot, FanSnapshot, GpuSnapshot, MemorySnapshot, MonitorHistory, MonitorState,
+    NetworkDirectionHistory, NetworkSnapshot, ProcessCpuUsage, ProcessDiskIo, ProcessMemoryUsage,
+    ProcessNetworkIo, SystemSnapshot, TemperatureSnapshot,
+};
+
+use super::model::*;
+
 impl From<&MonitorState> for ApiV1State {
     fn from(state: &MonitorState) -> Self {
         Self {

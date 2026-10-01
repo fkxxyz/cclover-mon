@@ -1,7 +1,16 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative, resolve, sep } from "node:path";
 
-export const DOMAIN_NAMES = ["core", "platform", "presentation", "ui", "tui"] as const;
+export const DOMAIN_NAMES = [
+  "core",
+  "platform",
+  "presentation",
+  "ui",
+  "tui",
+  "runtime",
+  "http",
+  "server_app",
+] as const;
 export type Domain = (typeof DOMAIN_NAMES)[number];
 
 export interface Violation {
@@ -19,23 +28,35 @@ interface DomainRule {
 export const DOMAIN_RULES: Readonly<Record<Domain, DomainRule>> = {
   core: {
     workspaceCrates: ["cclover-core"],
-    forbidden: ["platform", "presentation", "ui", "tui"],
+    forbidden: ["platform", "presentation", "ui", "tui", "runtime", "http", "server_app"],
   },
   platform: {
     workspaceCrates: ["cclover-platform"],
-    forbidden: ["presentation", "ui", "tui"],
+    forbidden: ["presentation", "ui", "tui", "runtime", "http", "server_app"],
   },
   presentation: {
     workspaceCrates: ["cclover-presentation"],
-    forbidden: ["platform", "ui", "tui"],
+    forbidden: ["platform", "ui", "tui", "runtime", "http", "server_app"],
   },
   ui: {
     workspaceCrates: ["cclover-ui", "cclover-web-ui", "cclover-desktop"],
-    forbidden: ["platform", "tui"],
+    forbidden: ["platform", "tui", "runtime", "http", "server_app"],
   },
   tui: {
     workspaceCrates: ["cclover-tui"],
-    forbidden: ["core", "platform", "ui"],
+    forbidden: ["core", "platform", "ui", "runtime", "http", "server_app"],
+  },
+  runtime: {
+    workspaceCrates: ["cclover-runtime"],
+    forbidden: ["presentation", "ui", "tui", "http", "server_app"],
+  },
+  http: {
+    workspaceCrates: ["cclover-http"],
+    forbidden: ["platform", "tui", "server_app"],
+  },
+  server_app: {
+    workspaceCrates: ["cclover-server"],
+    forbidden: ["core", "presentation", "ui", "tui"],
   },
 };
 

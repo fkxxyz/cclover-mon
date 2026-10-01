@@ -37,6 +37,17 @@ describe("validation profiles", () => {
     }
   });
 
+  test("Windows cross validation builds the headless server for both targets", () => {
+    const serverBuilds = validationSteps("windows").filter((step) =>
+      step.command.includes("cclover-server"),
+    );
+    expect(serverBuilds).toHaveLength(2);
+    expect(serverBuilds.map((step) => step.command.at(-1))).toEqual([
+      "x86_64-pc-windows-msvc",
+      "i686-pc-windows-msvc",
+    ]);
+  });
+
   test("Windows native validation executes deterministic tests on a Windows host", () => {
     expect(validationSteps("windows-native").map((step) => step.command)).toEqual([
       ["bun", "prepare-windows-deps.ts"],
@@ -77,6 +88,14 @@ describe("validation profiles", () => {
     ]);
     expect(validationSteps("fast").some((step) => step.command.includes("web-browser-smoke.ts"))).toBe(false);
     expect(validationSteps("linux").some((step) => step.command.includes("web-browser-smoke.ts"))).toBe(false);
+  });
+
+  test("server validation owns the headless product smoke", () => {
+    expect(validationSteps("server").map((step) => step.command)).toEqual([
+      ["cargo", "test", "--locked", "-p", "cclover-server"],
+      ["cargo", "build", "--locked", "--release", "-p", "cclover-server"],
+      ["bun", "server-smoke.ts"],
+    ]);
   });
 
   test("portable profile is exactly the three host-portable profiles in order", () => {

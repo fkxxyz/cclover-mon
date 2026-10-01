@@ -1,0 +1,21 @@
+[package]
+name = "cclover-server"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-2.0-or-later"
+
+[[bin]]
+name = "cclover-mon-server"
+path = "src/main.rs"
+
+[dependencies]
+cclover-http = { path = "../cclover-http" }
+cclover-runtime = { path = "../cclover-runtime" }
+cclover-platform = { path = "../cclover-platform", default-features = false, features = ["ebpf-io"] }
+
+[target.'cfg(unix)'.dependencies]
+signal-hook = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+ctrlc = "3"
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Services"] }

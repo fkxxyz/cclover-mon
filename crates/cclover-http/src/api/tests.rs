@@ -1,11 +1,12 @@
-use super::*;
 use std::collections::VecDeque;
 
-use crate::core::model::{
-    Collection, CollectionUnavailable, GpuId, GpuSnapshot, MemorySnapshot, MonitorState,
+use cclover_core::model::{
+    Collection, CollectionUnavailable, DiskId, GpuId, GpuSnapshot, MemorySnapshot, MonitorState,
     ProcessDiskIo, ProcessInstanceId,
 };
 use serde_json::json;
+
+use super::model::*;
 
 fn representative_state() -> MonitorState {
     let mut state = MonitorState {
@@ -51,7 +52,7 @@ fn representative_state() -> MonitorState {
             birth_marker: 7,
         },
         name: Some("worker".into()),
-        disk_id: crate::core::model::DiskId::from_opaque_key("disk-a"),
+        disk_id: DiskId::from_opaque_key("disk-a"),
         device: "nvme0n1".to_owned(),
         read_bytes_per_sec: 1.0,
         write_bytes_per_sec: 2.0,

@@ -3,6 +3,7 @@
 
 use cclover_mon::{cli, launch, runtime, web};
 
+mod lifecycle;
 #[cfg(target_os = "windows")]
 mod windows_console;
 
@@ -24,9 +25,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "windows")]
     cclover_mon::platform::prepare_machine_capability();
 
-    let http = options.http.map(web::HttpServer::start).transpose()?;
-    let web_state = http.as_ref().map(web::HttpServer::state_hub);
-    let runtime = runtime::NativeRuntime::start(web_state)?;
+    let shutdown = cclover_runtime::Shutdown::default();
+    let runtime = runtime::NativeRuntime::start_with_shutdown(shutdown.clone())?;
+    let _http = options
+        .http
+        .map(|config| web::HttpServer::start(config, runtime.states(), shutdown.clone()))
+        .transpose()?;
 
     if options.desktop {
         let tui_thread = options.tui.then(|| {
@@ -52,9 +56,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    loop {
-        std::thread::park();
-    }
+    lifecycle::wait(shutdown)?;
+    Ok(())
 }
 
 #[cfg(test)]

@@ -5,31 +5,13 @@ use std::io;
 use std::ptr;
 use std::time::Duration;
 
-#[derive(Default)]
-pub(crate) struct Panel {
-    pub(crate) title: String,
-    pub(crate) rows: Vec<String>,
-    pub(crate) history: Vec<u64>,
-}
-
-#[derive(Default)]
-pub(crate) struct Frame {
-    pub(crate) cpu: Panel,
-    pub(crate) memory: Panel,
-    pub(crate) gpu: Panel,
-    pub(crate) temperatures: Panel,
-    pub(crate) fans: Panel,
-    pub(crate) disks: Panel,
-    pub(crate) networks: Panel,
-}
+use crate::layout::RenderedFrame;
 
 macro_rules! abi_rust_type {
     (usize) => { usize };
     (const_u8_ptr) => { *const u8 };
-    (const_u64_ptr) => { *const u64 };
-    (native_text) => { NativeText };
     (const_native_text_ptr) => { *const NativeText };
-    (native_panel) => { NativePanel };
+    (native_text) => { NativeText };
 }
 
 macro_rules! define_native_abi {
@@ -53,36 +35,6 @@ macro_rules! define_native_abi {
 
 include!("native_abi_spec.rs");
 
-struct PanelView {
-    rows: Vec<NativeText>,
-}
-
-impl PanelView {
-    fn new(panel: &Panel) -> Self {
-        Self {
-            rows: panel.rows.iter().map(|row| native_text(row)).collect(),
-        }
-    }
-
-    fn native(&self, panel: &Panel) -> NativePanel {
-        NativePanel {
-            title: native_text(&panel.title),
-            rows: if self.rows.is_empty() {
-                ptr::null()
-            } else {
-                self.rows.as_ptr()
-            },
-            row_count: self.rows.len(),
-            history: if panel.history.is_empty() {
-                ptr::null()
-            } else {
-                panel.history.as_ptr()
-            },
-            history_count: panel.history.len(),
-        }
-    }
-}
-
 fn native_text(text: &str) -> NativeText {
     NativeText {
         ptr: text.as_ptr(),
@@ -93,6 +45,7 @@ fn native_text(text: &str) -> NativeText {
 unsafe extern "C" {
     fn cclover_tui_enter(out: *mut *mut c_void) -> i32;
     fn cclover_tui_leave(ui: *mut c_void);
+    fn cclover_tui_size(ui: *mut c_void, width: *mut u32, height: *mut u32) -> i32;
     fn cclover_tui_draw(ui: *mut c_void, frame: *const NativeFrame) -> i32;
     fn cclover_tui_size_changed(ui: *mut c_void, changed: *mut i32) -> i32;
     fn cclover_tui_wait_for_quit(ui: *mut c_void, timeout_ms: u32, quit: *mut i32) -> i32;
@@ -114,24 +67,25 @@ impl Terminal {
         Ok(Self { handle })
     }
 
-    pub(crate) fn draw(&mut self, frame: &Frame) -> io::Result<()> {
-        let cpu = PanelView::new(&frame.cpu);
-        let memory = PanelView::new(&frame.memory);
-        let gpu = PanelView::new(&frame.gpu);
-        let temperatures = PanelView::new(&frame.temperatures);
-        let fans = PanelView::new(&frame.fans);
-        let disks = PanelView::new(&frame.disks);
-        let networks = PanelView::new(&frame.networks);
+    pub(crate) fn size(&mut self) -> io::Result<(u32, u32)> {
+        let mut width = 0;
+        let mut height = 0;
+        // SAFETY: `self.handle` is valid until Drop and both output pointers are writable.
+        check(unsafe { cclover_tui_size(self.handle, &mut width, &mut height) })?;
+        Ok((width, height))
+    }
+
+    pub(crate) fn draw(&mut self, frame: &RenderedFrame) -> io::Result<()> {
+        let lines: Vec<_> = frame.lines.iter().map(|line| native_text(line)).collect();
         let native = NativeFrame {
-            cpu: cpu.native(&frame.cpu),
-            memory: memory.native(&frame.memory),
-            gpu: gpu.native(&frame.gpu),
-            temperatures: temperatures.native(&frame.temperatures),
-            fans: fans.native(&frame.fans),
-            disks: disks.native(&frame.disks),
-            networks: networks.native(&frame.networks),
+            lines: if lines.is_empty() {
+                ptr::null()
+            } else {
+                lines.as_ptr()
+            },
+            line_count: lines.len(),
         };
-        // SAFETY: all pointers in `native` reference frame/view storage alive for this synchronous call.
+        // SAFETY: pointers in `native` reference `lines`/frame storage alive for this synchronous call.
         check(unsafe { cclover_tui_draw(self.handle, &native) })
     }
 

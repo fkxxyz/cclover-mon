@@ -2,7 +2,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include "native_tui.h"
 
@@ -29,118 +28,6 @@ typedef struct {
     unsigned height;
     int active;
 } CcloverTui;
-
-static size_t utf8_prefix(const uint8_t *text, size_t len, size_t columns) {
-    size_t offset = 0;
-    size_t count = 0;
-    while (offset < len && count < columns) {
-        uint8_t byte = text[offset];
-        size_t width = 1;
-        if ((byte & 0xe0u) == 0xc0u) width = 2;
-        else if ((byte & 0xf0u) == 0xe0u) width = 3;
-        else if ((byte & 0xf8u) == 0xf0u) width = 4;
-        if (offset + width > len) break;
-        offset += width;
-        count += 1;
-    }
-    return offset;
-}
-
-static void cursor_at(unsigned x, unsigned y) {
-    fprintf(stdout, "\x1b[%u;%uH", y + 1, x + 1);
-}
-
-static void write_text(unsigned x, unsigned y, unsigned width, CcloverText text) {
-    if (width == 0 || text.ptr == NULL || text.len == 0) return;
-    cursor_at(x, y);
-    size_t bytes = utf8_prefix(text.ptr, text.len, width);
-    fwrite(text.ptr, 1, bytes, stdout);
-}
-
-static void repeat_utf8(const char *glyph, unsigned count) {
-    for (unsigned i = 0; i < count; ++i) fputs(glyph, stdout);
-}
-
-static void draw_box(unsigned x, unsigned y, unsigned width, unsigned height, CcloverText title) {
-    if (width < 2 || height < 2) return;
-    cursor_at(x, y);
-    fputs("┌", stdout);
-    unsigned title_cols = 0;
-    if (title.ptr != NULL && title.len != 0 && width > 3) {
-        unsigned max_title = width - 3;
-        size_t bytes = utf8_prefix(title.ptr, title.len, max_title);
-        fwrite(title.ptr, 1, bytes, stdout);
-        title_cols = (unsigned)utf8_prefix(title.ptr, bytes, max_title);
-        /* utf8_prefix returns bytes, recompute columns cheaply. */
-        title_cols = 0;
-        for (size_t i = 0; i < bytes;) {
-            uint8_t byte = title.ptr[i];
-            i += (byte & 0x80u) == 0 ? 1 : ((byte & 0xe0u) == 0xc0u ? 2 : ((byte & 0xf0u) == 0xe0u ? 3 : 4));
-            title_cols++;
-        }
-    }
-    if (width > title_cols + 2) repeat_utf8("─", width - title_cols - 2);
-    fputs("┐", stdout);
-    for (unsigned row = 1; row + 1 < height; ++row) {
-        cursor_at(x, y + row);
-        fputs("│", stdout);
-        cursor_at(x + width - 1, y + row);
-        fputs("│", stdout);
-    }
-    cursor_at(x, y + height - 1);
-    fputs("└", stdout);
-    repeat_utf8("─", width - 2);
-    fputs("┘", stdout);
-}
-
-static void draw_rows(const CcloverPanel *panel, unsigned x, unsigned y, unsigned width, unsigned height, unsigned skip) {
-    if (width <= 2 || height <= 2) return;
-    unsigned available = height - 2;
-    for (unsigned row = skip; row < available && (size_t)(row - skip) < panel->row_count; ++row) {
-        write_text(x + 1, y + 1 + row, width - 2, panel->rows[row - skip]);
-    }
-}
-
-static void draw_history(const CcloverPanel *panel, unsigned x, unsigned y, unsigned width, unsigned height) {
-    static const char *levels[] = {"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"};
-    if (width <= 2 || height <= 2 || panel->history_count == 0) return;
-    unsigned inner = width - 2;
-    unsigned rows = height - 2 < 3 ? height - 2 : 3;
-    uint64_t maximum = 1;
-    for (size_t i = 0; i < panel->history_count; ++i) {
-        if (panel->history[i] > maximum) maximum = panel->history[i];
-    }
-    size_t count = panel->history_count < inner ? panel->history_count : inner;
-    for (size_t column = 0; column < count; ++column) {
-        uint64_t scaled = (uint64_t)(((long double)panel->history[column] * rows * 8) / maximum);
-        for (unsigned row = 0; row < rows; ++row) {
-            unsigned from_bottom = rows - row - 1;
-            uint64_t remaining = scaled > (uint64_t)from_bottom * 8
-                ? scaled - (uint64_t)from_bottom * 8
-                : 0;
-            unsigned level = remaining >= 8 ? 7 : (unsigned)remaining;
-            if (remaining == 0) continue;
-            cursor_at(x + 1 + (unsigned)column, y + 1 + row);
-            fputs(levels[level], stdout);
-        }
-    }
-}
-
-static void draw_panel(const CcloverPanel *panel, unsigned x, unsigned y, unsigned width, unsigned height, int sparkline) {
-    draw_box(x, y, width, height, panel->title);
-    if (sparkline) {
-        draw_history(panel, x, y, width, height);
-        unsigned row_start = height > 5 ? 3 : 1;
-        if (height > row_start + 1) {
-            unsigned available = height - row_start - 1;
-            for (unsigned row = 0; row < available && (size_t)row < panel->row_count; ++row) {
-                write_text(x + 1, y + row_start + row, width - 2, panel->rows[row]);
-            }
-        }
-    } else {
-        draw_rows(panel, x, y, width, height, 0);
-    }
-}
 
 static void terminal_size(unsigned *width, unsigned *height) {
 #ifdef _WIN32
@@ -208,6 +95,7 @@ int cclover_tui_enter(CcloverTui **out) {
     fputs("\x1b[?1049h\x1b[?25l", stdout);
     fflush(stdout);
     ui->active = 1;
+    terminal_size(&ui->width, &ui->height);
     *out = ui;
     return 0;
 }
@@ -215,7 +103,7 @@ int cclover_tui_enter(CcloverTui **out) {
 void cclover_tui_leave(CcloverTui *ui) {
     if (ui == NULL) return;
     if (ui->active) {
-        fputs("\x1b[?25h\x1b[?1049l", stdout);
+        fputs("\x1b[0m\x1b[?25h\x1b[?1049l", stdout);
         fflush(stdout);
 #ifdef _WIN32
         SetConsoleMode(ui->input, ui->input_mode);
@@ -227,41 +115,29 @@ void cclover_tui_leave(CcloverTui *ui) {
     free(ui);
 }
 
+int cclover_tui_size(CcloverTui *ui, uint32_t *width, uint32_t *height) {
+    if (ui == NULL || width == NULL || height == NULL) return EINVAL;
+    unsigned current_width, current_height;
+    terminal_size(&current_width, &current_height);
+    *width = current_width;
+    *height = current_height;
+    return 0;
+}
+
 int cclover_tui_draw(CcloverTui *ui, const CcloverTuiFrame *frame) {
     if (ui == NULL || frame == NULL) return EINVAL;
     unsigned width, height;
     terminal_size(&width, &height);
     ui->width = width;
     ui->height = height;
-    fputs("\x1b[2J", stdout);
-    CcloverText heading = {(const uint8_t *)"cclover-mon  ·  q / Esc / Ctrl-C: quit", 39};
-    write_text(0, 0, width, heading);
 
-    if (height <= 1) { fflush(stdout); return 0; }
-    unsigned y = 1;
-    unsigned overview_h = height - y < 9 ? height - y : 9;
-    unsigned left_w = width / 2;
-    if (left_w < 2) left_w = width;
-    unsigned right_w = width - left_w;
-    draw_panel(&frame->cpu, 0, y, left_w, overview_h, 1);
-    if (right_w >= 2) draw_panel(&frame->memory, left_w, y, right_w, overview_h, 1);
-    y += overview_h;
-
-    unsigned gpu_h = y < height ? (height - y < 5 ? height - y : 5) : 0;
-    if (gpu_h >= 2) draw_panel(&frame->gpu, 0, y, width, gpu_h, 0);
-    y += gpu_h;
-    unsigned temp_h = y < height ? (height - y < 5 ? height - y : 5) : 0;
-    if (temp_h >= 2) draw_panel(&frame->temperatures, 0, y, width, temp_h, 0);
-    y += temp_h;
-
-    unsigned fan_h = frame->fans.row_count != 0 && y < height ? (height - y < 5 ? height - y : 5) : 0;
-    if (fan_h >= 2) draw_panel(&frame->fans, 0, y, width, fan_h, 0);
-    y += fan_h;
-
-    if (y < height) {
-        unsigned io_h = height - y;
-        draw_panel(&frame->disks, 0, y, left_w, io_h, 0);
-        if (right_w >= 2) draw_panel(&frame->networks, left_w, y, right_w, io_h, 0);
+    fputs("\x1b[H\x1b[2J", stdout);
+    size_t count = frame->line_count < height ? frame->line_count : height;
+    for (size_t row = 0; row < count; ++row) {
+        const CcloverText line = frame->lines[row];
+        if (line.ptr != NULL && line.len != 0) fwrite(line.ptr, 1, line.len, stdout);
+        fputs("\x1b[0m", stdout);
+        if (row + 1 < count) fputs("\r\n", stdout);
     }
     fflush(stdout);
     return ferror(stdout) ? EIO : 0;

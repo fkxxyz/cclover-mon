@@ -123,6 +123,10 @@ pub fn run(app: DesktopApp) -> Result<(), Box<dyn Error>> {
     }
 }
 
+pub fn is_available() -> bool {
+    display_server().is_ok()
+}
+
 fn display_server() -> Result<DisplayServer, String> {
     if non_empty_env("WAYLAND_DISPLAY") {
         return Ok(DisplayServer::Wayland);

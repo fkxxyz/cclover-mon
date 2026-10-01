@@ -8,6 +8,8 @@ pub(crate) mod web_api;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 pub mod cli;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
+pub mod launch;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 pub use cclover_platform as platform;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 pub mod runtime;

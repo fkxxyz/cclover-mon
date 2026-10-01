@@ -10,26 +10,19 @@ use crate::tui::TerminalUi;
 use crate::web::{DEFAULT_HTTP_BIND, HttpConfig};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct LaunchOptions {
-    pub desktop: bool,
-    pub tui: bool,
-    pub http: Option<HttpConfig>,
+pub enum LaunchRequest {
+    Auto,
+    Explicit {
+        desktop: bool,
+        tui: bool,
+        http: Option<HttpConfig>,
+    },
 }
 
-impl Default for LaunchOptions {
-    fn default() -> Self {
-        Self {
-            desktop: true,
-            tui: false,
-            http: None,
-        }
-    }
-}
-
-pub fn parse() -> Option<LaunchOptions> {
+pub fn parse() -> Option<LaunchRequest> {
     let mut args = std::env::args().skip(1);
     let Some(first) = args.next() else {
-        return Some(LaunchOptions::default());
+        return Some(LaunchRequest::Auto);
     };
 
     if first.starts_with('-') && first != "--help" && first != "-h" {
@@ -68,7 +61,7 @@ pub fn parse() -> Option<LaunchOptions> {
     None
 }
 
-fn parse_launch_options(mut args: impl Iterator<Item = String>) -> LaunchOptions {
+fn parse_launch_options(mut args: impl Iterator<Item = String>) -> LaunchRequest {
     let mut desktop = false;
     let mut tui = false;
     let mut http = false;
@@ -122,10 +115,14 @@ fn parse_launch_options(mut args: impl Iterator<Item = String>) -> LaunchOptions
         fail("--http is unavailable in this build; rebuild with the `http` feature");
     }
 
-    LaunchOptions {
-        desktop: if frontend_explicit { desktop } else { true },
-        tui,
-        http: http.then_some(HttpConfig { bind }),
+    if frontend_explicit {
+        LaunchRequest::Explicit {
+            desktop,
+            tui,
+            http: http.then_some(HttpConfig { bind }),
+        }
+    } else {
+        LaunchRequest::Auto
     }
 }
 
@@ -497,7 +494,7 @@ fn print_help() {
            --tui                     Enable the terminal panel\n  \
            --http                    Enable the read-only web panel\n  \
            --http-bind <ip:port>     HTTP listen address (default 127.0.0.1:9847)\n  \
-           No frontend flag defaults to --desktop.\n\n\
+           No frontend flag auto-selects desktop when available, otherwise TUI on an interactive terminal.\n\n\
          Collectors:\n  \
            {}\n\n\
          Development logging:\n  \
@@ -516,13 +513,13 @@ fn fail(message: &str) -> ! {
 mod tests {
     use super::*;
 
-    fn options(args: &[&str]) -> LaunchOptions {
+    fn options(args: &[&str]) -> LaunchRequest {
         parse_launch_options(args.iter().map(|arg| (*arg).to_owned()))
     }
 
     #[test]
-    fn no_frontend_flag_defaults_to_desktop() {
-        assert_eq!(options(&[]), LaunchOptions::default());
+    fn no_frontend_flag_requests_auto_selection() {
+        assert_eq!(options(&[]), LaunchRequest::Auto);
     }
 
     #[cfg(feature = "http")]
@@ -530,7 +527,7 @@ mod tests {
     fn explicit_frontends_are_composable_and_disable_implicit_desktop() {
         assert_eq!(
             options(&["--tui", "--http"]),
-            LaunchOptions {
+            LaunchRequest::Explicit {
                 desktop: false,
                 tui: true,
                 http: Some(HttpConfig::default()),
@@ -538,7 +535,7 @@ mod tests {
         );
         assert_eq!(
             options(&["--desktop", "--tui", "--http"]),
-            LaunchOptions {
+            LaunchRequest::Explicit {
                 desktop: true,
                 tui: true,
                 http: Some(HttpConfig::default()),
@@ -574,7 +571,7 @@ mod tests {
     fn minimal_build_composes_native_frontends_without_http() {
         assert_eq!(
             options(&["--desktop", "--tui"]),
-            LaunchOptions {
+            LaunchRequest::Explicit {
                 desktop: true,
                 tui: true,
                 http: None,

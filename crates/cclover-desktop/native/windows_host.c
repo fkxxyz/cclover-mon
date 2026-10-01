@@ -50,6 +50,17 @@ typedef struct {
     CcloverDisplayState display;
 } CcloverHost;
 
+int cclover_win32_desktop_available(void) {
+    HWINSTA station = GetProcessWindowStation();
+    USEROBJECTFLAGS flags;
+    DWORD needed = 0;
+    if (station == NULL ||
+        !GetUserObjectInformationW(station, UOI_FLAGS, &flags, sizeof(flags), &needed)) {
+        return 0;
+    }
+    return (flags.dwFlags & WSF_VISIBLE) != 0;
+}
+
 static COLORREF cclover_color(uint32_t argb) {
     unsigned a = (argb >> 24) & 0xff;
     unsigned r = (argb >> 16) & 0xff;

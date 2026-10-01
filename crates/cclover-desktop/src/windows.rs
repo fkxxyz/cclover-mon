@@ -6,9 +6,15 @@ use std::ffi::c_void;
 use crate::native::{DesktopApp, HostCallbacks, NativeContext, NativeStateBridge};
 
 unsafe extern "C" {
+    fn cclover_win32_desktop_available() -> i32;
     fn cclover_win32_run(context: *mut c_void, callbacks: *const HostCallbacks) -> i32;
     fn cclover_win32_prepare_wake() -> u32;
     fn cclover_win32_wake(thread_id: u32);
+}
+
+pub fn is_available() -> bool {
+    // SAFETY: queries process window-station metadata and retains no borrowed state.
+    unsafe { cclover_win32_desktop_available() != 0 }
 }
 
 pub fn run(app: DesktopApp) -> Result<(), Box<dyn Error>> {

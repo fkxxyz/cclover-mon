@@ -1,7 +1,7 @@
 #![deny(unsafe_code)]
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
-use cclover_mon::{cli, runtime, web};
+use cclover_mon::{cli, launch, runtime, web};
 
 #[cfg(target_os = "windows")]
 mod windows_console;
@@ -16,9 +16,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(code);
     }
 
-    let Some(options) = cli::parse() else {
+    let Some(request) = cli::parse() else {
         return Ok(());
     };
+    let options = launch::resolve(request, launch::detect_environment())?;
 
     #[cfg(target_os = "windows")]
     cclover_mon::platform::prepare_machine_capability();

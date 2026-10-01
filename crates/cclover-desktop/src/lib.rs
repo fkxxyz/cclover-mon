@@ -8,8 +8,8 @@ mod native;
 mod windows;
 
 #[cfg(target_os = "linux")]
-pub use linux::run;
+pub use linux::{is_available, run};
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 pub use native::DesktopApp;
 #[cfg(target_os = "windows")]
-pub use windows::run;
+pub use windows::{is_available, run};

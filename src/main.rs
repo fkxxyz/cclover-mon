@@ -10,14 +10,36 @@ mod windows_console;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "windows")]
-    windows_console::prepare();
-
-    #[cfg(target_os = "windows")]
     if let Some(code) = cclover_mon::platform::early_command_exit_code() {
         std::process::exit(code);
     }
 
-    let Some(request) = cli::parse() else {
+    #[cfg(target_os = "windows")]
+    let parent_console_attached = windows_console::attach_parent();
+
+    let invocation = cli::parse();
+
+    #[cfg(target_os = "windows")]
+    if !parent_console_attached
+        && invocation
+            .as_ref()
+            .map_or(true, cli::Invocation::requires_terminal)
+    {
+        windows_console::allocate();
+    }
+
+    let invocation = match invocation {
+        Ok(invocation) => invocation,
+        Err(error) => {
+            cli::report_error(&error);
+            std::process::exit(2);
+        }
+    };
+
+    let cli::Invocation::Launch(request) = invocation else {
+        if let cli::Invocation::Command(command) = invocation {
+            cli::execute(command);
+        }
         return Ok(());
     };
     let options = launch::resolve(request, launch::detect_environment())?;

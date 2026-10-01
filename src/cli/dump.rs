@@ -1,24 +1,24 @@
 use super::*;
-pub(super) fn parse_dump_samples(mut args: impl Iterator<Item = String>) -> u64 {
+pub(super) fn parse_dump_samples(mut args: impl Iterator<Item = String>) -> Result<u64, CliError> {
     let Some(option) = args.next() else {
-        return 2;
+        return Ok(2);
     };
     if option != "--samples" {
-        fail(&format!(
+        return Err(CliError::new(format!(
             "unexpected dump argument: {option}; expected --samples"
-        ));
+        )));
     }
     let samples = args
         .next()
-        .unwrap_or_else(|| fail("--samples requires a positive integer"))
+        .ok_or_else(|| CliError::new("--samples requires a positive integer"))?
         .parse::<u64>()
         .ok()
         .filter(|value| *value > 0)
-        .unwrap_or_else(|| fail("--samples requires a positive integer"));
+        .ok_or_else(|| CliError::new("--samples requires a positive integer"))?;
     if let Some(extra) = args.next() {
-        fail(&format!("unexpected dump argument: {extra}"));
+        return Err(CliError::new(format!("unexpected dump argument: {extra}")));
     }
-    samples.max(2)
+    Ok(samples.max(2))
 }
 
 pub(super) fn dump(samples: u64) {

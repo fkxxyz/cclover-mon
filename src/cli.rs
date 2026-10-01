@@ -19,51 +19,107 @@ mod tui;
 use dump::{dump, parse_dump_samples};
 pub use launch::LaunchRequest;
 use launch::parse_launch_options;
-use perf::perf;
+use perf::{PerfRequest, parse_perf, perf};
 use probe::probe;
 use support::{prepare_pawnio_if_needed, probe_needs_pawnio};
 pub use tui::run_tui;
 
-pub fn parse() -> Option<LaunchRequest> {
-    let mut args = std::env::args().skip(1);
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Invocation {
+    Launch(LaunchRequest),
+    Command(Command),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Command(CommandKind);
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum CommandKind {
+    Dump { samples: u64 },
+    Probe { kind: ProbeKind, raw: bool },
+    Perf(PerfRequest),
+    Help,
+}
+
+impl Invocation {
+    pub fn requires_terminal(&self) -> bool {
+        match self {
+            Self::Launch(LaunchRequest::Explicit { tui, .. }) => *tui,
+            Self::Launch(LaunchRequest::Auto) => false,
+            Self::Command(_) => true,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CliError(String);
+
+impl CliError {
+    fn new(message: impl Into<String>) -> Self {
+        Self(message.into())
+    }
+}
+
+pub fn parse() -> Result<Invocation, CliError> {
+    parse_args(std::env::args().skip(1))
+}
+
+fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Invocation, CliError> {
     let Some(first) = args.next() else {
-        return Some(LaunchRequest::Auto);
+        return Ok(Invocation::Launch(LaunchRequest::Auto));
     };
 
     if first.starts_with('-') && first != "--help" && first != "-h" {
-        return Some(parse_launch_options(std::iter::once(first).chain(args)));
+        return parse_launch_options(std::iter::once(first).chain(args)).map(Invocation::Launch);
     }
 
-    match first.as_str() {
-        "dump" => {
-            let samples = parse_dump_samples(args);
-            prepare_pawnio_if_needed(true);
-            dump(samples);
-        }
+    let command = match first.as_str() {
+        "dump" => CommandKind::Dump {
+            samples: parse_dump_samples(args)?,
+        },
         "probe" => {
             let collector = args
                 .next()
-                .unwrap_or_else(|| fail("probe requires a collector name"));
-            let kind = collector
-                .parse::<ProbeKind>()
-                .unwrap_or_else(|error| fail(&error));
+                .ok_or_else(|| CliError::new("probe requires a collector name"))?;
+            let kind = collector.parse::<ProbeKind>().map_err(CliError::new)?;
             let raw = match args.next().as_deref() {
                 None => false,
                 Some("--raw") => true,
-                Some(other) => fail(&format!("unexpected probe argument: {other}")),
+                Some(other) => {
+                    return Err(CliError::new(format!("unexpected probe argument: {other}")));
+                }
             };
             if let Some(extra) = args.next() {
-                fail(&format!("unexpected probe argument: {extra}"));
+                return Err(CliError::new(format!("unexpected probe argument: {extra}")));
             }
+            CommandKind::Probe { kind, raw }
+        }
+        "perf" => CommandKind::Perf(parse_perf(args)?),
+        "help" | "--help" | "-h" => CommandKind::Help,
+        other => return Err(CliError::new(format!("unknown command: {other}"))),
+    };
+
+    Ok(Invocation::Command(Command(command)))
+}
+
+pub fn execute(command: Command) {
+    match command.0 {
+        CommandKind::Dump { samples } => {
+            prepare_pawnio_if_needed(true);
+            dump(samples);
+        }
+        CommandKind::Probe { kind, raw } => {
             prepare_pawnio_if_needed(probe_needs_pawnio(kind));
             probe(kind, raw);
         }
-        "perf" => perf(args),
-        "help" | "--help" | "-h" => print_help(),
-        other => fail(&format!("unknown command: {other}")),
+        CommandKind::Perf(request) => perf(request),
+        CommandKind::Help => print_help(),
     }
+}
 
-    None
+pub fn report_error(error: &CliError) {
+    eprintln!("cclover-mon: {}\n", error.0);
+    print_help();
 }
 
 fn print_help() {
@@ -88,12 +144,6 @@ fn print_help() {
            CCLOVER_MON_DEBUG=1 cclover-mon",
         ProbeKind::names_csv()
     );
-}
-
-fn fail(message: &str) -> ! {
-    eprintln!("cclover-mon: {message}\n");
-    print_help();
-    std::process::exit(2);
 }
 
 #[cfg(test)]

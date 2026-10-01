@@ -1,66 +1,78 @@
 use super::*;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum PerfLimit {
+pub(super) enum PerfLimit {
     Unbounded,
     Duration(Duration),
     Samples(u64),
 }
 
-pub(super) fn perf(mut args: impl Iterator<Item = String>) {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum PerfRequest {
+    Headless(PerfLimit),
+    Collector { kind: ProbeKind, limit: PerfLimit },
+}
+
+pub(super) fn parse_perf(mut args: impl Iterator<Item = String>) -> Result<PerfRequest, CliError> {
     let workload = args
         .next()
-        .unwrap_or_else(|| fail("perf requires a workload: headless or collector"));
+        .ok_or_else(|| CliError::new("perf requires a workload: headless or collector"))?;
 
     match workload.as_str() {
-        "headless" => {
-            let limit = parse_perf_limit(args);
+        "headless" => Ok(PerfRequest::Headless(parse_perf_limit(args)?)),
+        "collector" => {
+            let collector = args
+                .next()
+                .ok_or_else(|| CliError::new("perf collector requires a collector name"))?;
+            let kind = collector.parse::<ProbeKind>().map_err(CliError::new)?;
+            let limit = parse_perf_limit(args)?;
+            Ok(PerfRequest::Collector { kind, limit })
+        }
+        other => Err(CliError::new(format!(
+            "unknown perf workload {other:?}; expected headless or collector"
+        ))),
+    }
+}
+
+pub(super) fn perf(request: PerfRequest) {
+    match request {
+        PerfRequest::Headless(limit) => {
             prepare_pawnio_if_needed(true);
             let mut sampler = Sampler::new(Backend::new());
             run_perf(limit, || {
                 std::hint::black_box(sampler.sample());
             });
         }
-        "collector" => {
-            let collector = args
-                .next()
-                .unwrap_or_else(|| fail("perf collector requires a collector name"));
-            let kind = collector
-                .parse::<ProbeKind>()
-                .unwrap_or_else(|error| fail(&error));
-            let limit = parse_perf_limit(args);
+        PerfRequest::Collector { kind, limit } => {
             prepare_pawnio_if_needed(probe_needs_pawnio(kind));
             let mut backend = Backend::new();
             run_perf(limit, || backend.collect_for_perf(kind));
         }
-        other => fail(&format!(
-            "unknown perf workload {other:?}; expected headless or collector"
-        )),
     }
 }
 
-fn parse_perf_limit(mut args: impl Iterator<Item = String>) -> PerfLimit {
+fn parse_perf_limit(mut args: impl Iterator<Item = String>) -> Result<PerfLimit, CliError> {
     let Some(option) = args.next() else {
-        return PerfLimit::Unbounded;
+        return Ok(PerfLimit::Unbounded);
     };
     let value = args
         .next()
-        .unwrap_or_else(|| fail(&format!("{option} requires a positive integer")));
+        .ok_or_else(|| CliError::new(format!("{option} requires a positive integer")))?;
     if let Some(extra) = args.next() {
-        fail(&format!("unexpected perf argument: {extra}"));
+        return Err(CliError::new(format!("unexpected perf argument: {extra}")));
     }
 
     let value = value
         .parse::<u64>()
         .ok()
         .filter(|value| *value > 0)
-        .unwrap_or_else(|| fail(&format!("{option} requires a positive integer")));
+        .ok_or_else(|| CliError::new(format!("{option} requires a positive integer")))?;
 
     match option.as_str() {
-        "--duration" => PerfLimit::Duration(Duration::from_secs(value)),
-        "--samples" => PerfLimit::Samples(value),
-        _ => fail(&format!(
+        "--duration" => Ok(PerfLimit::Duration(Duration::from_secs(value))),
+        "--samples" => Ok(PerfLimit::Samples(value)),
+        _ => Err(CliError::new(format!(
             "unexpected perf argument: {option}; expected --duration or --samples"
-        )),
+        ))),
     }
 }
 

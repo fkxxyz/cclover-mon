@@ -89,6 +89,15 @@ const WINDOWS_NATIVE_STEPS: readonly ValidationStep[] = [
   },
 ];
 
+const WINDOWS_ETW_RUNTIME_STEPS: readonly ValidationStep[] = [
+  { name: "Windows dependency preparation", command: ["bun", "prepare-windows-deps.ts"] },
+  {
+    name: "Windows release build for ETW runtime validation",
+    command: ["cargo", "build", "--locked", "--release", "-p", "cclover-mon", "--no-default-features"],
+  },
+  { name: "Windows ETW disk-attribution smoke", command: ["bun", "windows-etw-disk-smoke.ts"] },
+];
+
 const WEB_BROWSER_STEPS: readonly ValidationStep[] = [
   { name: "web release build", command: ["cargo", "build", "--locked", "--release"] },
   { name: "Chromium web runtime smoke", command: ["bun", "web-browser-smoke.ts"] },
@@ -99,6 +108,7 @@ export const VALIDATION_PROFILES = {
   linux: LINUX_STEPS,
   windows: WINDOWS_STEPS,
   "windows-native": WINDOWS_NATIVE_STEPS,
+  "windows-etw-runtime": WINDOWS_ETW_RUNTIME_STEPS,
   "web-browser": WEB_BROWSER_STEPS,
   portable: [...FAST_STEPS, ...LINUX_STEPS, ...WINDOWS_STEPS],
 } as const;
@@ -122,7 +132,9 @@ export function formatValidationStep(step: ValidationStep): string {
 }
 
 function usage(): void {
-  console.log("usage: bun validate.ts <fast|linux|windows|windows-native|web-browser|portable>");
+  console.log(
+    "usage: bun validate.ts <fast|linux|windows|windows-native|windows-etw-runtime|web-browser|portable>",
+  );
 }
 
 function isValidationProfile(value: string): value is ValidationProfile {

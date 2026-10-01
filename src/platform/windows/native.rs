@@ -14,8 +14,9 @@ use windows_sys::Win32::NetworkManagement::IpHelper::{
 };
 use windows_sys::Win32::NetworkManagement::Ndis::{IfOperStatusUp, NET_LUID_LH};
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, GetDriveTypeW, GetLogicalDrives,
-    IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS, OPEN_EXISTING,
+    CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, FindFirstVolumeW, FindNextVolumeW,
+    FindVolumeClose, GetDriveTypeW, GetLogicalDrives, IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS,
+    OPEN_EXISTING, QueryDosDeviceW,
 };
 use windows_sys::Win32::System::IO::DeviceIoControl;
 use windows_sys::Win32::System::Ioctl::{
@@ -85,6 +86,17 @@ pub(super) struct DriveBinding {
 pub(super) struct DriveBindings {
     pub bindings: Vec<DriveBinding>,
     pub failures: Vec<DriveBindingFailure>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct VolumeDiskBinding {
+    pub nt_path: String,
+    pub disk_numbers: Vec<u32>,
+}
+
+pub(super) struct VolumeDiskBindings {
+    pub bindings: Vec<VolumeDiskBinding>,
+    pub failures: usize,
 }
 
 pub(super) struct DriveBindingFailure {
@@ -470,6 +482,105 @@ pub(super) fn drive_bindings() -> io::Result<DriveBindings> {
         }
     }
     Ok(DriveBindings { bindings, failures })
+}
+
+pub(super) fn volume_disk_bindings() -> io::Result<VolumeDiskBindings> {
+    const VOLUME_NAME_CAPACITY: usize = 1024;
+    const DEVICE_NAME_CAPACITY: usize = 4096;
+    const ERROR_NO_MORE_FILES: i32 = 18;
+
+    let mut volume_name = vec![0_u16; VOLUME_NAME_CAPACITY];
+    // SAFETY: volume_name is writable for the advertised number of UTF-16 code units.
+    let find = unsafe { FindFirstVolumeW(volume_name.as_mut_ptr(), volume_name.len() as u32) };
+    if find == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+
+    let mut bindings = Vec::new();
+    let mut failures = 0_usize;
+    let enumeration = loop {
+        let Some(volume_guid_path) = utf16_buffer(&volume_name) else {
+            break Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "volume enumeration returned non-terminated name",
+            ));
+        };
+        match volume_disk_binding(&volume_guid_path, DEVICE_NAME_CAPACITY) {
+            Ok(binding) => bindings.push(binding),
+            Err(_) => failures = failures.saturating_add(1),
+        }
+
+        volume_name.fill(0);
+        // SAFETY: find is a live volume-enumeration handle and volume_name is writable.
+        if unsafe { FindNextVolumeW(find, volume_name.as_mut_ptr(), volume_name.len() as u32) } == 0
+        {
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(ERROR_NO_MORE_FILES) {
+                break Ok(());
+            }
+            break Err(error);
+        }
+    };
+    // SAFETY: find was returned by FindFirstVolumeW and is closed exactly once.
+    unsafe { FindVolumeClose(find) };
+    enumeration?;
+    bindings.sort_by(|a, b| a.nt_path.cmp(&b.nt_path));
+    bindings.dedup_by(|a, b| a.nt_path == b.nt_path && a.disk_numbers == b.disk_numbers);
+    Ok(VolumeDiskBindings { bindings, failures })
+}
+
+fn volume_disk_binding(
+    volume_guid_path: &str,
+    device_name_capacity: usize,
+) -> io::Result<VolumeDiskBinding> {
+    let open_path = volume_guid_path.trim_end_matches('\\');
+    let open_wide = wide_z(open_path);
+    // SAFETY: open_wide is nul-terminated; zero desired access is sufficient for extent metadata.
+    let handle = unsafe {
+        CreateFileW(
+            open_wide.as_ptr(),
+            0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            null(),
+            OPEN_EXISTING,
+            0,
+            null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    let disk_numbers = volume_disk_numbers(handle);
+    // SAFETY: handle was opened successfully and is closed exactly once here.
+    unsafe { CloseHandle(handle) };
+    let disk_numbers = disk_numbers?;
+
+    let dos_name = open_path
+        .strip_prefix(r"\\?\")
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid volume GUID path"))?;
+    let dos_wide = wide_z(dos_name);
+    let mut target = vec![0_u16; device_name_capacity];
+    // SAFETY: dos_wide is nul-terminated and target is writable for the advertised size.
+    let len =
+        unsafe { QueryDosDeviceW(dos_wide.as_ptr(), target.as_mut_ptr(), target.len() as u32) };
+    if len == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let nt_path = utf16_buffer(&target[..len as usize]).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "QueryDosDevice returned non-terminated target",
+        )
+    })?;
+    Ok(VolumeDiskBinding {
+        nt_path,
+        disk_numbers,
+    })
+}
+
+fn utf16_buffer(buffer: &[u16]) -> Option<String> {
+    let end = buffer.iter().position(|unit| *unit == 0)?;
+    String::from_utf16(&buffer[..end]).ok()
 }
 
 fn volume_disk_numbers(handle: HANDLE) -> io::Result<Vec<u32>> {

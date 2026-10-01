@@ -44,6 +44,32 @@ describe("validation profiles", () => {
     ]);
   });
 
+  test("Windows ETW runtime validation is isolated and uses the production probe", () => {
+    expect(validationSteps("windows-etw-runtime").map((step) => step.command)).toEqual([
+      ["bun", "prepare-windows-deps.ts"],
+      [
+        "cargo",
+        "build",
+        "--locked",
+        "--release",
+        "-p",
+        "cclover-mon",
+        "--no-default-features",
+      ],
+      ["bun", "windows-etw-disk-smoke.ts"],
+    ]);
+    expect(
+      validationSteps("windows-native").some((step) =>
+        step.command.includes("windows-etw-disk-smoke.ts"),
+      ),
+    ).toBe(false);
+    expect(
+      validationSteps("portable").some((step) =>
+        step.command.includes("windows-etw-disk-smoke.ts"),
+      ),
+    ).toBe(false);
+  });
+
   test("web browser validation is isolated from normal development profiles", () => {
     expect(validationSteps("web-browser").map((step) => step.command)).toEqual([
       ["cargo", "build", "--locked", "--release"],

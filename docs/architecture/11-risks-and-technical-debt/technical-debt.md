@@ -25,3 +25,7 @@ Current architecture-level technical debt:
 
 - [Native event-loop validation seam](technical-debt/native-event-loop-validation-seam.md) — Medium priority; native wakeup-to-frame scheduling still lacks a deterministic behavioral test seam independent of real X11, Wayland, or Win32 runtimes.
 - [Windows AMD Family 10h upstream authority](technical-debt/windows-amd-family10-upstream-authority.md) — Low-medium priority; Family 10h still retains a second temperature-algorithm authority because the pinned official PawnIO transport cannot execute upstream Erratum 319 validation.
+- [Windows NDU ABI fixture coverage](technical-debt/windows-ndu-abi-fixture-coverage.md) — Medium-high priority; the undocumented NDU ABI still lacks a representative multi-version raw fixture corpus.
+- [Windows NDU end-to-end acceptance](technical-debt/windows-ndu-end-to-end-acceptance.md) — High priority; real process-to-interface NDU attribution still lacks a repeatable end-to-end acceptance harness.
+- [Windows ETW disk semantic validation](technical-debt/windows-etw-disk-semantic-validation.md) — High priority; a real-Windows smoke now proves nonzero production attribution and pre-opened-file rundown, but exact successful logical-byte semantics still lack deterministic runtime coverage.
+- [Windows native validation infrastructure](technical-debt/windows-native-validation-infrastructure.md) — Medium-high priority; native Windows validation profiles exist, but Linux/WSL development environments have no repository-owned, reproducible host/admin execution path.

@@ -32,7 +32,7 @@ Prefer direct structured native APIs that expose the required counters without s
 | hardware telemetry | coordinated CPU/Super-I/O/EC discovery and sampling through structured native interfaces or pinned signed PawnIO modules; typed temperature/fan projections share source topology and runtime ownership |
 | GPUs | dynamically loaded NVIDIA NVML and AMD ADL from installed display drivers; D3DKMT adapter performance data supplies Intel GPU temperature when available |
 | per-process network attribution | built-in NDU (`\\.\NduIoDevice`) accounting queried through a platform-private compatibility wrapper; NDU `IfLuid` is canonicalized to the same stable network identity used by the interface collector |
-| per-process disk attribution | future Windows-native attribution work; PawnIO is not the attribution mechanism |
+| per-process disk attribution | SystemTraceProvider ETW FileIo thread/file/read-write/completion events; cached volume extents map unambiguous logical I/O to the same physical-disk identity used by the disk collector |
 
 Do not introduce PDH for these basic collectors where the direct structured source already owns the semantic.
 
@@ -62,11 +62,13 @@ NVIDIA loads driver-installed `nvml.dll`, enumerates devices once, and derives G
 
 ## Capability and identity semantics
 
-Unimplemented Windows capabilities remain explicit typed unavailability. Per-process disk attribution and unimplemented hardware-sensor source families must not appear as successful empty observations or fabricated zeros. Zero fan RPM is valid data only when the source actually reports zero.
+Unimplemented Windows capabilities remain explicit typed unavailability. Unimplemented hardware-sensor source families must not appear as successful empty observations or fabricated zeros. Zero fan RPM is valid data only when the source actually reports zero.
 
 Windows per-process network attribution uses NDU network-usage accounting semantics. NDU and Linux eBPF are not required to count bytes at the same network-stack layer: the shared product contract is trustworthy process × interface × RX/TX attribution suitable for bandwidth ranking and anomaly discovery. Within one backend the accounting semantics must remain stable and directional, but the UI and public model must not claim byte-for-byte cross-platform equivalence.
 
 NDU is a built-in Windows component but its `NduIoDevice` IOCTL ABI is undocumented. All device names, IOCTL values, envelope parsing, self-relative wire offsets, and schema assumptions therefore stay inside one Windows-private wrapper. Unknown or malformed layouts fail closed as unavailable/degraded data; collector code must never guess offsets, reinterpret a new schema, or silently emit zeroes. The wrapper owns `START_STATS_COLLECTION` / interval `QUERY_STATS` / `STOP_STATS_COLLECTION` lifetime. A successful query consumes the current accounting interval, so callers treat returned bytes as interval usage rather than cumulative OS counters. Permission failure affects only this capability.
+
+Windows per-process disk attribution uses logical successful FileIo bytes rather than physical `DiskIo` transfer bytes. Paging I/O is excluded. ETW thread/file/IRP identifiers and native disk numbers remain correlation locators below the platform boundary; current process and disk observations canonicalize them to `ProcessInstanceId` and `DiskId`. A FileIo volume that spans multiple physical disks is not divided or guessed: resolvable rows remain usable while attribution is degraded. ETW permission failure is explicit unavailability, and event/decode loss resets the attribution epoch rather than preserving cumulative counters with a known gap. [ADR 014](../09-architecture-decisions/014-windows-etw-disk-attribution.md) and the [runtime view](../06-runtime-view/windows-etw-disk-attribution.md) own the detailed mechanism and failure semantics.
 
 Process identity is PID plus process creation time. Network interface index and `PhysicalDriveN` are locators rather than durable identities. Disk observations that must fall back to `PhysicalDriveN` are degraded because that locator is session-local rather than reboot-stable.
 

@@ -1,10 +1,8 @@
-#[cfg(target_os = "windows")]
-use crate::core::model::CollectionUnavailable;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use crate::core::model::FanSnapshot;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use crate::core::model::GpuSnapshot;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 use crate::core::model::ProcessDiskIoCounter;
 use crate::core::model::ProcessNetworkIoCounter;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -13,8 +11,6 @@ use crate::core::model::{
     Collection, CollectionStatus, CpuCounter, DiskCounter, MemorySnapshot, NetworkCounter,
     ProcessCounter,
 };
-#[cfg(target_os = "windows")]
-use crate::platform::ProbeKind;
 use crate::platform::ProbeReport;
 
 #[derive(Debug)]
@@ -25,7 +21,7 @@ pub(crate) enum ProbeSample {
     Network(Collection<Vec<NetworkCounter>>),
     NetworkAttribution(Collection<Vec<ProcessNetworkIoCounter>>),
     Disk(Collection<Vec<DiskCounter>>),
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     DiskAttribution(Collection<Vec<ProcessDiskIoCounter>>),
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     Temperatures(Collection<Vec<TemperatureSnapshot>>),
@@ -33,8 +29,6 @@ pub(crate) enum ProbeSample {
     Fans(Collection<Vec<FanSnapshot>>),
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     Gpu(Collection<Vec<GpuSnapshot>>),
-    #[cfg(target_os = "windows")]
-    Unsupported(ProbeKind),
 }
 
 impl ProbeSample {
@@ -46,7 +40,7 @@ impl ProbeSample {
             Self::Network(value) => value.is_observable(),
             Self::NetworkAttribution(value) => value.is_observable(),
             Self::Disk(value) => value.is_observable(),
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
             Self::DiskAttribution(value) => value.is_observable(),
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             Self::Temperatures(value) => value.is_observable(),
@@ -54,8 +48,6 @@ impl ProbeSample {
             Self::Fans(value) => value.is_observable(),
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             Self::Gpu(value) => value.is_observable(),
-            #[cfg(target_os = "windows")]
-            Self::Unsupported(_) => false,
         }
     }
 
@@ -67,7 +59,7 @@ impl ProbeSample {
             Self::Network(value) => report_networks(value, notes),
             Self::NetworkAttribution(value) => report_network_attribution(value, notes),
             Self::Disk(value) => report_disks(value, notes),
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
             Self::DiskAttribution(value) => report_disk_attribution(value, notes),
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             Self::Temperatures(value) => report_temperatures(value, notes),
@@ -75,16 +67,6 @@ impl ProbeSample {
             Self::Fans(value) => report_fans(value, notes),
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             Self::Gpu(value) => report_gpus(value, notes),
-            #[cfg(target_os = "windows")]
-            Self::Unsupported(kind) => ProbeReport {
-                status: CollectionStatus::Unavailable(CollectionUnavailable::Unsupported),
-                summary: vec![format!(
-                    "{} collector is not implemented on Windows yet",
-                    kind.as_str()
-                )],
-                raw: Vec::new(),
-                notes,
-            },
         }
     }
 }
@@ -255,7 +237,7 @@ fn report_disks(value: Collection<Vec<DiskCounter>>, notes: Vec<String>) -> Prob
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 fn report_disk_attribution(
     value: Collection<Vec<ProcessDiskIoCounter>>,
     notes: Vec<String>,

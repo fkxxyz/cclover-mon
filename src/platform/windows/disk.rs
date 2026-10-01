@@ -1,11 +1,26 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::core::model::{Collection, DiskCounter, DiskId, DiskMetadata};
 
 use super::diagnostics::{report_issue, unavailable_from_io};
 use super::native;
 
-pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Collection<Vec<DiskCounter>> {
+#[derive(Clone)]
+pub(super) struct DiskIdentity {
+    pub(super) id: DiskId,
+    pub(super) device: String,
+}
+
+pub(super) struct Batch {
+    pub(super) counters: Collection<Vec<DiskCounter>>,
+    pub(super) identities: HashMap<u32, DiskIdentity>,
+}
+
+pub(super) fn collect(notes: Option<&mut Vec<String>>) -> Collection<Vec<DiskCounter>> {
+    collect_batch(notes).counters
+}
+
+pub(super) fn collect_batch(mut notes: Option<&mut Vec<String>>) -> Batch {
     match native::physical_disks() {
         Ok(result) => {
             if result.fallback_identities > 0 {
@@ -44,32 +59,51 @@ pub(super) fn collect(mut notes: Option<&mut Vec<String>>) -> Collection<Vec<Dis
                 labels.dedup();
             }
 
+            let mut identities = HashMap::new();
             let rows = result
                 .disks
                 .into_iter()
-                .map(|disk| DiskCounter {
-                    id: DiskId::from_opaque_key(disk.identity),
-                    metadata: DiskMetadata {
-                        system_label: format!("Disk {}", disk.disk_number),
-                        associated_labels: labels_by_disk
-                            .remove(&disk.disk_number)
-                            .unwrap_or_default(),
-                    },
-                    read_bytes: disk.read_bytes,
-                    write_bytes: disk.write_bytes,
+                .map(|disk| {
+                    let id = DiskId::from_opaque_key(disk.identity);
+                    let device = format!("Disk {}", disk.disk_number);
+                    identities.insert(
+                        disk.disk_number,
+                        DiskIdentity {
+                            id: id.clone(),
+                            device: device.clone(),
+                        },
+                    );
+                    DiskCounter {
+                        id,
+                        metadata: DiskMetadata {
+                            system_label: device,
+                            associated_labels: labels_by_disk
+                                .remove(&disk.disk_number)
+                                .unwrap_or_default(),
+                        },
+                        read_bytes: disk.read_bytes,
+                        write_bytes: disk.write_bytes,
+                    }
                 })
                 .collect();
-            if result.fallback_identities > 0 {
+            let counters = if result.fallback_identities > 0 {
                 Collection::degraded(rows)
             } else {
                 Collection::available(rows)
+            };
+            Batch {
+                counters,
+                identities,
             }
         }
         Err(error) => {
             report_issue(&mut notes, || {
                 format!("physical disk collection failed: {error}")
             });
-            Collection::unavailable(unavailable_from_io(&error))
+            Batch {
+                counters: Collection::unavailable(unavailable_from_io(&error)),
+                identities: HashMap::new(),
+            }
         }
     }
 }

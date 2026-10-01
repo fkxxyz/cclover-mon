@@ -1,6 +1,8 @@
 mod cpu;
 mod diagnostics;
 mod disk;
+mod disk_attribution;
+mod etw;
 mod gpu;
 mod gpu_adl;
 mod gpu_d3dkmt;
@@ -21,7 +23,7 @@ use std::time::Instant;
 
 use crate::core::Collector as CoreCollector;
 use crate::core::devlog;
-use crate::core::model::{Collection, CollectionUnavailable, RawSnapshot};
+use crate::core::model::RawSnapshot;
 use crate::platform::probe::ProbeSample;
 use crate::platform::{ProbeKind, ProbeReport};
 
@@ -34,6 +36,7 @@ pub fn prepare_machine_capability() {
 }
 
 pub struct Backend {
+    disk_attribution: disk_attribution::Collector,
     gpus: gpu::Collector,
     hardware: hardware::Collector,
     network: network::Collector,
@@ -44,6 +47,7 @@ pub struct Backend {
 impl Backend {
     pub fn new() -> Self {
         Self {
+            disk_attribution: disk_attribution::Collector::new(),
             gpus: gpu::Collector::new(),
             hardware: hardware::Collector::new(),
             network: network::Collector::new(),
@@ -90,7 +94,13 @@ impl Backend {
                 let processes = process::collect(notes.as_deref_mut());
                 ProbeSample::NetworkAttribution(self.network_attribution.collect(&processes, notes))
             }
-            ProbeKind::DiskAttribution => ProbeSample::Unsupported(kind),
+            ProbeKind::DiskAttribution => {
+                let processes = process::collect(notes.as_deref_mut());
+                let disks = disk::collect_batch(notes.as_deref_mut());
+                ProbeSample::DiskAttribution(
+                    self.disk_attribution.collect(&processes, &disks, notes),
+                )
+            }
         }
     }
 }
@@ -106,6 +116,10 @@ impl CoreCollector for Backend {
         let collected_at = Instant::now();
         let networks = devlog::timed("collector.network", || self.network.collect(None));
         let processes = devlog::timed("collector.processes", || process::collect(None));
+        let disks = devlog::timed("collector.disk", || disk::collect_batch(None));
+        let process_disk_io = devlog::timed("collector.disk-attribution", || {
+            self.disk_attribution.collect(&processes, &disks, None)
+        });
         let process_network_io = devlog::timed("collector.network-attribution", || {
             self.network_attribution.collect(&processes, None)
         });
@@ -119,8 +133,8 @@ impl CoreCollector for Backend {
             memory: devlog::timed("collector.memory", || memory::collect(None)),
             processes,
             networks,
-            disks: devlog::timed("collector.disk", || disk::collect(None)),
-            process_disk_io: Collection::unavailable(CollectionUnavailable::Unsupported),
+            disks: disks.counters,
+            process_disk_io,
             process_network_io,
             temperatures: hardware::merge_temperature_sources([
                 hardware.temperatures,

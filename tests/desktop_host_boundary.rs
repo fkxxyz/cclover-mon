@@ -127,7 +127,7 @@ fn graphical_renderers_do_not_regain_cross_platform_gui_frameworks() {
         for forbidden in ["iced::", "winit::", "wgpu::", "cclover_web_ui"] {
             assert!(
                 !source.contains(forbidden),
-                "{name} desktop source must consume NativeScene/native host only ({forbidden})"
+                "{name} desktop source must consume shared Scene/native host only ({forbidden})"
             );
         }
     }
@@ -151,43 +151,23 @@ fn native_scene_abi_has_one_declarative_authority() {
 }
 
 #[test]
-fn native_text_layout_uses_realized_renderer_metrics() {
-    let scene = include_str!("../crates/cclover-ui/src/scene.rs");
-    let linux = linux_native();
-    let windows = windows_native();
+fn graphical_layout_is_shared_and_renderer_independent() {
+    let layout = include_str!("../crates/cclover-ui/src/layout.rs");
+    let tree = include_str!("../crates/cclover-ui/src/tree.rs");
+    let web_source = include_str!("../crates/cclover-web-ui/src/lib.rs");
+    let web = web_source
+        .split_once("#[cfg(test)]")
+        .expect("Web renderer must keep tests after production code")
+        .0;
 
-    assert!(scene.contains("NativeTextMeasurer"));
-    assert!(scene.contains("text.width(&cell.text, cell.size, cell.weight)"));
-    assert!(
-        !scene.contains("estimated_text_width"),
-        "native scene lowering must not regain guessed font metrics"
-    );
-
-    for (name, source, realization, measurement) in [
-        (
-            "Linux",
-            linux,
-            "cclover_select_font",
-            "cairo_text_extents(host->measure_cr",
-        ),
-        (
-            "Windows",
-            windows,
-            "cclover_font(host",
-            "GetTextExtentPoint32W(host->measure_dc",
-        ),
-    ] {
-        assert!(
-            source.contains(realization) && source.contains(measurement),
-            "{name} native host must measure through its realized drawing font"
-        );
-        assert!(
-            source.contains(
-                "host->callbacks->scene(host->context, host, cclover_measure_text, scene)"
-            ),
-            "{name} native host must supply measurement to shared scene lowering"
-        );
-    }
+    assert!(layout.contains("CellWidth::Fixed"));
+    assert!(layout.contains("CellWidth::Fill"));
+    assert!(!layout.contains("TextMeasurer"));
+    assert!(!layout.contains("text.width"));
+    assert!(tree.contains("pub enum CellWidth"));
+    assert!(web.contains("pub fn render(scene: &Scene)"));
+    assert!(!web.contains("display:grid"));
+    assert!(!web.contains("display:flex"));
 }
 
 #[test]
@@ -210,7 +190,7 @@ fn linux_incremental_rendering_preserves_steady_state_fast_path() {
             .matches("cclover_scene(&host.host, &scene);")
             .count(),
         1,
-        "one state change must lower exactly one NativeScene"
+        "one state change must lower exactly one shared Scene"
     );
 
     let static_layer = source

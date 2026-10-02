@@ -34,7 +34,7 @@ Long-lived eBPF collectors own their links, maps, and bounded native state. Disk
 
 ## Desktop integration
 
-`cclover-desktop` is the sole authority for Linux monitor-surface hosting. It selects Wayland layer-shell or X11 at runtime and passes the shared `NativeScene` to native hosting/drawing code. Cairo executes shared scene primitives for both display protocols.
+`cclover-desktop` is the sole authority for Linux monitor-surface hosting. It selects Wayland layer-shell or X11 at runtime and passes the shared `Scene` to native hosting/drawing code. Cairo executes shared scene primitives for both display protocols.
 
 Wayland owns layer-shell anchoring, layer, exclusive-zone, and empty input-region behavior. X11 owns EWMH/window-manager semantics and X Shape input passthrough. Shared placement values such as panel margin have one Linux desktop authority. StatusNotifierItem tray integration is shared across X11 and Wayland and communicates only platform-neutral lifecycle intent upward.
 

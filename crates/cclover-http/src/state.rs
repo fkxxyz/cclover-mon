@@ -31,7 +31,8 @@ impl StateHub {
     }
 
     pub(crate) fn publish(&self, state: &MonitorState) {
-        let dashboard_html = cclover_web_ui::render(Dashboard::new(state));
+        let scene = cclover_ui::build_scene(Dashboard::new(state));
+        let dashboard_html = cclover_web_ui::render(&scene);
         let Ok(dashboard_json) = serde_json::to_string(&dashboard_html) else {
             eprintln!("cclover-mon: failed to serialize browser dashboard");
             return;

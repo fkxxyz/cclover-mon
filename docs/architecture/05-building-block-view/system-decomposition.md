@@ -59,7 +59,7 @@ Detailed building-block Views:
 - [Core](core.md) — shared model, sampling, identity, process-domain projection, history, and observation semantics.
 - [Platform](platform.md) — native collector composition and source ownership.
 - [Presentation and UI](presentation-and-ui.md) — presentation semantics, shared graphical dashboard authority, and renderer responsibilities.
-- [Desktop Host](desktop-host.md) — `cclover-desktop`, `NativeScene`, native rendering, and desktop lifecycle boundaries.
+- [Desktop Host](desktop-host.md) — `cclover-desktop`, `Scene`, native rendering, and desktop lifecycle boundaries.
 - [Transport](transport.md) — latest-state publication, browser transport, and public API projections.
 
 Language selection and native interoperability are governed by [ADR 001](../09-architecture-decisions/001-rust-core-native-boundaries.md) and the [Platform Boundary](../08-cross-cutting-concepts/platform-boundary.md). Top-level source dependency direction is mechanically checked by `bun archgate.ts`; broader correctness remains the responsibility of the repository validation profiles and runtime evidence where applicable.

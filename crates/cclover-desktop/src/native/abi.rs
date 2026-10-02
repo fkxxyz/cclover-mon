@@ -1,8 +1,5 @@
 use std::ffi::c_void;
 
-pub(crate) type MeasureTextFn =
-    unsafe extern "C" fn(*mut c_void, *const u8, usize, u32, u32) -> f32;
-
 macro_rules! abi_rust_type {
     (u32) => { u32 };
     (u64) => { u64 };
@@ -13,9 +10,7 @@ macro_rules! abi_rust_type {
     (const_point_ptr) => { *const NativePoint };
     (const_damage_rect_ptr) => { *const NativeDamageRect };
     (state_fn) => { unsafe extern "C" fn(*mut c_void) -> u32 };
-    (scene_fn) => {
-        unsafe extern "C" fn(*mut c_void, *mut c_void, MeasureTextFn, *mut SceneView)
-    };
+    (scene_fn) => { unsafe extern "C" fn(*mut c_void, *mut SceneView) };
 }
 
 macro_rules! define_native_abi {

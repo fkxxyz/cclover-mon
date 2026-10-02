@@ -50,6 +50,7 @@ dependencies = [
  "cclover-core",
  "cclover-presentation",
  "cclover-runtime",
+ "cclover-ui",
  "cclover-web-ui",
  "crossbeam-channel",
  "serde",

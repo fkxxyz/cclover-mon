@@ -93,11 +93,6 @@ int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks, int 
     Colormap colormap;
     XSetWindowAttributes attrs;
     if (!display) return 101;
-    if (cclover_measure_init(&host) < 0) {
-        cclover_measure_destroy(&host);
-        XCloseDisplay(display);
-        return 102;
-    }
 
     cclover_scene(&host, &scene);
     width = scene.width;
@@ -176,7 +171,6 @@ int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks, int 
     XDestroyWindow(display, window);
     XFreeColormap(display, colormap);
     XCloseDisplay(display);
-    cclover_measure_destroy(&host);
     return 0;
 }
 

@@ -34,7 +34,7 @@ facets:
 | GPU identity | Utilization, VRAM, and temperature history for each GPU share one stable `GpuId`; display labels and enumeration positions are not used as metric identity. |
 | Optional GPU telemetry | A missing vendor runtime/source or unsupported device field leaves only that source/field unavailable; startup and unrelated metrics remain operational with no helper subprocess or fabricated zero. |
 | Frontend semantic reuse | Native desktop, Web, and terminal frontends consume the same presentation semantics without duplicating derivation, ranking, availability, or common formatting. |
-| Graphical UI authority | Native desktop and Web consume one `cclover-ui` dashboard authority; structural, visual-token, graph-policy, or shared-geometry changes are defined once, with native geometry lowered once into `NativeScene`. |
+| Graphical UI authority | Native desktop and Web consume one `cclover-ui` dashboard/layout authority and the same final `Scene`; structural, visual-token, graph-policy, text-slot, or geometry changes are defined once. |
 | Desktop integration portability | Linux and Windows may use different native tray mechanisms while application-visible desktop commands and shutdown semantics remain platform-neutral. X11 and Wayland do not require separate Linux tray implementations. |
 | Desktop integration resilience | Failure to register a native system tray emits a diagnostic but leaves metric sampling and the monitor surface operational. |
 | Diagnosability | A developer can distinguish native collection, derivation, runtime timing, and presentation failures using `probe <collector> [--raw]`, `dump`, development logs, and screenshots respectively. |

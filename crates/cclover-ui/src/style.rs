@@ -92,3 +92,9 @@ pub enum TextWeight {
     Regular,
     Bold,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextAlign {
+    Start,
+    End,
+}

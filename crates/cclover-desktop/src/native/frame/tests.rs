@@ -22,8 +22,8 @@ fn fill(x: f32, color: Rgba, static_content: bool) -> Primitive {
     }
 }
 
-fn scene(primitives: Vec<Primitive>) -> NativeScene {
-    NativeScene {
+fn scene(primitives: Vec<Primitive>) -> Scene {
+    Scene {
         width: 100,
         height: 100,
         primitives,

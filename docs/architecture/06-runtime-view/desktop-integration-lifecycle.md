@@ -47,7 +47,7 @@ native host loop observes signal
 normal application/runtime shutdown
 ```
 
-When application state changes the desired monitor-surface size, the shared dashboard tree and `NativeScene` remain the geometry authority. The active desktop host realizes that size through its native protocol: Wayland layer-shell on Linux Wayland, X11 window geometry on Linux X11, and Win32 on Windows. Protocol-specific resize messages never enter shared dashboard semantics.
+When application state changes the desired monitor-surface size, the shared dashboard tree and `Scene` remain the geometry authority. The active desktop host realizes that size through its native protocol: Wayland layer-shell on Linux Wayland, X11 window geometry on Linux X11, and Win32 on Windows. Protocol-specific resize messages never enter shared dashboard semantics.
 
 Windows notification-area integration emits the same platform-neutral lifecycle intent rather than exposing Win32 menu identifiers or handles to shared application state.
 

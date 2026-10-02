@@ -7,6 +7,7 @@ license = "GPL-2.0-or-later"
 [dependencies]
 cclover-core = { path = "../cclover-core" }
 cclover-presentation = { path = "../cclover-presentation" }
+cclover-ui = { path = "../cclover-ui" }
 cclover-web-ui = { path = "../cclover-web-ui" }
 cclover-runtime = { path = "../cclover-runtime" }
 crossbeam-channel = "0.5"

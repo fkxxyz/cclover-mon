@@ -16,10 +16,6 @@ static int cclover_px(const CcloverHost *host, float logical) {
     return cclover_scale_logical(logical, host->display.dpi);
 }
 
-static float cclover_logical_px(const CcloverHost *host, int physical) {
-    return cclover_unscale_physical(physical, host->display.dpi);
-}
-
 static void cclover_init_dpi_api(CcloverDpiApi *api) {
     HMODULE user32 = GetModuleHandleW(L"user32.dll");
     ZeroMemory(api, sizeof(*api));
@@ -141,40 +137,10 @@ static HFONT cclover_font(CcloverHost *host, uint32_t size, int bold) {
     return cached;
 }
 
-static float cclover_measure_text(void *context, const uint8_t *text, size_t text_len,
-                                  uint32_t size, uint32_t flags) {
-    CcloverHost *host = context;
-    wchar_t stack_text[256];
-    wchar_t *wide = stack_text;
-    SIZE extent = {0, 0};
-    int wide_len = MultiByteToWideChar(CP_UTF8, 0, (LPCCH)text, (int)text_len, NULL, 0);
-    HFONT font;
-    HGDIOBJ old;
-    if (wide_len <= 0) return 0.0f;
-    if (wide_len > (int)(sizeof(stack_text) / sizeof(stack_text[0]))) {
-        wide = (wchar_t *)HeapAlloc(GetProcessHeap(), 0,
-                                    (size_t)wide_len * sizeof(wchar_t));
-        if (!wide) return 0.0f;
-    }
-    MultiByteToWideChar(CP_UTF8, 0, (LPCCH)text, (int)text_len, wide, wide_len);
-    font = cclover_font(host, size,
-                        (flags & CCLOVER_TEXT_BOLD) != 0);
-    old = SelectObject(host->measure_dc, font);
-    GetTextExtentPoint32W(host->measure_dc, wide, wide_len, &extent);
-    SelectObject(host->measure_dc, old);
-    if (wide != stack_text) HeapFree(GetProcessHeap(), 0, wide);
-    return cclover_logical_px(host, extent.cx);
-}
-
 static void cclover_release_resources(CcloverHost *host) {
     cclover_release_fonts(host);
-    if (host->measure_dc) {
-        DeleteDC(host->measure_dc);
-        host->measure_dc = NULL;
-    }
     if (host->dpi_api.shcore) {
         FreeLibrary(host->dpi_api.shcore);
         host->dpi_api.shcore = NULL;
     }
 }
-

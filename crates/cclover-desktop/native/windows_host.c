@@ -44,7 +44,6 @@ typedef struct {
     const CcloverCallbacks *callbacks;
     NOTIFYICONDATAW tray;
     HFONT fonts[32][2];
-    HDC measure_dc;
     UINT taskbar_created;
     CcloverDpiApi dpi_api;
     CcloverDisplayState display;

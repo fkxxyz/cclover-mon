@@ -9,7 +9,7 @@ mod frame;
 mod state;
 
 pub(crate) use abi::*;
-use frame::{FrameStorage, HostTextMeasurer, build_frame};
+use frame::{FrameStorage, build_frame};
 pub use state::DesktopApp;
 pub(crate) use state::NativeStateBridge;
 
@@ -66,22 +66,12 @@ unsafe extern "C" fn take_state_callback(context: *mut c_void) -> u32 {
     context.take_state()
 }
 
-unsafe extern "C" fn scene_callback(
-    context: *mut c_void,
-    measure_context: *mut c_void,
-    measure_text: MeasureTextFn,
-    scene: *mut SceneView,
-) {
+unsafe extern "C" fn scene_callback(context: *mut c_void, scene: *mut SceneView) {
     // SAFETY: pointers and callback are supplied by the synchronous native host contract.
     let context = unsafe { &mut *(context.cast::<NativeContext>()) };
     if context.frame_dirty || context.frame.is_none() {
-        let text = HostTextMeasurer {
-            context: measure_context,
-            measure: measure_text,
-        };
         let frame = build_frame(
             &context.state,
-            &text,
             context.frame.as_ref().map(FrameStorage::scene),
             context.static_revision,
         );

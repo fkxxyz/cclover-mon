@@ -5,15 +5,6 @@ static double cclover_profile_cpu_ms(void) {
 }
 
 typedef struct {
-    uint64_t hash;
-    uint8_t *text;
-    size_t text_len;
-    uint32_t size;
-    uint32_t flags;
-    float width;
-} CcloverTextMeasureCacheEntry;
-
-typedef struct {
     uint32_t size;
     uint32_t bold;
     cairo_font_extents_t extents;
@@ -23,9 +14,6 @@ typedef struct {
 typedef struct {
     void *context;
     const CcloverCallbacks *callbacks;
-    cairo_surface_t *measure_surface;
-    cairo_t *measure_cr;
-    CcloverTextMeasureCacheEntry measure_cache[CCLOVER_TEXT_MEASURE_CACHE_SIZE];
     CcloverFontMetricsCacheEntry font_metrics[32];
 } CcloverHost;
 
@@ -76,77 +64,6 @@ static void cclover_select_font(cairo_t *cr, uint32_t size, int bold) {
     cairo_set_font_size(cr, size);
 }
 
-static int cclover_measure_init(CcloverHost *host) {
-    host->measure_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
-    if (cairo_surface_status(host->measure_surface) != CAIRO_STATUS_SUCCESS) return -1;
-    host->measure_cr = cairo_create(host->measure_surface);
-    if (cairo_status(host->measure_cr) != CAIRO_STATUS_SUCCESS) return -1;
-    cclover_configure_context(host->measure_cr);
-    return 0;
-}
-
-static void cclover_measure_destroy(CcloverHost *host) {
-    size_t i;
-    for (i = 0; i < CCLOVER_TEXT_MEASURE_CACHE_SIZE; ++i) {
-        free(host->measure_cache[i].text);
-        host->measure_cache[i].text = NULL;
-    }
-    if (host->measure_cr) cairo_destroy(host->measure_cr);
-    if (host->measure_surface) cairo_surface_destroy(host->measure_surface);
-    host->measure_cr = NULL;
-    host->measure_surface = NULL;
-}
-
-static uint64_t cclover_measure_hash(const uint8_t *bytes, size_t len,
-                                     uint32_t size, uint32_t flags) {
-    uint64_t hash = UINT64_C(1469598103934665603);
-    size_t i;
-    for (i = 0; i < len; ++i) {
-        hash ^= bytes[i];
-        hash *= UINT64_C(1099511628211);
-    }
-    hash ^= size;
-    hash *= UINT64_C(1099511628211);
-    hash ^= flags;
-    hash *= UINT64_C(1099511628211);
-    return hash;
-}
-
-static float cclover_measure_text(void *context, const uint8_t *bytes, size_t len,
-                                  uint32_t size, uint32_t flags) {
-    CcloverHost *host = context;
-    uint64_t hash = cclover_measure_hash(bytes, len, size, flags);
-    CcloverTextMeasureCacheEntry *cached =
-        &host->measure_cache[hash % CCLOVER_TEXT_MEASURE_CACHE_SIZE];
-    char stack[512];
-    char *text;
-    cairo_text_extents_t ext;
-    if (cached->text && cached->hash == hash && cached->text_len == len &&
-        cached->size == size && cached->flags == flags &&
-        memcmp(cached->text, bytes, len) == 0)
-        return cached->width;
-    text = cclover_text_copy(bytes, len, stack);
-    if (!text) return 0.0f;
-    cclover_select_font(host->measure_cr, size, (flags & CCLOVER_TEXT_BOLD) != 0);
-    cairo_text_extents(host->measure_cr, text, &ext);
-    if (len > 0) {
-        uint8_t *copy = malloc(len);
-        if (copy) {
-            memcpy(copy, bytes, len);
-            free(cached->text);
-            cached->hash = hash;
-            cached->text = copy;
-            cached->text_len = len;
-            cached->size = size;
-            cached->flags = flags;
-            cached->width = (float)ext.x_advance;
-        }
-    }
-    if (text != stack) free(text);
-    return (float)ext.x_advance;
-}
-
-
 static void cclover_font_extents(CcloverHost *host, cairo_t *cr, uint32_t size,
                                  uint32_t bold, cairo_font_extents_t *extents) {
     CcloverFontMetricsCacheEntry *cached =
@@ -167,6 +84,7 @@ static void cclover_draw_text(CcloverHost *host, cairo_t *cr, const CcloverComma
     char stack[512];
     char *text = cclover_text_copy(cmd->text, cmd->text_len, stack);
     cairo_font_extents_t font;
+    cairo_text_extents_t text_extents;
     uint32_t bold;
     int clipped;
     double x, y;
@@ -186,9 +104,11 @@ static void cclover_draw_text(CcloverHost *host, cairo_t *cr, const CcloverComma
         cairo_clip(cr);
     }
     cclover_font_extents(host, cr, cmd->text_size, bold, &font);
-    /* NativeScene gives end-aligned cells their measured natural width, so the
-       rect's left edge is already the final text origin. */
     x = cmd->x;
+    if (cmd->flags & CCLOVER_TEXT_END) {
+        cairo_text_extents(cr, text, &text_extents);
+        x = cmd->x + cmd->width - text_extents.x_advance;
+    }
     y = cmd->y + (cmd->height - (font.ascent + font.descent)) / 2.0 + font.ascent;
     cclover_source_argb(cr, cmd->color);
     cairo_move_to(cr, x, y);
@@ -261,6 +181,5 @@ static void cclover_draw_scene(CcloverHost *host, cairo_t *cr, const CcloverScen
 
 static void cclover_scene(CcloverHost *host, CcloverScene *scene) {
     memset(scene, 0, sizeof(*scene));
-    host->callbacks->scene(host->context, host, cclover_measure_text, scene);
+    host->callbacks->scene(host->context, scene);
 }
-

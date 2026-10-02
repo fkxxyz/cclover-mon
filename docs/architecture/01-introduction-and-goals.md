@@ -28,5 +28,5 @@ facets:
 
 - Native collection of CPU, memory, process, disk, network, sensor, and future system metrics.
 - Linux first; Windows is a first-class platform backend.
-- One shared graphical dashboard definition consumed by platform-native desktop renderers (through `NativeScene`) and optional Web delivery; the terminal frontend reuses core and presentation semantics with terminal-specific layout.
+- One shared graphical dashboard definition consumed by platform-native desktop renderers (through `Scene`) and optional Web delivery; the terminal frontend reuses core and presentation semantics with terminal-specific layout.
 - One native application process and one final executable artifact per target platform; optional Web assets are embedded and served by that process.

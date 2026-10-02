@@ -25,7 +25,6 @@
 #include <wayland-client.h>
 
 #define CCLOVER_MARGIN 16
-#define CCLOVER_TEXT_MEASURE_CACHE_SIZE 1024
 
 
 #include "linux/render.inc"

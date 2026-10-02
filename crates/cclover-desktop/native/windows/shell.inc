@@ -160,12 +160,6 @@ int cclover_win32_run(void *context, const CcloverCallbacks *callbacks) {
     cclover_init_dpi_api(&host.dpi_api);
     cclover_enable_dpi_awareness(&host.dpi_api);
     cclover_refresh_display(&host, NULL);
-    host.measure_dc = CreateCompatibleDC(NULL);
-    if (!host.measure_dc) {
-        int error = (int)GetLastError();
-        cclover_release_resources(&host);
-        return error;
-    }
     host.taskbar_created = RegisterWindowMessageW(L"TaskbarCreated");
     cclover_scene(&host, &scene);
     shell = GetShellWindow();

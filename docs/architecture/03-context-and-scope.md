@@ -26,7 +26,7 @@ Operating system / native libraries
              ↓
        shared dashboard tree
          ↙          ↘
- NativeScene      HTTP/SSE
+ Scene      HTTP/SSE
      ↓                ↓
  native renderer  Web renderer
 ```

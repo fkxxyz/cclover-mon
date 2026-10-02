@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use crate::{
     Block, Card, DISK_CARD_GEOMETRY, Element, GPU_CARD_GEOMETRY, GraphSpec, IO_PROCESS_GEOMETRY,
     METRIC_CARD_GEOMETRY, NETWORK_CARD_GEOMETRY, ProgressSpec, SMALL_GRAPH_CARD_GEOMETRY, Stack,
-    TextCell, TextRow, Tone,
+    TEXT_SLOT_GEOMETRY, TextCell, TextRow, Tone,
 };
 
 pub(crate) const CARD_PADDING: u32 = 9;
@@ -38,12 +38,16 @@ pub(crate) fn metric_card<'a>(params: MetricCardParams<'a>) -> Block<'a> {
     let mut header_cells = vec![
         TextCell::borrowed(title, 12, Tone::Muted)
             .bold()
-            .grow()
+            .fill()
             .clip(),
-        TextCell::owned(value, 16, Tone::Foreground).bold(),
+        TextCell::owned(value, 16, Tone::Foreground)
+            .bold()
+            .fixed(TEXT_SLOT_GEOMETRY.metric_value),
     ];
     if !subtitle.is_empty() {
-        header_cells.push(TextCell::owned(subtitle, 11, Tone::Muted));
+        header_cells.push(
+            TextCell::owned(subtitle, 11, Tone::Muted).fixed(TEXT_SLOT_GEOMETRY.metric_subtitle),
+        );
     }
 
     let process_children = processes
@@ -51,8 +55,8 @@ pub(crate) fn metric_card<'a>(params: MetricCardParams<'a>) -> Block<'a> {
         .map(|(name, value)| {
             Element::Row(TextRow {
                 cells: vec![
-                    TextCell::borrowed(name, 12, Tone::Foreground).grow().clip(),
-                    TextCell::owned(value, 12, Tone::Muted),
+                    TextCell::borrowed(name, 12, Tone::Foreground).fill().clip(),
+                    TextCell::owned(value, 12, Tone::Muted).fixed(TEXT_SLOT_GEOMETRY.process_value),
                 ],
                 height: METRIC_CARD_GEOMETRY.process_row_height,
                 gap: 5,
@@ -72,8 +76,9 @@ pub(crate) fn metric_card<'a>(params: MetricCardParams<'a>) -> Block<'a> {
                     TextCell::borrowed(secondary_label, 11, Tone::Muted)
                         .bold()
                         .static_content()
-                        .grow(),
-                    TextCell::owned(secondary_value, 11, Tone::Muted),
+                        .fill(),
+                    TextCell::owned(secondary_value, 11, Tone::Muted)
+                        .fixed(TEXT_SLOT_GEOMETRY.secondary_value),
                 ],
                 height: METRIC_CARD_GEOMETRY.secondary_row_height,
                 gap: 4,
@@ -113,7 +118,7 @@ pub(crate) fn gpu_card<'a>(gpu: cclover_presentation::GpuPanel<'a>, capacity: us
                     TextCell::borrowed(gpu.name(), 13, Tone::Foreground)
                         .bold()
                         .static_content()
-                        .grow()
+                        .fill()
                         .clip(),
                 ],
                 height: GPU_CARD_GEOMETRY.header_height,
@@ -170,8 +175,8 @@ fn metric_row<'a>(label: &'static str, value: String, height: u32) -> Element<'a
             TextCell::borrowed(label, 10, Tone::Muted)
                 .bold()
                 .static_content()
-                .grow(),
-            TextCell::owned(value, 12, Tone::Foreground),
+                .fill(),
+            TextCell::owned(value, 12, Tone::Foreground).fixed(TEXT_SLOT_GEOMETRY.gpu_value),
         ],
         height,
         gap: 0,
@@ -184,8 +189,8 @@ fn status_row<'a>(label: &'static str, value: String) -> Element<'a> {
             TextCell::borrowed(label, 10, Tone::Muted)
                 .bold()
                 .static_content()
-                .grow(),
-            TextCell::owned(value, 11, Tone::Muted),
+                .fill(),
+            TextCell::owned(value, 11, Tone::Muted).fixed(TEXT_SLOT_GEOMETRY.gpu_value),
         ],
         height: GPU_CARD_GEOMETRY.status_row_height,
         gap: 0,
@@ -203,9 +208,10 @@ pub(crate) fn small_graph_card<'a>(
                 cells: vec![
                     TextCell::borrowed(name, 13, Tone::Foreground)
                         .bold()
-                        .grow()
+                        .fill()
                         .clip(),
-                    TextCell::owned(value, 12, Tone::Foreground),
+                    TextCell::owned(value, 12, Tone::Foreground)
+                        .fixed(TEXT_SLOT_GEOMETRY.card_value),
                 ],
                 height: SMALL_GRAPH_CARD_GEOMETRY.header_height,
                 gap: 0,
@@ -235,9 +241,10 @@ pub(crate) fn disk_card<'a>(
             cells: vec![
                 TextCell::owned(disk.name(), 13, Tone::Foreground)
                     .bold()
-                    .grow()
+                    .fill()
                     .clip(),
-                TextCell::owned(disk.value(), 12, Tone::Foreground),
+                TextCell::owned(disk.value(), 12, Tone::Foreground)
+                    .fixed(TEXT_SLOT_GEOMETRY.card_value),
             ],
             height: DISK_CARD_GEOMETRY.header_height,
             gap: 0,
@@ -287,7 +294,7 @@ pub(crate) fn network_card<'a>(
                 TextCell::borrowed(network.name(), 13, Tone::Foreground)
                     .bold()
                     .static_content()
-                    .grow()
+                    .fill()
                     .clip(),
             ],
             height: NETWORK_CARD_GEOMETRY.header_height,
@@ -329,9 +336,14 @@ pub(crate) fn network_card<'a>(
 fn value_row<'a>(label: &'static str, value: String, tone: Tone) -> Element<'a> {
     Element::Row(TextRow {
         cells: vec![
-            TextCell::borrowed(label, 13, tone).static_content(),
-            TextCell::owned(String::new(), 1, tone).grow(),
-            TextCell::owned(value, 11, tone).bold(),
+            TextCell::borrowed(label, 13, tone)
+                .static_content()
+                .fixed(14)
+                .align_start(),
+            TextCell::owned(String::new(), 1, tone).fill(),
+            TextCell::owned(value, 11, tone)
+                .bold()
+                .fixed(TEXT_SLOT_GEOMETRY.network_value),
         ],
         height: NETWORK_CARD_GEOMETRY.value_row_height,
         gap: 4,
@@ -350,11 +362,13 @@ fn io_process_rows<'a>(
         children.push(Element::Row(TextRow {
             cells: vec![
                 TextCell::borrowed(name.unwrap_or("process"), 10, Tone::Foreground)
-                    .grow()
+                    .fill()
                     .clip(),
-                TextCell::owned(format!("·{pid}"), 9, Tone::Muted),
-                TextCell::owned(format!("{first_label}{first}"), 9, first_tone),
-                TextCell::owned(format!("{second_label}{second}"), 9, second_tone),
+                TextCell::owned(format!("·{pid}"), 9, Tone::Muted).fixed(TEXT_SLOT_GEOMETRY.io_pid),
+                TextCell::owned(format!("{first_label}{first}"), 9, first_tone)
+                    .fixed(TEXT_SLOT_GEOMETRY.io_value),
+                TextCell::owned(format!("{second_label}{second}"), 9, second_tone)
+                    .fixed(TEXT_SLOT_GEOMETRY.io_value),
             ],
             height: IO_PROCESS_GEOMETRY.row_height,
             gap: 3,

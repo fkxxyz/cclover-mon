@@ -20,13 +20,13 @@ facets:
 
 Layout-sensitive cross-language contracts have one authority and mechanical verification or generation.
 
-## NativeScene ABI
+## Scene ABI
 
 The Rust-to-C desktop ABI has one declarative schema authority in `cclover-desktop`. Rust `#[repr(C)]` records/constants and the C `native_scene.h` consumed by Linux and Windows hosts are generated from that schema during the build. Command kinds, flags, field order, pointer types, and callback signatures are not maintained as independent hand-written mirrors.
 
 The scene ABI carries invalidation output already derived on the Rust side: static revision, full-redraw fallback, and merged damage rectangles. Native hosts may use those values to drive buffer/cache lifecycle and platform damage submission, but they do not independently reconstruct primitive visual identity or damage bounds.
 
-Font realization is native-host responsibility; layout policy remains in `cclover-ui`. Native hosts measure text with the font they actually realize and expose text extents through the generated callback contract in the same device-independent logical units used by `NativeScene`. Device-pixel measurements are normalized before crossing the ABI; `cclover-ui` converts the logical extents into shared geometry.
+Font realization is native-host responsibility; layout policy and text-slot geometry remain in `cclover-ui`. Native font metrics stay inside the renderer and may only position glyphs within the authoritative `Scene::Text` rectangle. They do not cross the ABI or move sibling elements.
 
 ## TUI ABI
 

@@ -35,6 +35,6 @@ Keeping browser transport and public API schemas independent prevented bundled-c
 
 ## Supersession
 
-ADR 008 replaced the shared-Iced renderer with one renderer-neutral graphical dashboard tree, platform-native desktop renderers, and browser-native DOM/CSS/SVG realization. The historical patched-Iced dependency and WebGL rendering workaround are no longer part of the dependency graph.
+ADR 008 replaced the shared-Iced renderer with one renderer-neutral graphical dashboard tree, one shared final `Scene`, platform-native desktop renderers, and server-side Scene-to-SVG Web realization. The historical patched-Iced dependency and WebGL rendering workaround are no longer part of the dependency graph.
 
 Current rules for sampler ownership, browser/public projections, bounded client delivery, and external transport exposure are defined by [Transport](../05-building-block-view/transport.md). Current graphical ownership is defined by [Presentation and UI](../05-building-block-view/presentation-and-ui.md) and ADR 008.

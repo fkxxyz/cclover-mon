@@ -1,16 +1,12 @@
-use std::{ffi::c_void, ptr};
+use std::ptr;
 
 use cclover_core::model::MonitorState;
-use cclover_presentation::Dashboard;
-use cclover_ui::{
-    CacheClass, DashboardUi, NativeScene, NativeTextMeasurer, Primitive, Rect, Rgba, TextAlign,
-    TextWeight,
-};
+use cclover_ui::{CacheClass, Primitive, Rect, Rgba, Scene, TextAlign, build_scene};
 
 use super::abi::*;
 
 pub(super) struct FrameStorage {
-    scene: NativeScene,
+    scene: Scene,
     static_revision: u64,
     full_redraw: bool,
     damage_rects: Vec<NativeDamageRect>,
@@ -19,11 +15,7 @@ pub(super) struct FrameStorage {
 }
 
 impl FrameStorage {
-    fn from_scene(
-        scene: NativeScene,
-        previous: Option<&NativeScene>,
-        previous_static_revision: u64,
-    ) -> Self {
+    fn from_scene(scene: Scene, previous: Option<&Scene>, previous_static_revision: u64) -> Self {
         let invalidation = scene_invalidation(previous, &scene, previous_static_revision);
         let mut commands = Vec::with_capacity(scene.primitives.len());
         let mut points = Vec::new();
@@ -40,7 +32,7 @@ impl FrameStorage {
         }
     }
 
-    pub(super) fn scene(&self) -> &NativeScene {
+    pub(super) fn scene(&self) -> &Scene {
         &self.scene
     }
 
@@ -75,8 +67,8 @@ struct SceneInvalidation {
 }
 
 fn scene_invalidation(
-    previous: Option<&NativeScene>,
-    current: &NativeScene,
+    previous: Option<&Scene>,
+    current: &Scene,
     previous_static_revision: u64,
 ) -> SceneInvalidation {
     let dimensions_changed = previous.is_some_and(|previous| {
@@ -130,7 +122,7 @@ fn scene_invalidation(
     }
 }
 
-fn same_class_primitives(a: &NativeScene, b: &NativeScene, class: CacheClass) -> bool {
+fn same_class_primitives(a: &Scene, b: &Scene, class: CacheClass) -> bool {
     a.primitives
         .iter()
         .filter(|primitive| primitive.cache_class() == class)
@@ -298,28 +290,12 @@ fn argb(color: Rgba) -> u32 {
         | u32::from(color.b)
 }
 
-pub(super) struct HostTextMeasurer {
-    pub(super) context: *mut c_void,
-    pub(super) measure: MeasureTextFn,
-}
-
-impl NativeTextMeasurer for HostTextMeasurer {
-    fn width(&self, text: &str, size: u32, weight: TextWeight) -> f32 {
-        let flags = u32::from(weight == TextWeight::Bold) * FLAG_TEXT_BOLD;
-        // SAFETY: the native host supplies this callback and context for the duration of the
-        // synchronous scene request. The UTF-8 byte slice remains alive for the call.
-        unsafe { (self.measure)(self.context, text.as_ptr(), text.len(), size, flags) }
-    }
-}
-
 pub(super) fn build_frame(
     state: &MonitorState,
-    text: &impl NativeTextMeasurer,
-    previous: Option<&NativeScene>,
+    previous: Option<&Scene>,
     previous_static_revision: u64,
 ) -> FrameStorage {
-    let dashboard = DashboardUi::new(Dashboard::new(state));
-    let scene = NativeScene::from_dashboard(&dashboard, text);
+    let scene = build_scene(cclover_presentation::Dashboard::new(state));
     FrameStorage::from_scene(scene, previous, previous_static_revision)
 }
 

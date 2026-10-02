@@ -78,6 +78,6 @@ fn tree_owns_visual_semantics_not_renderer_types() {
     };
     assert_eq!(header.cells[0].text, "MEMORY");
     assert_eq!(header.cells[0].tone, Tone::Muted);
-    assert!(header.cells[0].grow);
+    assert_eq!(header.cells[0].width, CellWidth::Fill);
     assert_eq!(Tone::Accent.rgba().b, 0xff);
 }

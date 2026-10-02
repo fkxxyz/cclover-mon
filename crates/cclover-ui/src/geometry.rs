@@ -87,6 +87,31 @@ impl IoProcessGeometry {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct TextSlotGeometry {
+    pub metric_value: u32,
+    pub metric_subtitle: u32,
+    pub secondary_value: u32,
+    pub process_value: u32,
+    pub card_value: u32,
+    pub gpu_value: u32,
+    pub network_value: u32,
+    pub io_pid: u32,
+    pub io_value: u32,
+}
+
+pub const TEXT_SLOT_GEOMETRY: TextSlotGeometry = TextSlotGeometry {
+    metric_value: 58,
+    metric_subtitle: 30,
+    secondary_value: 62,
+    process_value: 58,
+    card_value: 56,
+    gpu_value: 64,
+    network_value: 70,
+    io_pid: 32,
+    io_value: 43,
+};
+
+#[derive(Debug, Clone, Copy)]
 pub struct DiskCardGeometry {
     pub spacing: u32,
     pub header_height: u32,

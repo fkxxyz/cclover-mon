@@ -1,7 +1,13 @@
 use std::borrow::Cow;
 use std::collections::VecDeque;
 
-use crate::{PANEL_GEOMETRY, TextWeight, Tone};
+use crate::{PANEL_GEOMETRY, TextAlign, TextWeight, Tone};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CellWidth {
+    Fixed(u32),
+    Fill,
+}
 
 #[derive(Debug, Clone)]
 pub struct TextCell<'a> {
@@ -9,7 +15,8 @@ pub struct TextCell<'a> {
     pub size: u32,
     pub tone: Tone,
     pub weight: TextWeight,
-    pub grow: bool,
+    pub width: CellWidth,
+    pub align: TextAlign,
     pub clip: bool,
     pub static_content: bool,
 }
@@ -21,7 +28,8 @@ impl<'a> TextCell<'a> {
             size,
             tone,
             weight: TextWeight::Regular,
-            grow: false,
+            width: CellWidth::Fill,
+            align: TextAlign::Start,
             clip: false,
             static_content: false,
         }
@@ -33,7 +41,8 @@ impl<'a> TextCell<'a> {
             size,
             tone,
             weight: TextWeight::Regular,
-            grow: false,
+            width: CellWidth::Fill,
+            align: TextAlign::Start,
             clip: false,
             static_content: false,
         }
@@ -44,8 +53,21 @@ impl<'a> TextCell<'a> {
         self
     }
 
-    pub(crate) fn grow(mut self) -> Self {
-        self.grow = true;
+    pub(crate) fn fixed(mut self, width: u32) -> Self {
+        self.width = CellWidth::Fixed(width);
+        self.align = TextAlign::End;
+        self.clip = true;
+        self
+    }
+
+    pub(crate) fn fill(mut self) -> Self {
+        self.width = CellWidth::Fill;
+        self.align = TextAlign::Start;
+        self
+    }
+
+    pub(crate) fn align_start(mut self) -> Self {
+        self.align = TextAlign::Start;
         self
     }
 

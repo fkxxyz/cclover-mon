@@ -6,7 +6,7 @@
 
 ## Architecture
 
-**Primary stack**: Rust 2024 and Cargo. `cclover-ui` owns the graphical dashboard definition. Native desktop rendering uses Win32/GDI on Windows and Wayland/X11 + Cairo on Linux. Web rendering lowers the shared dashboard tree to HTML/SVG/CSS in native Rust and uses a thin browser EventSource/DOM adapter.
+**Primary stack**: Rust 2024 and Cargo. `cclover-ui` owns the graphical dashboard definition. Native desktop rendering uses Win32/GDI on Windows and Wayland/X11 + Cairo on Linux. All graphical renderers consume the shared final `Scene`: native desktop uses Win32/GDI or Wayland/X11 + Cairo, while Web serializes the same Scene to SVG in native Rust and uses a thin EventSource/DOM adapter.
 
 **Runtime metric flow**:
 
@@ -37,8 +37,8 @@ Ownership rules:
 - `core` owns platform-neutral metric types, delta/rate derivation, Top-N aggregation, bounded history, and sampling contracts, including `Collector`.
 - `platform` owns OS-specific collection; the `cclover-desktop` package owns OS-specific native desktop hosting/integration. Platform collectors implement core-owned sampling contracts and return core-owned platform-neutral snapshots. `core` must not depend on either native boundary.
 - `presentation` derives renderer-neutral dashboard semantics from shared `MonitorState`; it does not depend on renderer libraries, terminal libraries, platform APIs, or app messages.
-- `cclover-ui` owns cross-renderer graphical dashboard structure, visual tokens, graph policy, and shared geometry. Renderers consume it and must not independently rebuild monitor cards.
-- `cclover-web-ui` is the server-side Web renderer adapter. It lowers the shared dashboard tree to HTML/SVG/CSS; browser JavaScript is transport/DOM glue and must not reconstruct dashboard semantics.
+- `cclover-ui` owns cross-renderer graphical dashboard structure, visual tokens, graph policy, text-slot budgets, and final Scene geometry. Graphical renderers execute that Scene and must not perform independent dashboard layout.
+- `cclover-web-ui` is the server-side Web renderer adapter. It serializes the shared Scene to SVG; browser JavaScript is transport/DOM glue and must not reconstruct dashboard semantics or geometry.
 - Every `cargo xwin ...` invocation must include `XWIN_ARCH=x86,x86_64` on that exact command line. Do not rely on `export`, shell state, profile configuration, or a previous command. This applies to `build`, `check`, `test`, and any other cargo-xwin subcommand.
 - Native data stays typed and in-process. Do not introduce internal JSON or frontend/backend IPC for metric flow.
 - Prefer native collection over periodic subprocess polling. Linux sources should use `/proc`, `/sys`, netlink, ioctl, sockets, or D-Bus as appropriate.
@@ -50,7 +50,7 @@ Ownership rules:
 
 ```text
 crates/cclover-desktop/src/linux.rs    Linux Wayland/X11 hosting and tray integration
-crates/cclover-desktop/src/native.rs   shared NativeScene FFI bridge
+crates/cclover-desktop/src/native.rs   shared Scene FFI bridge
 crates/cclover-desktop/src/windows.rs  Windows native host bridge
 crates/cclover-desktop/native/windows_host.c  Win32/GDI window, drawing, and tray host
 crates/cclover-desktop/native/linux_host.c    Wayland/X11 + Cairo host/drawing
@@ -63,8 +63,8 @@ crates/cclover-platform/native/          platform-owned eBPF and Windows hwmon n
 crates/cclover-platform/vendor/          platform-owned vendored upstream sources
 crates/cclover-presentation/src/lib.rs  renderer-neutral dashboard presentation model and formatting
 crates/cclover-tui/src/lib.rs           terminal frontend rendering and terminal lifecycle
-crates/cclover-ui/src/lib.rs            shared graphical dashboard tree, style tokens, geometry
-crates/cclover-web-ui/src/lib.rs        server-side HTML/SVG/CSS renderer boundary
+crates/cclover-ui/src/lib.rs            shared graphical dashboard tree, layout authority, Scene primitives
+crates/cclover-web-ui/src/lib.rs        server-side Scene-to-SVG renderer boundary
 crates/cclover-runtime/src/             shared native sampler execution, state publication, shutdown
 crates/cclover-http/src/                shared HTTP/SSE/API transport over published MonitorState
 crates/cclover-server/src/              headless cclover-mon-server composition root and service lifecycle

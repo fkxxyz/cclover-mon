@@ -100,6 +100,6 @@ static void cclover_draw_scene(CcloverHost *host, HDC dc, const CcloverScene *sc
 
 static void cclover_scene(CcloverHost *host, CcloverScene *scene) {
     ZeroMemory(scene, sizeof(*scene));
-    host->callbacks->scene(host->context, host, cclover_measure_text, scene);
+    host->callbacks->scene(host->context, scene);
 }
 

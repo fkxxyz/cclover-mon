@@ -23,12 +23,6 @@ int cclover_linux_wayland_run(void *context, const CcloverCallbacks *callbacks, 
     /* Collect initial wl_output.scale events before the surface enters an output. */
     wl_display_roundtrip(host.globals.display);
     wayland_set_initial_scale(&host);
-    if (cclover_measure_init(&host.host) < 0) {
-        cclover_measure_destroy(&host.host);
-        wl_registry_destroy(registry);
-        wl_display_disconnect(host.globals.display);
-        return 203;
-    }
 
     cclover_scene(&host.host, &scene);
     host.width = scene.width;
@@ -124,6 +118,5 @@ int cclover_linux_wayland_run(void *context, const CcloverCallbacks *callbacks, 
     wl_registry_destroy(registry);
     wl_display_roundtrip(host.globals.display);
     wl_display_disconnect(host.globals.display);
-    cclover_measure_destroy(&host.host);
     return 0;
 }

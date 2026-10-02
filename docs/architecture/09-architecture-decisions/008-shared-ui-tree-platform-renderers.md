@@ -1,5 +1,5 @@
 ---
-summary: "Chooses one renderer-neutral dashboard tree as UI authority, with separate native desktop and Web renderers."
+summary: "Chooses one renderer-neutral dashboard tree and one final graphical Scene as authority for native and Web rendering."
 viewpoint: decision
 concerns:
   - architecture-coherence
@@ -15,87 +15,104 @@ facets:
     - whole-system
 ---
 
-# ADR 008: Shared UI Tree with Platform Renderers
+# ADR 008: Shared UI Tree and Graphical Scene with Platform Renderers
 
 ## Decision
 
-Keep one shared renderer-neutral dashboard definition and stop making a cross-platform GUI framework the owner of desktop rendering.
+Keep one shared renderer-neutral dashboard definition and one shared final graphical scene while keeping platform rendering mechanics independent of a cross-platform GUI framework.
 
-The shared `cclover-ui` layer owns dashboard structure, element ordering, visibility, visual tokens, graph semantics, and geometry that must stay identical across renderers. It consumes `cclover-presentation` and emits a deliberately small dashboard tree composed of rows, stacks, text cells, progress bars, graphs, sections, and cards. Renderer-specific code consumes that tree; it does not independently reconstruct CPU, memory, GPU, disk, network, process, or availability presentation.
+`cclover-ui` owns dashboard structure, element ordering, visibility, visual tokens, graph semantics, layout policy, and final logical geometry. It first derives the small application-specific dashboard tree and then lowers that tree exactly once into `Scene`, whose primitives contain authoritative rectangles, points, colors, clipping, alignment, and requested surface dimensions.
 
 ```text
 MonitorState
     ↓
 cclover-presentation
     ├── terminal frontend
-    └── cclover-ui: shared dashboard tree + visual/layout authority
-          ├── native desktop renderer
-          │     ├── Windows native host/drawing
-          │     └── Linux native host/drawing
-          └── Web renderer
+    └── cclover-ui
+          ↓ DashboardUi
+          ↓ shared layout
+          ↓ Scene
+          ├── Windows GDI renderer
+          ├── Linux Cairo renderer
+          └── Web SVG serializer
 ```
 
-Native desktop rendering is platform-owned. Windows uses the Win32 window/message/tray stack and GDI drawing appropriate to the supported Windows range. Linux owns Wayland/X11 hosting and may share one software/native drawing implementation across those hosts. Native renderers execute shared UI elements and drawing primitives; they do not own dashboard semantics.
+Every graphical renderer consumes the same `Scene`. Renderers may realize fonts differently and own device scaling, rasterization, clipping mechanics, native surface lifecycle, or SVG serialization, but they must not recalculate dashboard layout. Dynamic text receives a shared layout slot before rendering; glyph measurement must not move sibling elements or change card, row, graph, or panel geometry.
 
-For native desktop rendering, `cclover-ui::NativeScene` is the final shared lowering step. It contains renderer-ready primitives and absolute geometry derived from the dashboard tree. Platform-native hosts execute that scene; they do not repeat dashboard layout calculations. Web is not required to consume `NativeScene` and may lower the higher-level dashboard tree through browser-native layout/drawing instead. `NativeScene` is therefore a native rendering contract, not a generic cross-platform GUI toolkit.
+Web rendering stays in native Rust and serializes `Scene` to SVG. SSE carries rendered SVG markup; browser JavaScript only installs updates into the DOM. Web CSS may establish page-level presentation such as margins, overflow, or a system-font fallback, but it must not use Flexbox, Grid, intrinsic text measurement, or other browser layout mechanisms to reconstruct dashboard geometry.
 
-Web remains a separate renderer, but rendering stays in native Rust rather than a browser WASM runtime. `cclover-web-ui` lowers the shared dashboard structure and visual tokens to HTML/SVG/CSS in the native process. SSE carries rendered dashboard markup; a small static JavaScript adapter only installs updates into the DOM. The browser therefore does not reconstruct dashboard semantics.
-
-Do not rebuild a general-purpose widget framework. The shared tree exists only to describe this fixed monitor dashboard. Add abstractions only when multiple renderers need the same dashboard rule.
+Do not rebuild a general-purpose widget framework. The dashboard tree and layout vocabulary exist only for this fixed monitor UI. Add layout capabilities only for demonstrated dashboard needs.
 
 ## Rationale
 
-The monitor UI is small and read-only: text, cards, separators, progress bars, and bounded history graphs. The prior Iced/winit/wgpu stack made this small surface depend on graphics-adapter selection, surface presentation, redraw behavior, and compatibility layers far below application semantics.
+The prior Iced/winit/wgpu stack imposed graphics-adapter, surface, redraw, and compatibility complexity disproportionate to this small read-only monitor. Platform-native GDI/Cairo rendering removes that dependency while keeping the final rendering boundary small.
 
-Windows XP + One-Core-API experiments demonstrated the mismatch. Monitoring state, runtime, subscriptions, and application updates could remain functional while wgpu adapter creation or later surface presentation failed. GL and software paths moved the failure into different framework layers without making application behavior easier to control. Continuing to patch those layers would spend complexity on framework compatibility rather than monitoring functionality.
+Sharing only the higher-level dashboard tree was insufficient for visual parity: native rendering lowered it to absolute geometry while Web independently interpreted rows and stacks with CSS layout and browser text metrics. Both paths could obey the same semantic tree yet produce materially different geometry. Moving the shared authority one level lower eliminates that second layout authority without restoring a cross-platform GUI framework.
 
-Maintaining fully independent platform UIs would create a different problem: every dashboard change would require synchronized edits in several renderers. The shared dashboard tree solves that at the governing boundary. A renderer receives an already-decided UI and only realizes it using its platform's mechanisms.
+Text remains the one intentionally renderer-dependent visual detail. Shipping a bundled font solely for pixel identity would increase distribution size. Instead, `cclover-ui` allocates deterministic `Fixed` and `Fill` text slots; renderers draw platform fonts inside those authoritative rectangles and clip where requested. Font choice can therefore affect glyph shape and small baseline details, but not surrounding geometry.
 
 ## Ownership Rules
 
 `cclover-presentation` owns metric meaning and formatted display semantics.
 
-`cclover-ui` owns cross-renderer dashboard decisions:
+`cclover-ui` owns:
 
 - card/section structure and ordering;
-- which semantic values appear in each card;
+- semantic values shown in each card;
 - text roles and visual tokens;
-- shared spacing and geometry where parity requires exact dimensions;
-- graph ranges, auto-scaling policy, series assignment, and visual role;
-- renderer-neutral element composition.
+- fixed and fill text-slot budgets;
+- spacing, dimensions, and absolute graphical geometry;
+- graph ranges, scaling policy, series assignment, and final graph points;
+- progress geometry and clipping rectangles;
+- the final `Scene` primitive stream.
 
-Renderer adapters own only realization details:
+Graphical renderer adapters own only realization details:
 
-- font API and text measurement;
-- native drawing or Web HTML/SVG generation;
-- surface/buffer or DOM lifecycle;
+- system-font selection and glyph rasterization inside the supplied text rectangle;
+- native drawing APIs or SVG serialization;
 - clipping implementation;
-- DPI/device scaling;
-- window/event-loop or browser update integration.
+- DPI/device scaling of the complete logical scene;
+- surface/buffer, window/event-loop, or browser DOM lifecycle.
+
+A renderer must not:
+
+- reallocate row or text widths from intrinsic content size;
+- add renderer-specific card padding, gaps, or placement;
+- independently calculate graph or progress geometry;
+- infer metric availability, formatting, ranking, or visibility.
 
 Platform desktop hosts additionally own tray integration, placement, pointer passthrough, taskbar/Alt+Tab behavior, and native lifecycle policy.
 
-No renderer may infer metric availability, ranking, formatting, graph range, or card visibility from platform identity or raw monitor state when the shared layers already own that decision.
+## Text Geometry Contract
+
+Dynamic text never controls sibling geometry. Dashboard rows allocate text through the deliberately small `CellWidth` vocabulary:
+
+- `Fixed(width)` reserves an explicit logical-pixel slot;
+- `Fill` receives remaining row width after fixed slots and gaps.
+
+Text alignment and clipping are part of the shared tree and become final `Scene::Text` rectangles. Formatting and slot budgets must be designed together; values that exceed their budget are clipped or require a presentation-format change rather than renderer-specific measurement-driven relayout.
 
 ## Web Boundary
 
-Web is not required to consume a desktop `Text(x, y)`/`Rect(x, y)` scene. Browser layout mechanisms differ materially from native desktop surfaces. Shared UI authority therefore stops at the renderer-neutral dashboard tree and style/layout tokens. A native renderer lowers that tree into absolute drawing primitives; `cclover-web-ui` lowers it server-side into HTML/SVG/CSS. Browser JavaScript remains generic transport/DOM glue.
+`cclover-web-ui` accepts `Scene`, not `DashboardUi`, `Card`, `Row`, `GraphSpec`, or raw `MonitorState`. It mechanically maps scene primitives to SVG elements. The browser is therefore a drawing target rather than a second layout engine.
 
-Changing a dashboard card should change the shared tree once. Renderer changes should be required only when introducing a genuinely new renderer-neutral element kind.
+Changing an existing dashboard layout changes `cclover-ui` once. Renderer changes are required only when the shared scene primitive vocabulary itself changes or a renderer must improve realization of an existing primitive.
 
 ## Migration Outcome
 
-The migration is complete. Windows consumes `NativeScene` through a narrow C ABI and renders with Win32/GDI; Linux consumes the same scene through native Wayland/X11 hosting with Cairo; Web lowers the higher-level dashboard tree to HTML/SVG/CSS in native Rust and streams rendered updates to a thin browser client. Iced, winit, wgpu, `wasm-bindgen`, and `web-sys` are not renderer dependencies.
+Windows and Linux consume the shared `Scene` through the existing narrow native ABI and render with GDI and Cairo respectively. Web consumes the same `Scene`, serializes it to SVG in native Rust, and streams the SVG through the existing EventSource/DOM path. Iced, winit, wgpu, `wasm-bindgen`, and `web-sys` remain outside the renderer dependency graph.
+
+The native C ABI carries only the finalized Scene command stream and state lifecycle callbacks; renderer font measurement is not part of the shared layout contract.
 
 ## Consequences
 
-- UI consistency is enforced above renderer implementations instead of by sharing one graphics framework.
-- Native desktop compatibility failures are isolated to small platform renderers/hosts.
-- Web uses native Rust HTML/SVG generation plus browser DOM installation without duplicating dashboard semantics or requiring WebAssembly.
-- New platform renderers implement a small stable element vocabulary instead of every monitor card independently.
-- Exact glyph metrics may differ by native font stack; structure, values, geometry policy, colors, graph semantics, and ordering remain shared.
-- The shared UI tree must stay application-specific and small; turning it into a generic toolkit would recreate the abstraction cost this decision removes.
+- Structure and geometry are identical by construction across graphical renderers.
+- Platform fonts may differ without moving sibling elements or changing dashboard geometry.
+- Web no longer maintains a parallel card/row/graph layout implementation.
+- Native compatibility remains isolated to small platform renderers/hosts.
+- Geometry can be tested once at the Scene boundary; renderer tests focus on faithful primitive realization.
+- The shared tree/layout must remain application-specific and small; turning it into a generic widget toolkit would recreate the abstraction cost this decision avoids.
 
 ## Supersedes
 
-This decision supersedes ADR 007's requirement that native desktop and Web share one Iced panel implementation.
+This decision continues to supersede ADR 007's requirement that native desktop and Web share one Iced panel implementation. It also strengthens ADR 008's earlier form, which allowed Web to independently lower the dashboard tree through browser-native layout.

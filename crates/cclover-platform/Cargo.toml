@@ -8,6 +8,12 @@ build = "build.rs"
 [features]
 default = []
 ebpf-io = []
+windows-etw-validation = []
+
+[[bin]]
+name = "windows-etw-semantic"
+path = "src/bin/windows_etw_semantic.rs"
+required-features = ["windows-etw-validation"]
 
 [dependencies]
 cclover-core = { path = "../cclover-core" }

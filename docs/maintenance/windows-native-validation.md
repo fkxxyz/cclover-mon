@@ -78,8 +78,8 @@ It reports the resolved repository, Windows path mapping, PowerShell transport, 
 
 ## Profiles
 
-`windows-native` runs deterministic Windows-host tests. It does not prove ETW runtime semantics.
+`windows-native` runs deterministic Windows-host tests. ETW runtime semantics are owned by the elevated `windows-etw-runtime` profile.
 
-`windows-etw-runtime` builds the production executable and runs `windows-etw-disk-smoke.ts`. The smoke opens a temporary file before cclover-mon starts, writes from a known Bun PID while the production `disk-attribution` probe runs, and requires nonzero write attribution for that same PID. It exercises real ETW session control, FileIo rundown seeding, correlation, physical-disk canonicalization, and production probe output.
+`windows-etw-runtime` builds the production executable, runs `windows-etw-disk-smoke.ts`, and then runs the validation-only `windows-etw-semantic` harness. The smoke proves the production CLI path, pre-opened-file rundown, PID correlation, physical-disk canonicalization, and nonzero attribution. The semantic harness drives the production collector directly with synchronized exact workloads and asserts successful-byte semantics for buffered write/read, partial EOF, zero-byte EOF, failed read, and a pre-warmed cache-hit read.
 
 Do not report Windows runtime validation from cross-build success alone. Record which native profile ran and which Windows environment supplied the evidence.

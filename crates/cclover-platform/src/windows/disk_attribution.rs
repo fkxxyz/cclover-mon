@@ -102,10 +102,16 @@ struct SinkState {
 mod collector;
 mod correlation;
 mod support;
+#[cfg(feature = "windows-etw-validation")]
+mod validation;
 
 pub(super) use collector::Collector;
 use correlation::Sink;
 use support::*;
+#[cfg(feature = "windows-etw-validation")]
+pub(super) fn run_native_semantic_validation() -> Result<(), String> {
+    validation::run_native_semantic_validation()
+}
 
 #[cfg(test)]
 mod tests;

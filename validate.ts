@@ -131,6 +131,20 @@ const WINDOWS_ETW_RUNTIME_STEPS: readonly ValidationStep[] = [
     command: ["cargo", "build", "--locked", "--release", "-p", "cclover-mon", "--no-default-features"],
   },
   { name: "Windows ETW disk-attribution smoke", command: ["bun", "windows-etw-disk-smoke.ts"] },
+  {
+    name: "Windows ETW completion-semantic validation",
+    command: [
+      "cargo",
+      "run",
+      "--locked",
+      "-p",
+      "cclover-platform",
+      "--bin",
+      "windows-etw-semantic",
+      "--features",
+      "windows-etw-validation",
+    ],
+  },
 ];
 
 const WEB_BROWSER_STEPS: readonly ValidationStep[] = [

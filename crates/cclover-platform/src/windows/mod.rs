@@ -35,6 +35,11 @@ pub fn prepare_machine_capability() {
     let _ = provision::prepare_machine_capability();
 }
 
+#[cfg(feature = "windows-etw-validation")]
+pub(super) fn run_etw_semantic_validation() -> Result<(), String> {
+    disk_attribution::run_native_semantic_validation()
+}
+
 pub struct Backend {
     disk_attribution: disk_attribution::Collector,
     gpus: gpu::Collector,

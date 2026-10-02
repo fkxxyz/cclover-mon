@@ -67,7 +67,7 @@ describe("validation profiles", () => {
     });
   });
 
-  test("Windows ETW runtime validation is isolated and uses the production probe", () => {
+  test("Windows ETW runtime validation is isolated and covers probe plus exact semantics", () => {
     expect(validationSteps("windows-etw-runtime").map((step) => step.command)).toEqual([
       ["bun", "prepare-windows-deps.ts"],
       [
@@ -80,6 +80,17 @@ describe("validation profiles", () => {
         "--no-default-features",
       ],
       ["bun", "windows-etw-disk-smoke.ts"],
+      [
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "cclover-platform",
+        "--bin",
+        "windows-etw-semantic",
+        "--features",
+        "windows-etw-validation",
+      ],
     ]);
     expect(
       validationSteps("windows-native").some((step) =>

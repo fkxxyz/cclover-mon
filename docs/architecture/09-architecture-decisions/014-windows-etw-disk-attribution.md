@@ -45,7 +45,7 @@ ETW is event-driven and avoids process-by-process polling or helper programs. Ke
 - TDH property decoding favors compatibility and maintainability over hand-coded payload offsets. If profiling proves it material, the implementation may cache narrow validated decode plans without creating a generic ETW framework.
 - Multi-disk logical volumes cannot be truthfully projected to one physical disk from FileIo alone and therefore degrade attribution completeness.
 - Event loss requires a new counter baseline, because continuing cumulative counters across a known gap would silently undercount later rates.
-- Representative Windows runtime validation is required for the supported FileIo schema and exact successful-completion byte interpretation, especially writes and partial operations. The architecture semantic remains successful logical bytes regardless of the payload extraction rule ultimately validated.
+- Representative Windows runtime validation remains part of the validation plan for the supported FileIo schema. The validation-only ETW semantic harness exercises the production collector with exact successful-completion byte assertions, including buffered reads/writes, partial EOF, failure/zero-byte cases, and a pre-warmed cache-hit read.
 
 ## Rejected Alternatives
 

@@ -95,6 +95,10 @@ pub use windows::Backend;
 pub use windows::early_command_exit_code;
 #[cfg(target_os = "windows")]
 pub use windows::prepare_machine_capability;
+#[cfg(all(target_os = "windows", feature = "windows-etw-validation"))]
+pub fn run_windows_etw_semantic_validation() -> Result<(), String> {
+    windows::run_etw_semantic_validation()
+}
 
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
 compile_error!("cclover-mon currently supports Linux and Windows targets only");

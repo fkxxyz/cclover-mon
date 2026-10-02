@@ -135,7 +135,7 @@ bun windows-validate.ts windows-native
 bun windows-validate.ts windows-etw-runtime
 ```
 
-`validate.ts` remains the validation-plan authority, including required host and privilege; `windows-validate.ts` only supplies host execution. `windows-etw-runtime` uses the production probe with a known local write workload and a pre-opened file; it is runtime evidence, not a replacement for the broader ETW semantic-validation debt. See `docs/maintenance/windows-native-validation.md` for one-time bridge provisioning and nonstandard host/path configuration.
+`validate.ts` remains the validation-plan authority, including required host and privilege; `windows-validate.ts` only supplies host execution. `windows-etw-runtime` runs both the production probe smoke and the validation-only exact FileIo completion-semantic harness. See `docs/maintenance/windows-native-validation.md` for one-time bridge provisioning and nonstandard host/path configuration.
 
 Run the real-browser Web smoke test only when Chromium/Chrome is available:
 
@@ -162,7 +162,7 @@ For Linux UI or window-placement changes, also perform a real Wayland runtime ch
 - Native Linux desktop rendering requires Cairo, X11/Xext, Wayland client libraries, and the checked-in generated layer-shell protocol sources. Do not reintroduce Iced/winit/wgpu to avoid native host work.
 - `cclover-mon-server` is an independent product artifact. It must not depend on `cclover-desktop`, `cclover-tui`, Cairo, X11, Wayland, or desktop-session integration. Shared sampling belongs in `cclover-runtime`; shared HTTP/API delivery belongs in `cclover-http`.
 - Every `cargo xwin` build must use exactly `XWIN_ARCH=x86,x86_64`, including builds targeting only `i686-pc-windows-msvc` or only `x86_64-pc-windows-msvc`. Do not omit it or switch to a per-target value: cargo-xwin's default architecture set differs, and changing this setting can force CRT/SDK cache re-download/re-splat work.
-- Linux is implemented and runtime-validated. Windows native collectors for CPU, memory, processes, network interfaces, physical disks, temperatures, NVIDIA/AMD GPU telemetry, per-process network attribution through NDU, and per-process disk attribution through FileIo ETW are implemented. Windows ETW disk attribution is cross-build validated but still requires representative real-Windows runtime validation of event schema/completion-byte semantics. NDU uses an undocumented Windows ABI; preserve the isolated wrapper and keep real-Windows compatibility and end-to-end acceptance gaps aligned with the corresponding technical-debt records.
+- Linux is implemented and runtime-validated. Windows native collectors for CPU, memory, processes, network interfaces, physical disks, temperatures, NVIDIA/AMD GPU telemetry, per-process network attribution through NDU, and per-process disk attribution through FileIo ETW are implemented. Windows ETW disk attribution has real-Windows exact completion-semantic coverage in `windows-etw-runtime`. NDU uses an undocumented Windows ABI; preserve the isolated wrapper and keep real-Windows compatibility and end-to-end acceptance gaps aligned with the corresponding technical-debt records.
 - Static compilation is insufficient for UI changes. Previous runtime checks caught layout overlap and virtual block devices that passed Rust tests and Clippy.
 - The Linux panel intentionally uses top-right anchoring, bottom layer, and zero exclusive zone. Preserve these semantics unless the product behavior is intentionally changed.
 

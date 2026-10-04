@@ -70,7 +70,8 @@ crates/cclover-http/src/                shared HTTP/SSE/API transport over publi
 crates/cclover-server/src/              headless cclover-mon-server composition root and service lifecycle
 release.ts                   release CLI facade consumed by maintainers and CI
 tools/release/plan.ts        single publishable product/target and packaging-policy authority
-tools/release/archive.ts     archive creation and exact file-set verification
+tools/release/build-context.ts  artifact-local build invocation and resolved provenance authority
+tools/release/archive.ts     archive creation, producer identity, and exact file-set verification
 tools/release/pipeline.ts    release build, staging, manifest, and aggregate verification execution
 docs/architecture/         architecture Views and governance data
 archdoc.ts                 architecture documentation navigator and validator
@@ -111,7 +112,7 @@ bun archdoc.ts check
 
 `validate.ts` is the repository validation-plan authority. Keep validation command composition there; documentation and CI should invoke profiles rather than copy the underlying Cargo/Bun command list.
 
-`release.ts` is the repository release entry point. `tools/release/plan.ts` is the release-plan authority: keep publishable product/target combinations, artifact naming, and service assets there. `tools/release/pipeline.ts` executes that plan and enforces release completeness; release CI must consume the entry point rather than maintain a second matrix.
+`release.ts` is the repository release entry point. `tools/release/plan.ts` is the release-plan authority: keep publishable product/target combinations, artifact naming, and service assets there. `tools/release/build-context.ts` resolves each artifact's build invocation and native build provenance from the same environment; `tools/release/archive.ts` owns both archive execution and archive-producer provenance. `tools/release/pipeline.ts` executes those authorities and enforces release completeness; release CI must consume the entry point rather than maintain a second matrix or provenance collector.
 
 Run the fast deterministic profile during implementation:
 

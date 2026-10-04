@@ -1,4 +1,5 @@
 export * from "./tools/release/plan";
+export * from "./tools/release/build-context";
 export { archiveFiles, expectedArchiveFiles, verifyArchiveContents } from "./tools/release/archive";
 export {
   assertStaticPackageInputs,

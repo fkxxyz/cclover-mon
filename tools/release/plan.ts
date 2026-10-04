@@ -1,7 +1,7 @@
-import { XWIN_ARCH } from "../../validate";
-
 export type ReleasePlatform = "linux" | "windows";
 export type ArchiveFormat = "tar.gz" | "zip";
+export type NativeToolRole = "c-compiler" | "archiver" | "bpf-compiler" | "linker-driver" | "linker";
+export type ArchiveToolRole = "archiver" | "compressor";
 
 export interface ReleaseArtifact {
   readonly id: string;
@@ -19,13 +19,45 @@ export interface PackageFile {
   readonly destination: string;
 }
 
-export interface BuildInvocation {
-  readonly command: readonly string[];
-  readonly env?: Readonly<Record<string, string>>;
+export interface ToolIdentity {
+  readonly command: string;
+  readonly version?: string;
+  readonly executableSha256?: string;
+}
+
+export interface NativeToolIdentity extends ToolIdentity {
+  readonly role: NativeToolRole;
+}
+
+export interface ArchiveToolIdentity extends ToolIdentity {
+  readonly role: ArchiveToolRole;
+}
+
+export interface BuildProvenance {
+  readonly schemaVersion: 1;
+  readonly host: {
+    readonly os: string;
+    readonly arch: string;
+    readonly osRelease?: string;
+    readonly runnerEnvironment?: string;
+    readonly runnerImage?: string;
+    readonly runnerImageVersion?: string;
+  };
+  readonly rustc: ToolIdentity;
+  readonly cargo: ToolIdentity;
+  readonly nativeTools: readonly NativeToolIdentity[];
+  readonly archiveTools: readonly ArchiveToolIdentity[];
+  readonly windows?: {
+    readonly cargoXwin: ToolIdentity;
+    readonly xwinArch: string;
+    readonly sdkVersion: string;
+    readonly crtVersion: string;
+    readonly sysrootManifestSha256: string;
+  };
 }
 
 export interface ReleaseManifest {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly artifactId: string;
   readonly product: ReleaseArtifact["product"];
   readonly version: string;
@@ -33,10 +65,11 @@ export interface ReleaseManifest {
   readonly gitCommit: string;
   readonly archive: string;
   readonly sha256: string;
+  readonly buildProvenance: BuildProvenance;
 }
 
 export interface ReleaseSummary {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly version: string;
   readonly gitCommit: string;
   readonly artifacts: readonly ReleaseManifest[];
@@ -170,26 +203,6 @@ export function releaseMatrix(): {
   return {
     include: RELEASE_ARTIFACTS.map(({ id, platform, target }) => ({ id, platform, target })),
   };
-}
-
-export function buildInvocation(artifact: ReleaseArtifact): BuildInvocation {
-  const common = [
-    "build",
-    "--locked",
-    "--profile",
-    "dist",
-    "-p",
-    artifact.cargoPackage,
-    "--target",
-    artifact.target,
-  ];
-  if (artifact.platform === "windows") {
-    return {
-      command: ["cargo", "xwin", ...common],
-      env: { XWIN_ARCH },
-    };
-  }
-  return { command: ["cargo", ...common] };
 }
 
 export function archiveName(artifact: ReleaseArtifact, version: string): string {

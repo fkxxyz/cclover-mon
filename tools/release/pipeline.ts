@@ -13,14 +13,14 @@ import { dirname, join, resolve } from "node:path";
 
 import { PAWNIO } from "../../deps/pawnio";
 import { createArchive, verifyArchiveContents } from "./archive";
+import { resolveBuildContext, validateBuildProvenance, type BuildInvocation } from "./build-context";
 import {
   RELEASE_ARTIFACTS,
   archiveName,
   binaryFileName,
-  buildInvocation,
   stagingDirectoryName,
   validateReleaseTag,
-  type BuildInvocation,
+  type BuildProvenance,
   type ReleaseArtifact,
   type ReleaseManifest,
   type ReleaseSummary,
@@ -147,12 +147,14 @@ export async function packageBuiltReleaseArtifact(
     binary: string;
     version: string;
     commit: string;
+    provenance: BuildProvenance;
   },
 ): Promise<ReleaseManifest> {
   const repoRoot = options.repoRoot ?? DEFAULT_REPO_ROOT;
   const outDir = resolve(repoRoot, options.outDir);
   await assertStaticPackageInputs(artifact, repoRoot);
   await assertFile(options.binary, `built binary for ${artifact.id}`);
+  validateBuildProvenance(options.provenance, artifact);
   await mkdir(outDir, { recursive: true });
 
   const stageParent = join(outDir, `.stage-${artifact.id}`);
@@ -172,7 +174,7 @@ export async function packageBuiltReleaseArtifact(
     verifyArchiveContents(artifact, outputPath, options.version, repoRoot);
 
     const manifest: ReleaseManifest = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       artifactId: artifact.id,
       product: artifact.product,
       version: options.version,
@@ -180,6 +182,7 @@ export async function packageBuiltReleaseArtifact(
       gitCommit: options.commit,
       archive: outputName,
       sha256: await sha256File(outputPath),
+      buildProvenance: options.provenance,
     };
     await writeFile(
       join(outDir, `${outputName}.manifest.json`),
@@ -204,8 +207,8 @@ export async function buildReleaseArtifact(
   if (artifact.platform === "windows") {
     run({ command: ["bun", "prepare-windows-deps.ts"] }, repoRoot);
   }
-  const invocation = buildInvocation(artifact);
-  run(invocation, repoRoot);
+  const context = await resolveBuildContext(artifact, repoRoot);
+  run(context.invocation, repoRoot);
 
   const binary = join(
     repoRoot,
@@ -220,6 +223,7 @@ export async function buildReleaseArtifact(
     binary,
     version,
     commit: await gitCommit(repoRoot),
+    provenance: context.provenance,
   });
 }
 
@@ -229,7 +233,7 @@ function validateManifestIdentity(
   version: string,
   commit: string,
 ): void {
-  if (manifest.schemaVersion !== 1) throw new Error(`unsupported manifest schema for ${expected.id}`);
+  if (manifest.schemaVersion !== 2) throw new Error(`unsupported manifest schema for ${expected.id}`);
   if (manifest.artifactId !== expected.id) throw new Error(`manifest artifact mismatch for ${expected.id}`);
   if (manifest.product !== expected.product) throw new Error(`manifest product mismatch for ${expected.id}`);
   if (manifest.target !== expected.target) throw new Error(`manifest target mismatch for ${expected.id}`);
@@ -239,6 +243,7 @@ function validateManifestIdentity(
     throw new Error(`manifest archive name mismatch for ${expected.id}`);
   }
   if (!/^[0-9a-f]{64}$/.test(manifest.sha256)) throw new Error(`invalid SHA-256 for ${expected.id}`);
+  validateBuildProvenance(manifest.buildProvenance, expected);
 }
 
 export async function verifyReleaseArtifacts(
@@ -286,7 +291,7 @@ export async function verifyReleaseArtifacts(
     }
   }
 
-  const summary: ReleaseSummary = { schemaVersion: 1, version, gitCommit: commit, artifacts: manifests };
+  const summary: ReleaseSummary = { schemaVersion: 2, version, gitCommit: commit, artifacts: manifests };
   await writeFile(join(root, "release-manifest.json"), `${JSON.stringify(summary, null, 2)}\n`);
   return summary;
 }

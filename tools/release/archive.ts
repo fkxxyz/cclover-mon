@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import {
   binaryFileName,
   stagingDirectoryName,
+  type ArchiveToolIdentity,
   type ReleaseArtifact,
 } from "./plan";
 
@@ -35,6 +36,37 @@ function capture(command: readonly string[], cwd: string): string {
   return result.stdout.toString();
 }
 
+function archiveToolSpecs(artifact: ReleaseArtifact): readonly {
+  role: ArchiveToolIdentity["role"];
+  command: string;
+}[] {
+  return artifact.archiveFormat === "tar.gz"
+    ? [
+        { role: "archiver", command: "tar" },
+        { role: "compressor", command: "gzip" },
+      ]
+    : [{ role: "archiver", command: "zip" }];
+}
+
+export function archiveToolProvenance(
+  artifact: ReleaseArtifact,
+  repoRoot = DEFAULT_REPO_ROOT,
+): readonly ArchiveToolIdentity[] {
+  return archiveToolSpecs(artifact).map(({ role, command }) => {
+    const output = capture([command, "--version"], repoRoot);
+    const lines = output
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    const version =
+      command === "zip"
+        ? lines.find((line) => /^This is Zip /.test(line))
+        : lines[0];
+    if (!version) throw new Error(`${command} did not report a recognizable version`);
+    return { role, command, version };
+  });
+}
+
 export async function createArchive(
   artifact: ReleaseArtifact,
   outDir: string,
@@ -44,16 +76,21 @@ export async function createArchive(
   repoRoot = DEFAULT_REPO_ROOT,
 ): Promise<void> {
   const output = join(outDir, outputName);
+  const tools = archiveToolSpecs(artifact);
   if (artifact.archiveFormat === "tar.gz") {
+    const tar = tools.find((tool) => tool.role === "archiver")!;
+    const compressor = tools.find((tool) => tool.role === "compressor")!;
     run(
       [
-        "tar",
+        tar.command,
         "--sort=name",
         "--mtime=1980-01-01T00:00:00Z",
         "--owner=0",
         "--group=0",
         "--numeric-owner",
-        "-czf",
+        "--use-compress-program",
+        compressor.command,
+        "-cf",
         output,
         "-C",
         stageParent,
@@ -63,7 +100,8 @@ export async function createArchive(
     );
     return;
   }
-  run(["zip", "-X", "-q", "-r", output, stageName], stageParent);
+  const zip = tools.find((tool) => tool.role === "archiver")!;
+  run([zip.command, "-X", "-q", "-r", output, stageName], stageParent);
 }
 
 export function expectedArchiveFiles(

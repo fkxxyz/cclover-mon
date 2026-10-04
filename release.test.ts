@@ -14,13 +14,57 @@ import {
   packageBuiltReleaseArtifact,
   releaseArtifact,
   releaseMatrix,
+  parseXwinSysrootManifest,
+  validateBuildProvenance,
+  validateHostedRunnerIdentity,
   validateReleaseTag,
   verifyReleaseArtifacts,
+  type BuildProvenance,
+  type NativeToolRole,
+  type ReleaseArtifact,
   type ReleaseManifest,
 } from "./release";
 
 const VERSION = "0.1.0";
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
+
+function fixtureProvenance(artifact: ReleaseArtifact): BuildProvenance {
+  const roles: NativeToolRole[] =
+    artifact.platform === "windows"
+      ? ["c-compiler", "archiver", "linker"]
+      : artifact.product === "cclover-mon"
+        ? ["c-compiler", "archiver", "bpf-compiler", "linker-driver", "linker"]
+        : ["bpf-compiler", "linker-driver", "linker"];
+  return {
+    schemaVersion: 1,
+    host: { os: "linux", arch: "x64", osRelease: "fixture Linux" },
+    rustc: { command: "rustc", version: "rustc fixture" },
+    cargo: { command: "cargo", version: "cargo fixture" },
+    nativeTools: roles.map((role) =>
+      artifact.platform === "windows" && role === "archiver"
+        ? { role, command: "llvm-lib", executableSha256: "b".repeat(64) }
+        : { role, command: `fixture-${role}`, version: `${role} fixture` },
+    ),
+    archiveTools:
+      artifact.archiveFormat === "tar.gz"
+        ? [
+            { role: "archiver", command: "tar", version: "tar fixture" },
+            { role: "compressor", command: "gzip", version: "gzip fixture" },
+          ]
+        : [{ role: "archiver", command: "zip", version: "zip fixture" }],
+    ...(artifact.platform === "windows"
+      ? {
+          windows: {
+            cargoXwin: { command: "cargo", version: "cargo-xwin fixture" },
+            xwinArch: "x86,x86_64",
+            sdkVersion: "10.0.26100",
+            crtVersion: "14.44.17.14",
+            sysrootManifestSha256: "a".repeat(64),
+          },
+        }
+      : {}),
+  };
+}
 
 async function sha256(path: string): Promise<string> {
   const hasher = new Bun.CryptoHasher("sha256");
@@ -37,6 +81,7 @@ async function completeFixture(root: string): Promise<void> {
       binary,
       version: VERSION,
       commit: COMMIT,
+      provenance: fixtureProvenance(artifact),
     });
   }
   await rm(binary);
@@ -99,6 +144,64 @@ describe("release authority", () => {
     }
   });
 
+  test("provenance contract requires the native tools used by each artifact", () => {
+    const linux = releaseArtifact("cclover-mon-x86_64-unknown-linux-gnu");
+    const linuxProvenance = fixtureProvenance(linux);
+    expect(() =>
+      validateBuildProvenance(
+        {
+          ...linuxProvenance,
+          nativeTools: linuxProvenance.nativeTools.filter((tool) => tool.role !== "bpf-compiler"),
+        },
+        linux,
+      ),
+    ).toThrow(`missing bpf-compiler provenance for ${linux.id}`);
+
+    const windows = releaseArtifact("cclover-mon-server-x86_64-pc-windows-msvc");
+    const windowsProvenance = fixtureProvenance(windows);
+    expect(() =>
+      validateBuildProvenance(
+        {
+          ...windowsProvenance,
+          windows: { ...windowsProvenance.windows!, xwinArch: "x86_64" },
+        },
+        windows,
+      ),
+    ).toThrow(`Windows provenance XWIN_ARCH mismatch for ${windows.id}`);
+  });
+
+  test("cargo-xwin sysroot identity parses stable SDK and CRT facts", () => {
+    const fixture = [
+      "x86 x86_64",
+      "Win11SDK_10.0.26100_headers.msi",
+      "Win11SDK_10.0.26100_libs_x64.msi",
+      "Microsoft.VC.14.44.17.14.CRT.Headers.base.vsix",
+      "Microsoft.VC.14.44.17.14.CRT.x64.Desktop.base.vsix",
+      "",
+    ].join("\n");
+    const parsed = parseXwinSysrootManifest(fixture);
+    expect(parsed.sdkVersion).toBe("10.0.26100");
+    expect(parsed.crtVersion).toBe("14.44.17.14");
+    expect(parsed.sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test("GitHub-hosted builds require durable runner image identity", () => {
+    expect(() =>
+      validateHostedRunnerIdentity({ GITHUB_ACTIONS: "true", RUNNER_ENVIRONMENT: "github-hosted" }),
+    ).toThrow("GitHub-hosted release build is missing ImageOS/ImageVersion provenance");
+    expect(() =>
+      validateHostedRunnerIdentity({
+        GITHUB_ACTIONS: "true",
+        RUNNER_ENVIRONMENT: "github-hosted",
+        ImageOS: "ubuntu24",
+        ImageVersion: "20261001.1",
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateHostedRunnerIdentity({ GITHUB_ACTIONS: "true", RUNNER_ENVIRONMENT: "self-hosted" }),
+    ).not.toThrow();
+  });
+
   test("artifact names encode product, version, and exact Rust target", () => {
     expect(archiveName(releaseArtifact("cclover-mon-x86_64-unknown-linux-gnu"), VERSION)).toBe(
       "cclover-mon-v0.1.0-x86_64-unknown-linux-gnu.tar.gz",
@@ -144,9 +247,11 @@ describe("release completeness", () => {
         RELEASE_ARTIFACTS.map((artifact) => artifact.id),
       );
       const written = JSON.parse(await readFile(join(root, "release-manifest.json"), "utf8"));
+      expect(written.schemaVersion).toBe(2);
       expect(written.version).toBe(VERSION);
       expect(written.gitCommit).toBe(COMMIT);
       expect(written.artifacts).toHaveLength(6);
+      expect(written.artifacts.every((artifact: ReleaseManifest) => artifact.buildProvenance)).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -100,17 +100,24 @@ pub(crate) fn format_compact_bytes(value: u64) -> BoundedText {
     let unit = compact_binary_unit(value);
     let number = value as f64 / 1024_f64.powi(unit as i32);
     BoundedText::new(
-        format!("{}{}", compact_number(number), COMPACT_BINARY_UNITS[unit]),
-        6,
+        format!(
+            "{}{}",
+            compact_number(number, COMPACT_BINARY_NUMBER_COLUMNS),
+            COMPACT_BINARY_UNITS[unit]
+        ),
+        COMPACT_BYTES_COLUMNS,
     )
 }
 
 pub(crate) fn format_compact_bytes_pair(used: u64, total: u64) -> BoundedText {
     let unit = compact_binary_unit(used.max(total));
     let scale = 1024_f64.powi(unit as i32);
-    let used = compact_number(used as f64 / scale);
-    let total = compact_number(total as f64 / scale);
-    BoundedText::new(format!("{used}/{total} {}", COMPACT_BINARY_UNITS[unit]), 11)
+    let used = compact_number(used as f64 / scale, COMPACT_BINARY_NUMBER_COLUMNS);
+    let total = compact_number(total as f64 / scale, COMPACT_BINARY_NUMBER_COLUMNS);
+    BoundedText::new(
+        format!("{used}/{total} {}", COMPACT_BINARY_UNITS[unit]),
+        COMPACT_BYTES_PAIR_COLUMNS,
+    )
 }
 
 pub(crate) fn format_gpu_memory(used: u64, total: u64) -> BoundedText {
@@ -179,23 +186,39 @@ pub(crate) fn format_compact_rpm(value: u64) -> BoundedText {
 }
 
 const COMPACT_BINARY_UNITS: [&str; 7] = ["B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"];
+const COMPACT_PROMOTION_THRESHOLD: f64 = 999.5;
+const COMPACT_BINARY_NUMBER_COLUMNS: u8 = 3;
+const COMPACT_BINARY_UNIT_COLUMNS: u8 = 3;
+const COMPACT_BYTES_COLUMNS: u8 = COMPACT_BINARY_NUMBER_COLUMNS + COMPACT_BINARY_UNIT_COLUMNS;
+const COMPACT_BYTES_PAIR_COLUMNS: u8 =
+    COMPACT_BINARY_NUMBER_COLUMNS * 2 + COMPACT_BINARY_UNIT_COLUMNS + 2;
 
 fn compact_binary_unit(value: u64) -> usize {
     let mut number = value as f64;
     let mut unit = 0;
-    while number >= 999.5 && unit < COMPACT_BINARY_UNITS.len() - 1 {
+    while number >= COMPACT_PROMOTION_THRESHOLD && unit < COMPACT_BINARY_UNITS.len() - 1 {
         number /= 1024.0;
         unit += 1;
     }
     unit
 }
 
-fn compact_number(number: f64) -> String {
-    if number < 10.0 {
-        format!("{number:.1}")
-    } else {
-        format!("{number:.0}")
+fn compact_number(number: f64, max_columns: u8) -> String {
+    let preferred_precision = usize::from(number < 10.0);
+    for precision in (0..=preferred_precision).rev() {
+        let text = format!("{number:.precision$}");
+        if text.chars().count() <= usize::from(max_columns) {
+            return text;
+        }
     }
+    panic!("compact number exceeded its column budget: {number} > {max_columns} columns")
+}
+
+fn compact_number_columns(max_columns: u8, suffix: &str) -> u8 {
+    let suffix_columns = u8::try_from(suffix.chars().count()).unwrap_or(u8::MAX);
+    max_columns
+        .checked_sub(suffix_columns)
+        .expect("compact suffix exceeds formatter column budget")
 }
 
 fn format_scaled_f64(value: f64, base: f64, units: &[&str], max_columns: u8) -> BoundedText {
@@ -204,14 +227,15 @@ fn format_scaled_f64(value: f64, base: f64, units: &[&str], max_columns: u8) -> 
     }
     let mut number = value.max(0.0);
     let mut unit = 0;
-    while number >= 999.5 && unit < units.len() - 1 {
+    while number >= COMPACT_PROMOTION_THRESHOLD && unit < units.len() - 1 {
         number /= base;
         unit += 1;
     }
-    let text = if unit == units.len() - 1 && number >= 999.5 {
+    let text = if unit == units.len() - 1 && number >= COMPACT_PROMOTION_THRESHOLD {
         format!(">999{}", units[unit])
     } else {
-        format!("{}{}", compact_number(number), units[unit])
+        let number_columns = compact_number_columns(max_columns, units[unit]);
+        format!("{}{}", compact_number(number, number_columns), units[unit])
     };
     BoundedText::new(text, max_columns)
 }
@@ -219,14 +243,29 @@ fn format_scaled_f64(value: f64, base: f64, units: &[&str], max_columns: u8) -> 
 fn format_scaled_u64(value: u64, base: f64, units: &[&str], max_columns: u8) -> BoundedText {
     let mut number = value as f64;
     let mut unit = 0;
-    while number >= 999.5 && unit < units.len() - 1 {
+    while number >= COMPACT_PROMOTION_THRESHOLD && unit < units.len() - 1 {
         number /= base;
         unit += 1;
     }
-    let text = if unit == units.len() - 1 && number >= 999.5 {
+    let text = if unit == units.len() - 1 && number >= COMPACT_PROMOTION_THRESHOLD {
         format!(">999{}", units[unit])
     } else {
-        format!("{}{}", compact_number(number), units[unit])
+        let number_columns = compact_number_columns(max_columns, units[unit]);
+        format!("{}{}", compact_number(number, number_columns), units[unit])
     };
     BoundedText::new(text, max_columns)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compact_number;
+
+    #[test]
+    fn compact_number_uses_highest_precision_that_fits_the_budget() {
+        assert_eq!(compact_number(9.94, 3), "9.9");
+        assert_eq!(compact_number(9.96, 3), "10");
+        assert_eq!(compact_number(9.96, 4), "10.0");
+        assert_eq!(compact_number(99.6, 3), "100");
+        assert_eq!(compact_number(999.4, 3), "999");
+    }
 }

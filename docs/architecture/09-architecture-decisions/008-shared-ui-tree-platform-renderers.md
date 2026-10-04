@@ -90,7 +90,7 @@ Dynamic text never controls sibling geometry. Dashboard rows allocate text throu
 - `Fixed(width)` reserves an explicit logical-pixel slot;
 - `Fill` receives remaining row width after fixed slots and gaps.
 
-Text alignment and clipping are part of the shared tree and become final `Scene::Text` rectangles. Formatting and slot budgets must be designed together; values that exceed their budget are clipped or require a presentation-format change rather than renderer-specific measurement-driven relayout.
+Text alignment and clipping are part of the shared tree and become final `Scene::Text` rectangles. Formatting and slot budgets must be designed together. Bounded metric values must already satisfy their presentation-declared column budget before entering graphical layout; exceeding that budget is a presentation contract violation, not a renderer overflow case. Clipping is reserved for explicitly unbounded text such as identity labels. Renderers must not recover from bounded-value overflow through truncation, font shrinking, or measurement-driven relayout.
 
 ## Web Boundary
 

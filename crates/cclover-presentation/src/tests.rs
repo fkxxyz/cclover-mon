@@ -34,9 +34,21 @@ fn bounded_dashboard_formatters_hold_their_declared_capacity() {
         format_compact_temperature, format_gpu_memory,
     };
 
-    let values = [0, 999, 1024, 1024 * 1024, u64::MAX];
-    for value in values {
+    let gib = 1024_u64.pow(3);
+    let byte_values = [
+        0,
+        999,
+        1024,
+        1024 * 1024,
+        (9.94_f64 * gib as f64).round() as u64,
+        (9.96_f64 * gib as f64).round() as u64,
+        10 * gib,
+        u64::MAX,
+    ];
+    for value in byte_values {
         assert_within_bound(&format_compact_bytes(value));
+    }
+    for value in [0, 9, 10, 99, 100, 999, 1000, 9_999, 10_000, u64::MAX] {
         assert_within_bound(&format_compact_frequency_mhz(value));
         assert_within_bound(&format_compact_rpm(value));
     }
@@ -49,12 +61,46 @@ fn bounded_dashboard_formatters_hold_their_declared_capacity() {
         assert_within_bound(&format_compact_bytes_pair(used, total));
         assert_within_bound(&format_gpu_memory(used, total));
     }
-    for value in [0.0, 42.0, 100.0, 1000.0, f64::MAX, f64::INFINITY, f64::NAN] {
+    for value in [
+        0.0,
+        9.94,
+        9.96,
+        99.4,
+        99.6,
+        999.4,
+        999.5,
+        1000.0,
+        f64::MAX,
+        f64::INFINITY,
+        f64::NAN,
+    ] {
         assert_within_bound(&format_compact_rate(value));
-        assert_within_bound(&format_compact_percent(value));
         assert_within_bound(&format_compact_power(value));
+    }
+    for value in [0.0, 42.0, 100.0, 1000.0, f64::MAX, f64::INFINITY, f64::NAN] {
+        assert_within_bound(&format_compact_percent(value));
         assert_within_bound(&format_compact_temperature(value));
     }
+}
+
+#[test]
+fn compact_binary_formatting_handles_rounding_and_unit_boundaries() {
+    use crate::format::{format_compact_bytes, format_compact_bytes_pair};
+
+    let gib = 1024_u64.pow(3);
+    let before_ten = (9.94_f64 * gib as f64).round() as u64;
+    let rounds_to_ten = (9.96_f64 * gib as f64).round() as u64;
+    assert_eq!(format_compact_bytes(before_ten).as_str(), "9.9GiB");
+    assert_eq!(format_compact_bytes(rounds_to_ten).as_str(), "10GiB");
+    assert_eq!(format_compact_bytes(10 * gib).as_str(), "10GiB");
+
+    let mib_promotion = (999.5_f64 * 1024.0).round() as u64;
+    assert_eq!(format_compact_bytes(mib_promotion - 1).as_str(), "999KiB");
+    assert_eq!(format_compact_bytes(mib_promotion).as_str(), "1.0MiB");
+
+    let pair = format_compact_bytes_pair(rounds_to_ten, rounds_to_ten);
+    assert_eq!(pair.as_str(), "10/10 GiB");
+    assert_within_bound(&pair);
 }
 
 fn assert_within_bound(value: &BoundedText) {

@@ -1,6 +1,6 @@
 use cclover_core::model::{
-    Collection, DiskMetadata, DiskSnapshot, GpuSnapshot, MonitorState, NetworkSnapshot,
-    TemperatureSnapshot,
+    Collection, DiskMetadata, DiskSnapshot, GpuSnapshot, MemorySnapshot, MonitorState,
+    NetworkSnapshot, TemperatureSnapshot,
 };
 use cclover_presentation::{Dashboard, FAN_SECTION};
 
@@ -132,5 +132,35 @@ fn gpu_memory_value_is_complete_and_unclipped_in_shared_scene() {
         TEXT_SLOT_GEOMETRY.gpu_memory_value.width() as f32
     );
     assert_eq!(TEXT_SLOT_GEOMETRY.gpu_memory_value.capacity_columns(), 20);
+    assert!(!memory.1);
+}
+
+#[test]
+fn rounded_memory_value_stays_within_shared_text_slot() {
+    let gib = 1024_u64.pow(3);
+    let mut state = MonitorState::default();
+    state.snapshot.memory = Collection::available(MemorySnapshot {
+        used_bytes: (9.96_f64 * gib as f64).round() as u64,
+        total_bytes: 22 * gib,
+        swap_used_bytes: 0,
+        swap_total_bytes: 0,
+    });
+
+    let scene = build_scene(Dashboard::new(&state));
+    let memory = scene
+        .primitives
+        .iter()
+        .find_map(|primitive| match primitive {
+            Primitive::Text {
+                rect, value, clip, ..
+            } if value == "10GiB" => Some((*rect, *clip)),
+            _ => None,
+        })
+        .expect("rounded memory value must be present in scene");
+
+    assert_eq!(
+        memory.0.width,
+        TEXT_SLOT_GEOMETRY.metric_value.width() as f32
+    );
     assert!(!memory.1);
 }

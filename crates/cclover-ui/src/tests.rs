@@ -122,12 +122,15 @@ fn gpu_memory_value_is_complete_and_unclipped_in_shared_scene() {
         .find_map(|primitive| match primitive {
             Primitive::Text {
                 rect, value, clip, ..
-            } if value == "4.0/22 GiB" => Some((*rect, *clip)),
+            } if value == "4.00 GiB / 22 GiB" => Some((*rect, *clip)),
             _ => None,
         })
         .expect("GPU memory value must be present in scene");
 
-    assert_eq!(memory.0.width, TEXT_SLOT_GEOMETRY.gpu_value.width() as f32);
-    assert_eq!(TEXT_SLOT_GEOMETRY.gpu_value.capacity_columns(), 11);
+    assert_eq!(
+        memory.0.width,
+        TEXT_SLOT_GEOMETRY.gpu_memory_value.width() as f32
+    );
+    assert_eq!(TEXT_SLOT_GEOMETRY.gpu_memory_value.capacity_columns(), 20);
     assert!(!memory.1);
 }

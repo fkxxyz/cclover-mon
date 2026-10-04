@@ -143,7 +143,7 @@ pub(crate) fn gpu_card<'a>(gpu: cclover_presentation::GpuPanel<'a>, capacity: us
                 Tone::Accent,
                 0.14,
             )),
-            metric_row(
+            gpu_memory_row(
                 "MEMORY",
                 gpu.compact_memory_value(),
                 GPU_CARD_GEOMETRY.metric_row_height,
@@ -184,6 +184,25 @@ fn metric_row<'a>(label: &'static str, value: BoundedText, height: u32) -> Eleme
                 .static_content()
                 .fill(),
             bounded_cell(value, 12, Tone::Foreground, TEXT_SLOT_GEOMETRY.gpu_value),
+        ],
+        height,
+        gap: 0,
+    })
+}
+
+fn gpu_memory_row<'a>(label: &'static str, value: BoundedText, height: u32) -> Element<'a> {
+    Element::Row(TextRow {
+        cells: vec![
+            TextCell::borrowed(label, 10, Tone::Muted)
+                .bold()
+                .static_content()
+                .fill(),
+            bounded_cell(
+                value,
+                10,
+                Tone::Foreground,
+                TEXT_SLOT_GEOMETRY.gpu_memory_value,
+            ),
         ],
         height,
         gap: 0,

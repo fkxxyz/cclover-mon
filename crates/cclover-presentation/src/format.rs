@@ -113,6 +113,20 @@ pub(crate) fn format_compact_bytes_pair(used: u64, total: u64) -> BoundedText {
     BoundedText::new(format!("{used}/{total} {}", COMPACT_BINARY_UNITS[unit]), 11)
 }
 
+pub(crate) fn format_gpu_memory(used: u64, total: u64) -> BoundedText {
+    let unit = compact_binary_unit(used.max(total));
+    let scale = 1024_f64.powi(unit as i32);
+    let used = used as f64 / scale;
+    let total = total as f64 / scale;
+    BoundedText::new(
+        format!(
+            "{used:.2} {} / {total:.0} {}",
+            COMPACT_BINARY_UNITS[unit], COMPACT_BINARY_UNITS[unit]
+        ),
+        20,
+    )
+}
+
 pub(crate) fn format_compact_percent(value: f64) -> BoundedText {
     if !value.is_finite() {
         return compact_unavailable();

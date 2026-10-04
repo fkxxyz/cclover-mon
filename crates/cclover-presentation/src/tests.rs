@@ -31,7 +31,7 @@ fn bounded_dashboard_formatters_hold_their_declared_capacity() {
     use crate::format::{
         format_compact_bytes, format_compact_bytes_pair, format_compact_frequency_mhz,
         format_compact_percent, format_compact_power, format_compact_rpm,
-        format_compact_temperature,
+        format_compact_temperature, format_gpu_memory,
     };
 
     let values = [0, 999, 1024, 1024 * 1024, u64::MAX];
@@ -47,6 +47,7 @@ fn bounded_dashboard_formatters_hold_their_declared_capacity() {
         (u64::MAX, u64::MAX),
     ] {
         assert_within_bound(&format_compact_bytes_pair(used, total));
+        assert_within_bound(&format_gpu_memory(used, total));
     }
     for value in [0.0, 42.0, 100.0, 1000.0, f64::MAX, f64::INFINITY, f64::NAN] {
         assert_within_bound(&format_compact_rate(value));
@@ -98,7 +99,7 @@ fn gpu_panel_formats_public_metrics_and_histories() {
     assert_eq!(panel.core_clock_value(), "1830 MHz");
     assert_eq!(panel.fan_value(), "37.0%");
     assert_eq!(panel.compact_utilization_value().as_str(), "42.0%");
-    assert_eq!(panel.compact_memory_value().as_str(), "4.0/8.0 GiB");
+    assert_eq!(panel.compact_memory_value().as_str(), "4.00 GiB / 8 GiB");
     assert_eq!(panel.compact_temperature_value().as_str(), "63.0°C");
     assert_eq!(panel.compact_power_value().as_str(), "145W");
     assert_eq!(panel.compact_core_clock_value().as_str(), "1.8GHz");
@@ -116,6 +117,18 @@ fn gpu_panel_formats_public_metrics_and_histories() {
         panel.memory_graph_max(),
         (8_u64 * 1024 * 1024 * 1024) as f64
     );
+}
+
+#[test]
+fn gpu_memory_keeps_readable_precision_and_units() {
+    use crate::format::format_gpu_memory;
+
+    let gib = 1024_u64.pow(3);
+    let used = (11.52_f64 * gib as f64).round() as u64;
+    let value = format_gpu_memory(used, 22 * gib);
+
+    assert_eq!(value.as_str(), "11.52 GiB / 22 GiB");
+    assert_eq!(value.max_columns(), 20);
 }
 
 #[test]

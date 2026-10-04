@@ -94,6 +94,7 @@ pub struct TextSlotGeometry {
     pub process_value: TextSlot,
     pub card_value: TextSlot,
     pub gpu_value: TextSlot,
+    pub gpu_memory_value: TextSlot,
     pub network_value: TextSlot,
     pub io_value: TextSlot,
 }
@@ -105,6 +106,7 @@ pub const TEXT_SLOT_GEOMETRY: TextSlotGeometry = TextSlotGeometry {
     process_value: TextSlot::monospace(6, 12),
     card_value: TextSlot::monospace(8, 12),
     gpu_value: TextSlot::monospace(11, 12),
+    gpu_memory_value: TextSlot::monospace(20, 10),
     network_value: TextSlot::monospace(7, 11),
     io_value: TextSlot::monospace(8, 9),
 };

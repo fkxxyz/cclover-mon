@@ -1,6 +1,6 @@
 use crate::format::{
-    compact_unavailable, format_compact_bytes_pair, format_compact_frequency_mhz,
-    format_compact_percent, format_compact_power, format_compact_rpm, format_compact_temperature,
+    compact_unavailable, format_compact_frequency_mhz, format_compact_percent,
+    format_compact_power, format_compact_rpm, format_compact_temperature, format_gpu_memory,
 };
 use crate::*;
 #[derive(Clone, Copy)]
@@ -49,7 +49,7 @@ impl<'a> GpuPanel<'a> {
 
     pub fn compact_memory_value(self) -> BoundedText {
         match (self.value.memory_used_bytes, self.value.memory_total_bytes) {
-            (Some(used), Some(total)) => format_compact_bytes_pair(used, total),
+            (Some(used), Some(total)) => format_gpu_memory(used, total),
             _ => compact_unavailable(),
         }
     }

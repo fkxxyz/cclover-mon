@@ -8,24 +8,47 @@ export {
   verifyReleaseArtifacts,
   workspaceVersion,
 } from "./tools/release/pipeline";
+export {
+  GhGitHubPublicationGateway,
+  publishGitHubRelease,
+  type GitHubPublicationGateway,
+  type GitHubReleaseAsset,
+  type GitHubReleaseState,
+} from "./tools/release/publication";
 
 import {
   RELEASE_ARTIFACTS,
   releaseArtifact,
   releaseMatrix,
   validateReleaseTag,
+  type ReleaseSummary,
 } from "./tools/release/plan";
 import {
   buildReleaseArtifact,
   verifyReleaseArtifacts,
   workspaceVersion,
 } from "./tools/release/pipeline";
+import {
+  publishGitHubRelease,
+  type GitHubPublicationGateway,
+} from "./tools/release/publication";
+
+export async function publishVerifiedReleaseArtifacts(
+  directory: string,
+  tag: string,
+  gateway?: GitHubPublicationGateway,
+): Promise<ReleaseSummary> {
+  const summary = await verifyReleaseArtifacts(directory, { tag });
+  await publishGitHubRelease(summary, directory, tag, gateway);
+  return summary;
+}
 
 function usage(): void {
   console.log(`usage:
   bun release.ts plan [--json] [--tag vVERSION]
   bun release.ts build <artifact-id> [--out-dir DIR] [--tag vVERSION]
-  bun release.ts verify <artifact-directory> [--tag vVERSION]`);
+  bun release.ts verify <artifact-directory> [--tag vVERSION]
+  bun release.ts publish <artifact-directory> --tag vVERSION`);
 }
 
 function option(args: readonly string[], name: string): string | undefined {
@@ -79,6 +102,14 @@ async function main(args: readonly string[]): Promise<number> {
     if (!directory) throw new Error("verify requires an artifact directory");
     const summary = await verifyReleaseArtifacts(directory, { tag });
     console.log(`verified ${summary.artifacts.length} release artifacts for v${summary.version} at ${summary.gitCommit}`);
+    return 0;
+  }
+  if (command === "publish") {
+    const [directory] = positional(rest);
+    if (!directory) throw new Error("publish requires an artifact directory");
+    if (!tag) throw new Error("publish requires --tag");
+    const summary = await publishVerifiedReleaseArtifacts(directory, tag);
+    console.log(`published verified GitHub release ${tag} at ${summary.gitCommit}`);
     return 0;
   }
   usage();

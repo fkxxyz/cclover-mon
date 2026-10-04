@@ -73,6 +73,7 @@ tools/release/plan.ts        single publishable product/target and packaging-pol
 tools/release/build-context.ts  artifact-local build invocation and resolved provenance authority
 tools/release/archive.ts     archive creation, producer identity, and exact file-set verification
 tools/release/pipeline.ts    release build, staging, manifest, and aggregate verification execution
+tools/release/publication.ts GitHub draft reconciliation, remote verification, and publication execution
 docs/architecture/         architecture Views and governance data
 archdoc.ts                 architecture documentation navigator and validator
 ```
@@ -112,7 +113,7 @@ bun archdoc.ts check
 
 `validate.ts` is the repository validation-plan authority. Keep validation command composition there; documentation and CI should invoke profiles rather than copy the underlying Cargo/Bun command list.
 
-`release.ts` is the repository release entry point. `tools/release/plan.ts` is the release-plan authority: keep publishable product/target combinations, artifact naming, and service assets there. `tools/release/build-context.ts` resolves each artifact's build invocation and native build provenance from the same environment; `tools/release/archive.ts` owns both archive execution and archive-producer provenance. `tools/release/pipeline.ts` executes those authorities and enforces release completeness; release CI must consume the entry point rather than maintain a second matrix or provenance collector.
+`release.ts` is the repository release entry point. `tools/release/plan.ts` is the release-plan authority: keep publishable product/target combinations, artifact naming, and service assets there. `tools/release/build-context.ts` resolves each artifact's build invocation and native build provenance from the same environment; `tools/release/archive.ts` owns both archive execution and archive-producer provenance. `tools/release/pipeline.ts` executes those authorities and enforces local release completeness; `tools/release/publication.ts` owns GitHub-specific draft reconciliation, remote asset verification, and the final public transition. Release CI must consume the entry point rather than maintain a second matrix, provenance collector, or asset-selection policy.
 
 Run the fast deterministic profile during implementation:
 

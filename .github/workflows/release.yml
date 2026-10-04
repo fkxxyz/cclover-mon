@@ -1,0 +1,91 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - id: plan
+        shell: bash
+        run: echo "matrix=$(bun release.ts plan --tag "$GITHUB_REF_NAME" --json)" >> "$GITHUB_OUTPUT"
+
+  validate:
+    needs: preflight
+    uses: ./.github/workflows/validate.yml
+    permissions:
+      contents: read
+
+  build:
+    needs: [preflight, validate]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.preflight.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux build dependencies
+        if: matrix.platform == 'linux'
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          clang libbpf-dev libelf-dev pkg-config
+          libcairo2-dev libx11-dev libxext-dev libxrender-dev libwayland-dev
+      - name: Install Windows cross-build dependencies
+        if: matrix.platform == 'windows'
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          clang lld p7zip-full zip unzip
+      - name: Install cargo-xwin
+        if: matrix.platform == 'windows'
+        run: cargo install cargo-xwin --locked
+      - name: Build release artifact
+        run: bun release.ts build "${{ matrix.id }}" --tag "$GITHUB_REF_NAME" --out-dir release-out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.id }}
+          path: release-out/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Install archive verification dependency
+        run: sudo apt-get update && sudo apt-get install -y unzip
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-artifacts
+          merge-multiple: true
+      - name: Verify complete release
+        run: bun release.ts verify release-artifacts --tag "$GITHUB_REF_NAME"
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          release-artifacts/*.tar.gz
+          release-artifacts/*.zip
+          release-artifacts/release-manifest.json
+          --verify-tag
+          --generate-notes
+          --title "$GITHUB_REF_NAME"

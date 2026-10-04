@@ -27,6 +27,7 @@ const FAST_STEPS: readonly ValidationStep[] = [
       "bun",
       "test",
       "archgate.test.ts",
+      "release.test.ts",
       "validate.test.ts",
       "windows-validate.test.ts",
       "sync-linux-hwmon.test.ts",

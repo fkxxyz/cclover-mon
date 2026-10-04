@@ -40,16 +40,39 @@ cargo build --release -p cclover-server
 
 Its executable is written to `target/release/cclover-mon-server`. It does not depend on the desktop/TUI crates or Linux GUI libraries.
 
-For final distribution artifacts, use the size-oriented profile. It preserves normal
-`release` behavior for development while treating any Rust panic as an unrecoverable
-program bug:
+For local inspection of the final distribution profile, use:
 
 ```bash
 cargo build --profile dist
 ```
 
-The distribution executable is written to `target/dist/cclover-mon` (or the
-corresponding target-specific `dist` directory).
+Published releases are produced through the repository release authority instead of
+hand-assembling binaries:
+
+```bash
+bun release.ts plan
+```
+
+Pushing a tag matching the workspace version, for example `v0.1.0`, runs the release
+workflow. It validates the revision, builds every declared product/target with the
+`dist` profile, packages platform service assets, verifies checksums and common Git
+revision identity, then publishes the complete set. A missing product/target artifact
+fails the release rather than publishing a partial set.
+
+Current published artifact names are:
+
+```text
+cclover-mon-v<VERSION>-x86_64-unknown-linux-gnu.tar.gz
+cclover-mon-server-v<VERSION>-x86_64-unknown-linux-gnu.tar.gz
+cclover-mon-v<VERSION>-x86_64-pc-windows-msvc.zip
+cclover-mon-server-v<VERSION>-x86_64-pc-windows-msvc.zip
+cclover-mon-v<VERSION>-i686-pc-windows-msvc.zip
+cclover-mon-server-v<VERSION>-i686-pc-windows-msvc.zip
+```
+
+Server archives include the matching systemd or Windows service installation assets.
+Windows archives also carry the applicable third-party notices and pinned source
+provenance for redistributed PawnIO payloads.
 
 Windows cross validation uses `cargo-xwin` through the repository validation entry point. It compiles target-specific tests and release builds for both supported targets, fixing `XWIN_ARCH=x86,x86_64` independently for every xwin invocation.
 

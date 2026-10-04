@@ -1,11 +1,16 @@
 [package]
 name = "cclover-mon"
-version = "0.1.0"
-edition = "2024"
-license = "GPL-2.0-or-later"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [workspace]
 members = ["crates/cclover-core", "crates/cclover-platform", "crates/cclover-presentation", "crates/cclover-ui", "crates/cclover-tui", "crates/cclover-web-ui", "crates/cclover-desktop", "crates/cclover-runtime", "crates/cclover-http", "crates/cclover-server"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-2.0-or-later"
 
 [features]
 default = ["http", "ebpf-io"]

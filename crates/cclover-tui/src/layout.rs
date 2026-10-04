@@ -1,3 +1,4 @@
+use crate::cell_width::{display_width, fit, pad_left, pad_right, pad_right_styled};
 use crate::frame::{Frame, IoDevice, Metric, NetworkDevice, Overview};
 
 const RESET: &str = "\x1b[0m";
@@ -51,10 +52,10 @@ pub(crate) fn render(frame: &Frame, width: usize, height: usize) -> RenderedFram
 fn header(width: usize) -> String {
     let left = format!("{BOLD}cclover-mon{RESET}");
     let right = format!("{DIM}q quit{RESET}");
-    let left_width = "cclover-mon".chars().count();
-    let right_width = "q quit".chars().count();
+    let left_width = display_width("cclover-mon");
+    let right_width = display_width("q quit");
     if width <= left_width + right_width + 1 {
-        return fit_plain("cclover-mon", width);
+        return fit("cclover-mon", width);
     }
     format!(
         "{left}{}{right}",
@@ -103,7 +104,7 @@ fn overview_lines(
     }
 
     if top_n > 0 {
-        lines.push(section_title(top_title));
+        lines.push(section_title(top_title, width));
         for process in panel.processes.iter().take(top_n) {
             lines.push(metric_line(process, width));
         }
@@ -115,21 +116,26 @@ fn gpu_lines(frame: &Frame, width: usize) -> Vec<String> {
     if frame.gpus.is_empty() {
         return Vec::new();
     }
-    let mut lines = vec![section_title("GPU")];
+    let mut lines = vec![section_title("GPU", width)];
     for gpu in &frame.gpus {
         if width >= 100 {
             let plain = format!(
-                "{}  Util {:>6}  VRAM {:>17}  Temp {:>7}  Power {:>7}  Core {:>9}",
-                gpu.name, gpu.utilization, gpu.memory, gpu.temperature, gpu.power, gpu.clock
+                "{}  Util {}  VRAM {}  Temp {}  Power {}  Core {}",
+                gpu.name,
+                pad_left(&gpu.utilization, 6),
+                pad_left(&gpu.memory, 17),
+                pad_left(&gpu.temperature, 7),
+                pad_left(&gpu.power, 7),
+                pad_left(&gpu.clock, 9)
             );
-            lines.push(fit_plain(&plain, width));
+            lines.push(fit(&plain, width));
         } else {
-            lines.push(style_bold(&fit_plain(&gpu.name, width)));
+            lines.push(style_bold(&fit(&gpu.name, width)));
             let plain = format!(
                 "Util {}  VRAM {}  Temp {}  Power {}  Core {}",
                 gpu.utilization, gpu.memory, gpu.temperature, gpu.power, gpu.clock
             );
-            lines.push(style_dim(&fit_plain(&plain, width)));
+            lines.push(style_dim(&fit(&plain, width)));
         }
     }
     push_blank(&mut lines);
@@ -140,7 +146,7 @@ fn thermal_lines(frame: &Frame, width: usize) -> Vec<String> {
     if frame.thermals.is_empty() {
         return Vec::new();
     }
-    let mut lines = vec![section_title("THERMALS")];
+    let mut lines = vec![section_title("THERMALS", width)];
     let columns = if width >= 100 {
         3
     } else if width >= 60 {
@@ -157,7 +163,7 @@ fn thermal_lines(frame: &Frame, width: usize) -> Vec<String> {
                 line.push_str(&" ".repeat(gap));
             }
             let cell = metric_plain(metric, cell_width);
-            line.push_str(&pad_plain(&cell, cell_width));
+            line.push_str(&pad_right(&cell, cell_width));
         }
         lines.push(line.trim_end().to_owned());
     }
@@ -184,7 +190,7 @@ fn disk_lines(disks: &[IoDevice], width: usize, top_n: usize) -> Vec<String> {
     if disks.is_empty() {
         return Vec::new();
     }
-    let mut lines = vec![section_title("DISK I/O")];
+    let mut lines = vec![section_title("DISK I/O", width)];
     lines.push(style_dim(&two_column_header("DEVICE", "RATE", width)));
     for disk in disks {
         lines.push(two_column_line(&disk.name, &disk.rate, width));
@@ -196,7 +202,7 @@ fn disk_lines(disks: &[IoDevice], width: usize, top_n: usize) -> Vec<String> {
             .take(top_n)
             .peekable();
         if processes.peek().is_some() {
-            lines.push(style_dim("Top processes"));
+            lines.push(style_dim(&fit("Top processes", width)));
             for process in processes {
                 let value = format!("R {}  W {}", process.first, process.second);
                 lines.push(two_column_line(&process.name, &value, width));
@@ -210,7 +216,7 @@ fn network_lines(networks: &[NetworkDevice], width: usize, top_n: usize) -> Vec<
     if networks.is_empty() {
         return Vec::new();
     }
-    let mut lines = vec![section_title("NETWORK")];
+    let mut lines = vec![section_title("NETWORK", width)];
     lines.push(style_dim(&three_column_header(
         "INTERFACE",
         "DOWN",
@@ -232,7 +238,7 @@ fn network_lines(networks: &[NetworkDevice], width: usize, top_n: usize) -> Vec<
             .take(top_n)
             .peekable();
         if processes.peek().is_some() {
-            lines.push(style_dim("Top processes"));
+            lines.push(style_dim(&fit("Top processes", width)));
             for process in processes {
                 lines.push(three_column_line(
                     &process.name,
@@ -248,14 +254,14 @@ fn network_lines(networks: &[NetworkDevice], width: usize, top_n: usize) -> Vec<
 
 fn section_value(title: &str, value: &str, width: usize) -> String {
     let plain = format!("{title}  {value}");
-    if plain.chars().count() > width {
-        return style_bold(&fit_plain(&plain, width));
+    if display_width(&plain) > width {
+        return style_bold(&fit(&plain, width));
     }
     format!("{BOLD}{CYAN}{title}{RESET}  {BOLD}{value}{RESET}")
 }
 
-fn section_title(title: &str) -> String {
-    format!("{BOLD}{CYAN}{title}{RESET}")
+fn section_title(title: &str, width: usize) -> String {
+    format!("{BOLD}{CYAN}{}{RESET}", fit(title, width))
 }
 
 fn style_bold(text: &str) -> String {
@@ -284,13 +290,13 @@ fn two_column_line(left: &str, right: &str, width: usize) -> String {
 
 fn two_column_line_plain(left: &str, right: &str, width: usize) -> String {
     if width < 8 {
-        return fit_plain(left, width);
+        return fit(left, width);
     }
-    let right_width = right.chars().count().min(width / 2);
+    let right_width = display_width(right).min(width / 2);
     let left_width = width.saturating_sub(right_width + 2);
-    let left = fit_plain(left, left_width);
-    let right = fit_plain(right, right_width);
-    format!("{:<left_width$}  {:>right_width$}", left, right)
+    let left = pad_right(&fit(left, left_width), left_width);
+    let right = pad_left(&fit(right, right_width), right_width);
+    format!("{left}  {right}")
 }
 
 fn three_column_header(left: &str, middle: &str, right: &str, width: usize) -> String {
@@ -299,14 +305,14 @@ fn three_column_header(left: &str, middle: &str, right: &str, width: usize) -> S
 
 fn three_column_line(left: &str, middle: &str, right: &str, width: usize) -> String {
     if width < 18 {
-        return fit_plain(&format!("{left} {middle} {right}"), width);
+        return fit(&format!("{left} {middle} {right}"), width);
     }
     let numeric = (width / 4).clamp(7, 12);
     let name = width.saturating_sub(numeric * 2 + 4);
-    let left = fit_plain(left, name);
-    let middle = fit_plain(middle, numeric);
-    let right = fit_plain(right, numeric);
-    format!("{:<name$}  {:>numeric$}  {:>numeric$}", left, middle, right)
+    let left = pad_right(&fit(left, name), name);
+    let middle = pad_left(&fit(middle, numeric), numeric);
+    let right = pad_left(&fit(right, numeric), numeric);
+    format!("{left}  {middle}  {right}")
 }
 
 fn split_width(width: usize) -> (usize, usize, usize) {
@@ -330,9 +336,9 @@ fn join_columns(
             let r = right.get(index).map(String::as_str).unwrap_or("");
             format!(
                 "{}{}{}",
-                pad_styled(l, left_width),
+                pad_right_styled(l, left_width),
                 " ".repeat(gap),
-                pad_styled(r, right_width)
+                pad_right_styled(r, right_width)
             )
             .trim_end()
             .to_owned()
@@ -345,69 +351,22 @@ fn sparkline(values: &[f64], maximum: f64, width: usize) -> String {
     if width == 0 || values.is_empty() {
         return String::new();
     }
-    let count = values.len().min(width);
-    let start = values.len() - count;
     let maximum = maximum.max(1.0);
-    values[start..]
-        .iter()
-        .map(|value| {
-            let fraction = (value.max(0.0) / maximum).clamp(0.0, 1.0);
-            let index = (fraction * (LEVELS.len() - 1) as f64).round() as usize;
-            LEVELS[index]
-        })
-        .collect()
-}
-
-fn fit_plain(text: &str, width: usize) -> String {
-    let count = text.chars().count();
-    if count <= width {
-        return text.to_owned();
-    }
-    if width == 0 {
-        return String::new();
-    }
-    if width == 1 {
-        return "…".to_owned();
-    }
-    let mut out: String = text.chars().take(width - 1).collect();
-    out.push('…');
-    out
-}
-
-fn pad_plain(text: &str, width: usize) -> String {
-    let visible = text.chars().count();
-    if visible >= width {
-        fit_plain(text, width)
-    } else {
-        format!("{text}{}", " ".repeat(width - visible))
-    }
-}
-
-fn pad_styled(text: &str, width: usize) -> String {
-    let visible = visible_width(text);
-    if visible >= width {
-        text.to_owned()
-    } else {
-        format!("{text}{}", " ".repeat(width - visible))
-    }
-}
-
-fn visible_width(text: &str) -> usize {
-    let mut chars = text.chars().peekable();
-    let mut width = 0;
-    while let Some(ch) = chars.next() {
-        if ch == '\x1b' && chars.peek() == Some(&'[') {
-            chars.next();
-            for next in chars.by_ref() {
-                if next.is_ascii_alphabetic() {
-                    break;
-                }
-            }
-        } else {
-            width += 1;
+    let mut used = 0;
+    let mut glyphs = Vec::new();
+    for value in values.iter().rev() {
+        let fraction = (value.max(0.0) / maximum).clamp(0.0, 1.0);
+        let index = (fraction * (LEVELS.len() - 1) as f64).round() as usize;
+        let glyph = LEVELS[index];
+        let mut encoded = [0; 4];
+        let glyph_width = display_width(glyph.encode_utf8(&mut encoded));
+        if used + glyph_width > width {
+            break;
         }
+        glyphs.push(glyph);
+        used += glyph_width;
     }
-    width
+    glyphs.into_iter().rev().collect()
 }
 
 fn push_blank(lines: &mut Vec<String>) {
@@ -528,16 +487,6 @@ mod tests {
     }
 
     #[test]
-    fn fit_plain_uses_ellipsis() {
-        assert_eq!(fit_plain("abcdef", 4), "abc…");
-    }
-
-    #[test]
-    fn styled_width_ignores_ansi_sequences() {
-        assert_eq!(visible_width("\x1b[1mCPU\x1b[0m  5%"), 7);
-    }
-
-    #[test]
     fn wide_layout_keeps_cpu_and_memory_in_parallel_columns() {
         let rendered = render(&sample_frame(), 120, 40);
         let lines = plain_lines(&rendered);
@@ -592,5 +541,25 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("DISK I/O") && line.contains("NETWORK"))
         );
+    }
+
+    #[test]
+    fn unicode_content_never_exceeds_terminal_cell_budget() {
+        let mut frame = sample_frame();
+        frame.cpu.processes[0].name = "编译器e\u{301}".into();
+        frame.gpus[0].name = "图形处理器".into();
+        frame.thermals[0].name = "处理器温度".into();
+        frame.disks[0].name = "数据盘".into();
+        frame.networks[0].name = "网络接口".into();
+
+        for width in 1..=120 {
+            let rendered = render(&frame, width, 80);
+            for line in &rendered.lines {
+                assert!(
+                    crate::cell_width::styled_width(line) <= width,
+                    "line exceeds {width} cells: {line:?}"
+                );
+            }
+        }
     }
 }

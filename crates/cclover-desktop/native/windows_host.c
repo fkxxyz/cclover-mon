@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "native_scene.h"
+#include "windows/message_policy.h"
 #include "windows_geometry.h"
 
 #define CCLOVER_WM_TRAY (WM_APP + 7)

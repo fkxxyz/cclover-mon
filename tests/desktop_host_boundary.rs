@@ -182,7 +182,7 @@ fn linux_incremental_rendering_preserves_steady_state_fast_path() {
         .split_once("if (status & CCLOVER_STATE_CHANGED) {")
         .expect("Wayland host must react to new frames")
         .1
-        .split_once("if (host.surface_state == WAYLAND_SURFACE_ACTIVE && host.dirty) {")
+        .split_once("if (cclover_wayland_can_draw(&host.lifecycle)) {")
         .expect("Wayland host must separate scene production from drawing")
         .0;
     assert_eq!(
@@ -251,48 +251,27 @@ fn linux_incremental_rendering_preserves_steady_state_fast_path() {
 }
 
 #[test]
-fn linux_wayland_surface_loss_is_recoverable() {
+fn linux_wayland_host_delegates_lifecycle_policy_to_tested_module() {
     let source = linux_native();
 
-    let closed = source
-        .split_once("static void layer_closed")
-        .expect("Wayland host must handle layer-surface closure")
-        .1
-        .split_once("static const struct zwlr_layer_surface_v1_listener layer_listener")
-        .expect("layer close callback must stay separate from listener registration")
-        .0;
-    assert!(closed.contains("WAYLAND_SURFACE_RECREATE_PENDING"));
-    assert!(
-        !closed.contains("host->closed"),
-        "layer-surface closure must not terminate the desktop host"
-    );
-
-    let run = source
-        .split_once("int cclover_linux_wayland_run")
-        .expect("Linux host must provide a Wayland lifecycle")
-        .1;
-    assert!(
-        run.contains("if (host.surface_state == WAYLAND_SURFACE_RECREATE_PENDING)")
-            && run.contains("wayland_surface_recreate(&host)"),
-        "Wayland host loop must recover a compositor-closed layer surface"
-    );
+    for required in [
+        "cclover_wayland_surface_closed(&host->lifecycle)",
+        "cclover_wayland_surface_configured(&host->lifecycle)",
+        "cclover_wayland_state_status(&host.lifecycle, status, CCLOVER_STATE_CHANGED)",
+        "cclover_wayland_needs_recreate(&host.lifecycle)",
+        "cclover_wayland_output_find_free(",
+        "cclover_wayland_output_find_global(",
+        "cclover_wayland_output_reset_state(entry)",
+    ] {
+        assert!(
+            source.contains(required),
+            "Wayland adapter must delegate lifecycle decisions to deterministic policy: {required}"
+        );
+    }
     assert!(
         source.contains("host->previous_buffer = NULL")
             && source.contains("scene->full_redraw != 0 || host->previous_buffer == NULL"),
         "replacement surfaces must not inherit incremental-frame assumptions"
-    );
-
-    let remove = source
-        .split_once("static void registry_remove")
-        .expect("Wayland host must handle registry removal")
-        .1
-        .split_once("static const struct wl_registry_listener registry_listener")
-        .expect("registry removal must stay separate from listener registration")
-        .0;
-    assert!(
-        remove.contains("wayland_output_reset(entry)")
-            && remove.contains("wayland_update_scale(g->host)"),
-        "removed wl_output globals must release their slot and derived scale state"
     );
 }
 

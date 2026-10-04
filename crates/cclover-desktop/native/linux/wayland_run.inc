@@ -7,6 +7,7 @@ int cclover_linux_wayland_run(void *context, const CcloverCallbacks *callbacks, 
     int result = 0;
     int quitting = 0;
     memset(&host, 0, sizeof(host));
+    cclover_wayland_lifecycle_init(&host.lifecycle);
     host.host.context = context;
     host.host.callbacks = callbacks;
     host.scale = 1;
@@ -50,6 +51,7 @@ int cclover_linux_wayland_run(void *context, const CcloverCallbacks *callbacks, 
         int poll_result;
 
         status = callbacks->take_state(context);
+        cclover_wayland_state_status(&host.lifecycle, status, CCLOVER_STATE_CHANGED);
         if (status & CCLOVER_STATE_CHANGED) {
             int profiling = getenv("CCLOVER_RENDER_PROFILE") != NULL;
             double profile_started = profiling ? cclover_profile_cpu_ms() : 0.0;
@@ -61,22 +63,21 @@ int cclover_linux_wayland_run(void *context, const CcloverCallbacks *callbacks, 
                 host.width = scene.width;
                 host.height = scene.height;
                 if (host.layer_surface &&
-                    host.surface_state != WAYLAND_SURFACE_RECREATE_PENDING) {
-                    host.surface_state = WAYLAND_SURFACE_WAITING_CONFIGURE;
+                    !cclover_wayland_needs_recreate(&host.lifecycle)) {
+                    cclover_wayland_resize_requested(&host.lifecycle);
                     zwlr_layer_surface_v1_set_size(host.layer_surface,
                                                    host.width, host.height);
                     wl_surface_commit(host.surface);
                 }
             }
-            host.dirty = 1;
         }
-        if (host.surface_state == WAYLAND_SURFACE_RECREATE_PENDING) {
+        if (cclover_wayland_needs_recreate(&host.lifecycle)) {
             if (wayland_surface_recreate(&host) < 0) {
                 result = CCLOVER_LINUX_HOST_WAYLAND_SURFACE_FAILED;
                 break;
             }
         }
-        if (host.surface_state == WAYLAND_SURFACE_ACTIVE && host.dirty) {
+        if (cclover_wayland_can_draw(&host.lifecycle)) {
             int draw_result;
             int profiling = getenv("CCLOVER_RENDER_PROFILE") != NULL;
             double profile_started = profiling ? cclover_profile_cpu_ms() : 0.0;
@@ -88,7 +89,7 @@ int cclover_linux_wayland_run(void *context, const CcloverCallbacks *callbacks, 
                 result = CCLOVER_LINUX_HOST_WAYLAND_RENDER_FAILED;
                 break;
             }
-            if (draw_result == 0) host.dirty = 0;
+            cclover_wayland_draw_completed(&host.lifecycle, draw_result == 0);
         }
 
         if (wl_display_flush(host.globals.display) < 0 && errno != EAGAIN) {
@@ -127,7 +128,7 @@ cleanup:
     for (i = 0; i < CCLOVER_WAYLAND_BUFFER_COUNT; ++i)
         wayland_buffer_destroy(&host.buffers[i]);
     wayland_static_layer_destroy(&host.static_layer);
-    for (i = 0; i < CCLOVER_MAX_OUTPUTS; ++i)
+    for (i = 0; i < CCLOVER_WAYLAND_MAX_OUTPUTS; ++i)
         wayland_output_reset(&host.globals.outputs[i]);
     if (host.globals.layer_shell) zwlr_layer_shell_v1_destroy(host.globals.layer_shell);
     if (host.globals.shm) wl_shm_destroy(host.globals.shm);

@@ -85,3 +85,49 @@ unsafe extern "C" fn scene_callback(context: *mut c_void, scene: *mut SceneView)
         .expect("scene frame must be initialized");
     unsafe { scene.write(frame.view()) };
 }
+
+#[cfg(test)]
+mod tests {
+    use crossbeam_channel::unbounded;
+
+    use super::*;
+
+    #[test]
+    fn publication_wakes_and_latest_state_requests_a_new_frame() {
+        let (sender, receiver) = unbounded();
+        let (wake_sender, wake_receiver) = unbounded();
+        let bridge = NativeStateBridge::spawn(receiver, move || {
+            wake_sender
+                .send(())
+                .expect("test wake receiver must remain connected");
+        });
+
+        for history_capacity in 1..=3 {
+            sender
+                .send(MonitorState {
+                    history_capacity,
+                    ..MonitorState::default()
+                })
+                .expect("state bridge receiver must remain connected");
+        }
+        for _ in 0..3 {
+            wake_receiver
+                .recv()
+                .expect("every publication must wake the native host");
+        }
+
+        let mut context = NativeContext::new(bridge.pending());
+        context.frame_dirty = false;
+        assert_eq!(context.take_state(), STATE_CHANGED);
+        assert_eq!(context.state.history_capacity, 3);
+        assert!(context.frame_dirty);
+        assert_eq!(
+            context.take_state(),
+            0,
+            "pending state must be consumed once"
+        );
+
+        drop(bridge);
+        assert!(sender.send(MonitorState::default()).is_err());
+    }
+}

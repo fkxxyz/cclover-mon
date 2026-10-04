@@ -85,7 +85,8 @@ int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks, int 
     Window window;
     cairo_surface_t *surface;
     cairo_t *cr;
-    int screen, fd, running = 1, dirty = 1;
+    int screen, fd;
+    X11Lifecycle lifecycle;
     uint32_t width, height;
     XVisualInfo visual_info;
     Visual *visual;
@@ -93,6 +94,7 @@ int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks, int 
     Colormap colormap;
     XSetWindowAttributes attrs;
     if (!display) return CCLOVER_LINUX_HOST_X11_DISPLAY_CONNECT_FAILED;
+    cclover_x11_lifecycle_init(&lifecycle);
 
     cclover_scene(&host, &scene);
     width = scene.width;
@@ -131,9 +133,10 @@ int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks, int 
     cclover_configure_context(cr);
     fd = ConnectionNumber(display);
 
-    while (running) {
+    while (lifecycle.running) {
         struct pollfd pfds[3] = {{ fd, POLLIN, 0 }, { state_wake_fd, POLLIN, 0 }, { quit_wake_fd, POLLIN, 0 }};
         uint32_t status = callbacks->take_state(context);
+        cclover_x11_state_status(&lifecycle, status, CCLOVER_STATE_CHANGED);
         if (status & CCLOVER_STATE_CHANGED) {
             cclover_scene(&host, &scene);
             if (scene.width != width || scene.height != height) {
@@ -142,25 +145,25 @@ int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks, int 
                 x11_place(display, window, width, height);
                 cairo_xlib_surface_set_size(surface, width, height);
             }
-            dirty = 1;
         }
         while (XPending(display)) {
             XEvent event;
             XNextEvent(display, &event);
-            if (event.type == Expose) dirty = 1;
-            if (event.type == DestroyNotify) running = 0;
+            if (event.type == Expose) cclover_x11_exposed(&lifecycle);
+            if (event.type == DestroyNotify) cclover_x11_destroyed(&lifecycle);
         }
-        if (!running) break;
-        if (dirty) {
+        if (!lifecycle.running) break;
+        if (cclover_x11_can_draw(&lifecycle)) {
             cclover_draw_scene(&host, cr, &scene, 1, CCLOVER_DRAW_ALL);
             cairo_surface_flush(surface);
             XFlush(display);
-            dirty = 0;
+            cclover_x11_draw_completed(&lifecycle);
         }
         if (poll(pfds, 3, -1) > 0) {
             if (pfds[2].revents & POLLIN) {
                 cclover_drain_wake_fd(quit_wake_fd);
-                break;
+                cclover_x11_quit_requested(&lifecycle);
+                continue;
             }
             if (pfds[1].revents & POLLIN) cclover_drain_wake_fd(state_wake_fd);
         }
@@ -173,4 +176,3 @@ int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks, int 
     XCloseDisplay(display);
     return 0;
 }
-

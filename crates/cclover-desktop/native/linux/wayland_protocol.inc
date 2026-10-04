@@ -1,24 +1,13 @@
 /* ---------------- Wayland host ---------------- */
 
-#define CCLOVER_MAX_OUTPUTS 16
 #define CCLOVER_WAYLAND_BUFFER_COUNT 2
-
-typedef struct WaylandHost WaylandHost;
-
-typedef struct {
-    struct wl_output *output;
-    WaylandHost *host;
-    uint32_t global_name;
-    int32_t scale;
-    int entered;
-} WaylandOutput;
 
 typedef struct {
     struct wl_display *display;
     struct wl_compositor *compositor;
     struct wl_shm *shm;
     struct zwlr_layer_shell_v1 *layer_shell;
-    WaylandOutput outputs[CCLOVER_MAX_OUTPUTS];
+    WaylandOutput outputs[CCLOVER_WAYLAND_MAX_OUTPUTS];
     WaylandHost *host;
 } WaylandGlobals;
 
@@ -45,20 +34,12 @@ typedef struct {
     uint64_t revision;
 } WaylandStaticLayer;
 
-typedef enum {
-    WAYLAND_SURFACE_ABSENT,
-    WAYLAND_SURFACE_WAITING_CONFIGURE,
-    WAYLAND_SURFACE_ACTIVE,
-    WAYLAND_SURFACE_RECREATE_PENDING,
-} WaylandSurfaceState;
-
 struct WaylandHost {
     CcloverHost host;
     WaylandGlobals globals;
     struct wl_surface *surface;
     struct zwlr_layer_surface_v1 *layer_surface;
-    WaylandSurfaceState surface_state;
-    int dirty;
+    WaylandLifecycle lifecycle;
     int32_t scale;
     uint32_t width;
     uint32_t height;
@@ -68,27 +49,17 @@ struct WaylandHost {
 };
 
 static void wayland_update_scale(WaylandHost *host) {
-    size_t i;
-    int32_t scale = 1;
-    for (i = 0; i < CCLOVER_MAX_OUTPUTS; ++i) {
-        WaylandOutput *output = &host->globals.outputs[i];
-        if (output->output && output->entered && output->scale > scale)
-            scale = output->scale;
-    }
+    int32_t scale = cclover_wayland_output_scale(
+        host->globals.outputs, CCLOVER_WAYLAND_MAX_OUTPUTS, 1);
     if (scale != host->scale) {
         host->scale = scale;
-        host->dirty = 1;
+        cclover_wayland_state_changed(&host->lifecycle);
     }
 }
 
 static void wayland_set_initial_scale(WaylandHost *host) {
-    size_t i;
-    int32_t scale = 1;
-    for (i = 0; i < CCLOVER_MAX_OUTPUTS; ++i) {
-        if (host->globals.outputs[i].output && host->globals.outputs[i].scale > scale)
-            scale = host->globals.outputs[i].scale;
-    }
-    host->scale = scale;
+    host->scale = cclover_wayland_output_scale(
+        host->globals.outputs, CCLOVER_WAYLAND_MAX_OUTPUTS, 0);
 }
 
 static void output_geometry(void *data, struct wl_output *output, int32_t x, int32_t y,
@@ -131,13 +102,12 @@ static const struct wl_output_listener output_listener = {
 
 static void wayland_output_reset(WaylandOutput *entry) {
     if (entry->output) wl_output_destroy(entry->output);
-    memset(entry, 0, sizeof(*entry));
+    cclover_wayland_output_reset_state(entry);
 }
 
 static void registry_global(void *data, struct wl_registry *registry, uint32_t name,
                             const char *interface, uint32_t version) {
     WaylandGlobals *g = data;
-    size_t i;
     if (strcmp(interface, wl_compositor_interface.name) == 0) {
         g->compositor = wl_registry_bind(registry, name, &wl_compositor_interface,
                                          version < 4 ? version : 4);
@@ -148,9 +118,9 @@ static void registry_global(void *data, struct wl_registry *registry, uint32_t n
                                            &zwlr_layer_shell_v1_interface,
                                            version < 4 ? version : 4);
     } else if (strcmp(interface, wl_output_interface.name) == 0) {
-        for (i = 0; i < CCLOVER_MAX_OUTPUTS; ++i) {
-            WaylandOutput *entry = &g->outputs[i];
-            if (entry->output) continue;
+        WaylandOutput *entry = cclover_wayland_output_find_free(
+            g->outputs, CCLOVER_WAYLAND_MAX_OUTPUTS);
+        if (entry) {
             entry->host = g->host;
             entry->global_name = name;
             entry->scale = 1;
@@ -160,21 +130,19 @@ static void registry_global(void *data, struct wl_registry *registry, uint32_t n
                 wl_output_add_listener(entry->output, &output_listener, entry);
             else
                 wayland_output_reset(entry);
-            break;
         }
     }
 }
 
 static void registry_remove(void *data, struct wl_registry *registry, uint32_t name) {
     WaylandGlobals *g = data;
-    size_t i;
+    WaylandOutput *entry;
     (void)registry;
-    for (i = 0; i < CCLOVER_MAX_OUTPUTS; ++i) {
-        WaylandOutput *entry = &g->outputs[i];
-        if (!entry->output || entry->global_name != name) continue;
+    entry = cclover_wayland_output_find_global(
+        g->outputs, CCLOVER_WAYLAND_MAX_OUTPUTS, name);
+    if (entry) {
         wayland_output_reset(entry);
         if (g->host) wayland_update_scale(g->host);
-        break;
     }
 }
 
@@ -184,27 +152,21 @@ static const struct wl_registry_listener registry_listener = {
 
 static void surface_enter(void *data, struct wl_surface *surface, struct wl_output *output) {
     WaylandHost *host = data;
-    size_t i;
+    WaylandOutput *entry;
     (void)surface;
-    for (i = 0; i < CCLOVER_MAX_OUTPUTS; ++i) {
-        if (host->globals.outputs[i].output == output) {
-            host->globals.outputs[i].entered = 1;
-            break;
-        }
-    }
+    entry = cclover_wayland_output_find_resource(
+        host->globals.outputs, CCLOVER_WAYLAND_MAX_OUTPUTS, output);
+    if (entry) entry->entered = 1;
     wayland_update_scale(host);
 }
 
 static void surface_leave(void *data, struct wl_surface *surface, struct wl_output *output) {
     WaylandHost *host = data;
-    size_t i;
+    WaylandOutput *entry;
     (void)surface;
-    for (i = 0; i < CCLOVER_MAX_OUTPUTS; ++i) {
-        if (host->globals.outputs[i].output == output) {
-            host->globals.outputs[i].entered = 0;
-            break;
-        }
-    }
+    entry = cclover_wayland_output_find_resource(
+        host->globals.outputs, CCLOVER_WAYLAND_MAX_OUTPUTS, output);
+    if (entry) entry->entered = 0;
     wayland_update_scale(host);
 }
 
@@ -229,15 +191,13 @@ static void layer_configure(void *data, struct zwlr_layer_surface_v1 *layer,
     (void)width; (void)height;
     if (layer != host->layer_surface) return;
     zwlr_layer_surface_v1_ack_configure(layer, serial);
-    if (host->surface_state != WAYLAND_SURFACE_RECREATE_PENDING)
-        host->surface_state = WAYLAND_SURFACE_ACTIVE;
-    host->dirty = 1;
+    cclover_wayland_surface_configured(&host->lifecycle);
 }
 
 static void layer_closed(void *data, struct zwlr_layer_surface_v1 *layer) {
     WaylandHost *host = data;
     if (layer == host->layer_surface)
-        host->surface_state = WAYLAND_SURFACE_RECREATE_PENDING;
+        cclover_wayland_surface_closed(&host->lifecycle);
 }
 
 static const struct zwlr_layer_surface_v1_listener layer_listener = {
@@ -250,8 +210,7 @@ static void wayland_surface_destroy(WaylandHost *host) {
     host->layer_surface = NULL;
     host->surface = NULL;
     host->previous_buffer = NULL;
-    host->surface_state = WAYLAND_SURFACE_ABSENT;
-    host->dirty = 1;
+    cclover_wayland_surface_destroyed(&host->lifecycle);
 }
 
 static int wayland_surface_create(WaylandHost *host) {
@@ -289,8 +248,7 @@ static int wayland_surface_create(WaylandHost *host) {
     wl_surface_set_input_region(host->surface, empty_input);
     wl_region_destroy(empty_input);
     wl_surface_commit(host->surface);
-    host->surface_state = WAYLAND_SURFACE_WAITING_CONFIGURE;
-    host->dirty = 1;
+    cclover_wayland_surface_created(&host->lifecycle);
     return 0;
 }
 
@@ -306,4 +264,3 @@ static void buffer_release(void *data, struct wl_buffer *buffer) {
 }
 
 static const struct wl_buffer_listener buffer_listener = { buffer_release };
-

@@ -1,5 +1,7 @@
 #define _GNU_SOURCE
 #include "native_scene.h"
+#include "linux/wayland_lifecycle.h"
+#include "linux/x11_lifecycle.h"
 #include "wayland/wlr-layer-shell-unstable-v1-client-protocol.h"
 
 #include <X11/Xatom.h>

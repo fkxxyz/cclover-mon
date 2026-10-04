@@ -82,7 +82,7 @@ static LRESULT CALLBACK cclover_wndproc(HWND hwnd, UINT message, WPARAM wparam, 
     }
     case CCLOVER_WM_STATE: {
         uint32_t state = host->callbacks->take_state(host->context);
-        if (state & CCLOVER_STATE_CHANGED) {
+        if (cclover_win32_state_requires_refresh(state, CCLOVER_STATE_CHANGED)) {
             CcloverScene scene;
             cclover_refresh_display(host, hwnd);
             cclover_scene(host, &scene);
@@ -202,7 +202,8 @@ int cclover_win32_run(void *context, const CcloverCallbacks *callbacks) {
     InvalidateRect(hwnd, NULL, FALSE);
 
     while (GetMessageW(&message, NULL, 0, 0) > 0) {
-        if (message.hwnd == NULL && message.message == CCLOVER_WM_STATE) {
+        if (cclover_win32_should_relay_state(
+                message.hwnd != NULL, message.message, CCLOVER_WM_STATE)) {
             PostMessageW(hwnd, CCLOVER_WM_STATE, 0, 0);
             continue;
         }

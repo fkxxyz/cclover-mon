@@ -49,6 +49,8 @@ normal application/runtime shutdown
 
 When application state changes the desired monitor-surface size, the shared dashboard tree and `Scene` remain the geometry authority. The active desktop host realizes that size through its native protocol: Wayland layer-shell on Linux Wayland, X11 window geometry on Linux X11, and Win32 on Windows. Protocol-specific resize messages never enter shared dashboard semantics.
 
+On Wayland, the layer surface has a shorter lifetime than the desktop host. A compositor may close a layer surface when an output disappears or is reconfigured; this is a recoverable surface-lifecycle event, not application quit intent. The Wayland host destroys the closed surface, recreates it against the compositor's current output topology, and forces the replacement surface to receive a complete first frame while preserving application/runtime state. Dynamic `wl_output` globals are tracked symmetrically across registry add/remove events so repeated output churn does not accumulate stale output state. Loss of the Wayland display connection remains a host failure rather than a surface-recovery event.
+
 Windows notification-area integration emits the same platform-neutral lifecycle intent rather than exposing Win32 menu identifiers or handles to shared application state.
 
 Tray availability is optional desktop integration. Failure to connect to the session bus, register a StatusNotifierItem, or find a compatible tray host emits a diagnostic and leaves the monitor surface and metric sampling operational. Tray failure must not be represented as metric unavailability and must not terminate the application.

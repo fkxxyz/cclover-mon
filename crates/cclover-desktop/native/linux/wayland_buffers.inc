@@ -177,7 +177,7 @@ static int wayland_draw(WaylandHost *host, const CcloverScene *scene) {
     double profile_static = 0.0;
     double profile_raster = 0.0;
     size_t i;
-    int full_redraw = scene->full_redraw != 0;
+    int full_redraw = scene->full_redraw != 0 || host->previous_buffer == NULL;
     int static_rebuilt = 0;
     WaylandBuffer *owned;
     int acquired;

@@ -182,7 +182,7 @@ fn linux_incremental_rendering_preserves_steady_state_fast_path() {
         .split_once("if (status & CCLOVER_STATE_CHANGED) {")
         .expect("Wayland host must react to new frames")
         .1
-        .split_once("if (host.configured && host.dirty) {")
+        .split_once("if (host.surface_state == WAYLAND_SURFACE_ACTIVE && host.dirty) {")
         .expect("Wayland host must separate scene production from drawing")
         .0;
     assert_eq!(
@@ -251,6 +251,52 @@ fn linux_incremental_rendering_preserves_steady_state_fast_path() {
 }
 
 #[test]
+fn linux_wayland_surface_loss_is_recoverable() {
+    let source = linux_native();
+
+    let closed = source
+        .split_once("static void layer_closed")
+        .expect("Wayland host must handle layer-surface closure")
+        .1
+        .split_once("static const struct zwlr_layer_surface_v1_listener layer_listener")
+        .expect("layer close callback must stay separate from listener registration")
+        .0;
+    assert!(closed.contains("WAYLAND_SURFACE_RECREATE_PENDING"));
+    assert!(
+        !closed.contains("host->closed"),
+        "layer-surface closure must not terminate the desktop host"
+    );
+
+    let run = source
+        .split_once("int cclover_linux_wayland_run")
+        .expect("Linux host must provide a Wayland lifecycle")
+        .1;
+    assert!(
+        run.contains("if (host.surface_state == WAYLAND_SURFACE_RECREATE_PENDING)")
+            && run.contains("wayland_surface_recreate(&host)"),
+        "Wayland host loop must recover a compositor-closed layer surface"
+    );
+    assert!(
+        source.contains("host->previous_buffer = NULL")
+            && source.contains("scene->full_redraw != 0 || host->previous_buffer == NULL"),
+        "replacement surfaces must not inherit incremental-frame assumptions"
+    );
+
+    let remove = source
+        .split_once("static void registry_remove")
+        .expect("Wayland host must handle registry removal")
+        .1
+        .split_once("static const struct wl_registry_listener registry_listener")
+        .expect("registry removal must stay separate from listener registration")
+        .0;
+    assert!(
+        remove.contains("wayland_output_reset(entry)")
+            && remove.contains("wayland_update_scale(g->host)"),
+        "removed wl_output globals must release their slot and derived scale state"
+    );
+}
+
+#[test]
 fn linux_desktop_surface_preserves_panel_window_policy() {
     let source = linux_native();
 
@@ -261,8 +307,8 @@ fn linux_desktop_surface_preserves_panel_window_policy() {
         "XShapeCombineRectangles(display, window, ShapeInput",
         "ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM",
         "ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT",
-        "zwlr_layer_surface_v1_set_exclusive_zone(host.layer_surface, 0)",
-        "wl_surface_set_input_region(host.surface, empty_input)",
+        "zwlr_layer_surface_v1_set_exclusive_zone(host->layer_surface, 0)",
+        "wl_surface_set_input_region(host->surface, empty_input)",
     ] {
         assert!(
             source.contains(required),

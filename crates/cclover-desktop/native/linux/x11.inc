@@ -92,7 +92,7 @@ int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks, int 
     int depth;
     Colormap colormap;
     XSetWindowAttributes attrs;
-    if (!display) return 101;
+    if (!display) return CCLOVER_LINUX_HOST_X11_DISPLAY_CONNECT_FAILED;
 
     cclover_scene(&host, &scene);
     width = scene.width;

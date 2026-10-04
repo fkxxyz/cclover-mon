@@ -1,7 +1,7 @@
 #![allow(unsafe_code)]
 
 use std::error::Error;
-use std::ffi::c_void;
+use std::ffi::{CStr, c_char, c_void};
 use std::io::Write;
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
@@ -17,6 +17,7 @@ enum DisplayServer {
 }
 
 unsafe extern "C" {
+    fn cclover_linux_host_error_message(code: i32) -> *const c_char;
     fn cclover_linux_wayland_run(
         context: *mut c_void,
         callbacks: *const HostCallbacks,
@@ -119,7 +120,15 @@ pub fn run(app: DesktopApp) -> Result<(), Box<dyn Error>> {
     if result == 0 {
         Ok(())
     } else {
-        Err(format!("Linux native desktop host failed with error {result}").into())
+        // SAFETY: native host returns a pointer to immutable process-lifetime storage.
+        let message = unsafe { cclover_linux_host_error_message(result) };
+        let message = if message.is_null() {
+            "unknown Linux native desktop host failure".into()
+        } else {
+            // SAFETY: native host returns a NUL-terminated static string.
+            unsafe { CStr::from_ptr(message) }.to_string_lossy()
+        };
+        Err(format!("Linux native desktop host failed: {message} (code {result})").into())
     }
 }
 

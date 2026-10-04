@@ -105,11 +105,14 @@ fn build_windows(out_dir: &Path) {
 }
 
 fn build_linux(out_dir: &Path) {
-    println!("cargo:rerun-if-changed=native/linux_host.c");
-    println!("cargo:rerun-if-changed=native/linux_tray.c");
-    println!("cargo:rerun-if-changed=native/wayland/wlr-layer-shell-unstable-v1-protocol.c");
-    println!("cargo:rerun-if-changed=native/wayland/wlr-layer-shell-unstable-v1-client-protocol.h");
-    println!("cargo:rerun-if-changed=native/wayland/xdg-shell-protocol.c");
+    for source in [
+        "native/linux_host.c",
+        "native/linux_tray.c",
+        "native/linux",
+        "native/wayland",
+    ] {
+        println!("cargo:rerun-if-changed={source}");
+    }
 
     let mut build = cc::Build::new();
     build

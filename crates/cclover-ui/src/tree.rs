@@ -56,7 +56,6 @@ impl<'a> TextCell<'a> {
     pub(crate) fn fixed(mut self, width: u32) -> Self {
         self.width = CellWidth::Fixed(width);
         self.align = TextAlign::End;
-        self.clip = true;
         self
     }
 

@@ -1,3 +1,7 @@
+use crate::format::{
+    compact_unavailable, format_compact_bytes_pair, format_compact_frequency_mhz,
+    format_compact_percent, format_compact_power, format_compact_rpm, format_compact_temperature,
+};
 use crate::*;
 #[derive(Clone, Copy)]
 pub struct GpuPanel<'a> {
@@ -19,6 +23,13 @@ impl<'a> GpuPanel<'a> {
             .unwrap_or_else(unavailable)
     }
 
+    pub fn compact_utilization_value(self) -> BoundedText {
+        self.value
+            .utilization_percent
+            .map(format_compact_percent)
+            .unwrap_or_else(compact_unavailable)
+    }
+
     pub fn utilization_fraction(self) -> f32 {
         (self.value.utilization_percent.unwrap_or(0.0) as f32 / 100.0).clamp(0.0, 1.0)
     }
@@ -33,6 +44,13 @@ impl<'a> GpuPanel<'a> {
                 format!("{} / {}", format_bytes(used), format_bytes(total))
             }
             _ => unavailable(),
+        }
+    }
+
+    pub fn compact_memory_value(self) -> BoundedText {
+        match (self.value.memory_used_bytes, self.value.memory_total_bytes) {
+            (Some(used), Some(total)) => format_compact_bytes_pair(used, total),
+            _ => compact_unavailable(),
         }
     }
 
@@ -58,6 +76,13 @@ impl<'a> GpuPanel<'a> {
             .unwrap_or_else(unavailable)
     }
 
+    pub fn compact_temperature_value(self) -> BoundedText {
+        self.value
+            .temperature_celsius
+            .map(format_compact_temperature)
+            .unwrap_or_else(compact_unavailable)
+    }
+
     pub fn temperature_history(self) -> Option<&'a VecDeque<f64>> {
         self.temperature_history
     }
@@ -69,11 +94,25 @@ impl<'a> GpuPanel<'a> {
             .unwrap_or_else(unavailable)
     }
 
+    pub fn compact_power_value(self) -> BoundedText {
+        self.value
+            .power_watts
+            .map(format_compact_power)
+            .unwrap_or_else(compact_unavailable)
+    }
+
     pub fn core_clock_value(self) -> String {
         self.value
             .core_clock_mhz
             .map(|value| format!("{value} MHz"))
             .unwrap_or_else(unavailable)
+    }
+
+    pub fn compact_core_clock_value(self) -> BoundedText {
+        self.value
+            .core_clock_mhz
+            .map(format_compact_frequency_mhz)
+            .unwrap_or_else(compact_unavailable)
     }
 
     pub fn fan_value(self) -> String {
@@ -82,6 +121,14 @@ impl<'a> GpuPanel<'a> {
             .map(format_percent)
             .or_else(|| self.value.fan_rpm.map(|value| format!("{value} RPM")))
             .unwrap_or_else(unavailable)
+    }
+
+    pub fn compact_fan_value(self) -> BoundedText {
+        self.value
+            .fan_percent
+            .map(format_compact_percent)
+            .or_else(|| self.value.fan_rpm.map(format_compact_rpm))
+            .unwrap_or_else(compact_unavailable)
     }
 }
 
@@ -98,6 +145,10 @@ impl<'a> TemperaturePanel<'a> {
 
     pub fn value(self) -> String {
         format!("{:.1}°C", self.value.celsius)
+    }
+
+    pub fn compact_value(self) -> BoundedText {
+        format_compact_temperature(self.value.celsius)
     }
 
     pub fn history(self) -> Option<&'a VecDeque<f64>> {
@@ -122,6 +173,10 @@ impl<'a> FanPanel<'a> {
 
     pub fn value(self) -> String {
         format!("{} RPM", self.value.rpm)
+    }
+
+    pub fn compact_value(self) -> BoundedText {
+        format_compact_rpm(self.value.rpm)
     }
 
     pub fn history(self) -> Option<&'a VecDeque<f64>> {

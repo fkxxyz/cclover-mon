@@ -88,28 +88,60 @@ impl IoProcessGeometry {
 
 #[derive(Debug, Clone, Copy)]
 pub struct TextSlotGeometry {
-    pub metric_value: u32,
-    pub metric_subtitle: u32,
-    pub secondary_value: u32,
-    pub process_value: u32,
-    pub card_value: u32,
-    pub gpu_value: u32,
-    pub network_value: u32,
-    pub io_pid: u32,
-    pub io_value: u32,
+    pub metric_value: TextSlot,
+    pub metric_subtitle: TextSlot,
+    pub secondary_value: TextSlot,
+    pub process_value: TextSlot,
+    pub card_value: TextSlot,
+    pub gpu_value: TextSlot,
+    pub network_value: TextSlot,
+    pub io_value: TextSlot,
 }
 
 pub const TEXT_SLOT_GEOMETRY: TextSlotGeometry = TextSlotGeometry {
-    metric_value: 58,
-    metric_subtitle: 30,
-    secondary_value: 62,
-    process_value: 58,
-    card_value: 56,
-    gpu_value: 64,
-    network_value: 70,
-    io_pid: 32,
-    io_value: 43,
+    metric_value: TextSlot::monospace(6, 16),
+    metric_subtitle: TextSlot::monospace(7, 11),
+    secondary_value: TextSlot::monospace(11, 11),
+    process_value: TextSlot::monospace(6, 12),
+    card_value: TextSlot::monospace(8, 12),
+    gpu_value: TextSlot::monospace(11, 12),
+    network_value: TextSlot::monospace(7, 11),
+    io_value: TextSlot::monospace(8, 9),
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextSlot {
+    width: u32,
+    capacity_columns: u8,
+    max_font_size: u32,
+}
+
+impl TextSlot {
+    const ADVANCE_NUMERATOR: u32 = 5;
+    const ADVANCE_DENOMINATOR: u32 = 8;
+
+    pub const fn monospace(capacity_columns: u8, max_font_size: u32) -> Self {
+        let numerator = capacity_columns as u32 * max_font_size * Self::ADVANCE_NUMERATOR;
+        let width = numerator.div_ceil(Self::ADVANCE_DENOMINATOR);
+        Self {
+            width,
+            capacity_columns,
+            max_font_size,
+        }
+    }
+
+    pub const fn width(self) -> u32 {
+        self.width
+    }
+
+    pub const fn capacity_columns(self) -> u8 {
+        self.capacity_columns
+    }
+
+    pub const fn max_font_size(self) -> u32 {
+        self.max_font_size
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct DiskCardGeometry {

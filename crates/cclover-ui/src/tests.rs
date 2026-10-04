@@ -1,5 +1,6 @@
 use cclover_core::model::{
-    Collection, DiskMetadata, DiskSnapshot, MonitorState, NetworkSnapshot, TemperatureSnapshot,
+    Collection, DiskMetadata, DiskSnapshot, GpuSnapshot, MonitorState, NetworkSnapshot,
+    TemperatureSnapshot,
 };
 use cclover_presentation::{Dashboard, FAN_SECTION};
 
@@ -80,4 +81,53 @@ fn tree_owns_visual_semantics_not_renderer_types() {
     assert_eq!(header.cells[0].tone, Tone::Muted);
     assert_eq!(header.cells[0].width, CellWidth::Fill);
     assert_eq!(Tone::Accent.rgba().b, 0xff);
+}
+
+#[test]
+fn fixed_width_does_not_imply_clipping() {
+    let cell = TextCell::owned("123".to_owned(), 12, Tone::Foreground).fixed(24);
+    assert_eq!(cell.width, CellWidth::Fixed(24));
+    assert_eq!(cell.align, TextAlign::End);
+    assert!(!cell.clip);
+}
+
+#[test]
+fn text_slot_preserves_the_font_size_used_to_derive_its_width() {
+    let slot = TextSlot::monospace(11, 12);
+    assert_eq!(slot.capacity_columns(), 11);
+    assert_eq!(slot.max_font_size(), 12);
+    assert_eq!(slot.width(), 83);
+}
+
+#[test]
+fn gpu_memory_value_is_complete_and_unclipped_in_shared_scene() {
+    let mut state = MonitorState::default();
+    state.snapshot.gpus = Collection::available(vec![GpuSnapshot {
+        id: cclover_core::model::GpuId::from_opaque_key("gpu-a"),
+        name: "GPU".into(),
+        utilization_percent: Some(50.0),
+        memory_used_bytes: Some(4 * 1024 * 1024 * 1024),
+        memory_total_bytes: Some(22 * 1024 * 1024 * 1024),
+        temperature_celsius: Some(60.0),
+        power_watts: Some(100.0),
+        core_clock_mhz: Some(1800),
+        fan_percent: Some(40.0),
+        fan_rpm: None,
+    }]);
+
+    let scene = build_scene(Dashboard::new(&state));
+    let memory = scene
+        .primitives
+        .iter()
+        .find_map(|primitive| match primitive {
+            Primitive::Text {
+                rect, value, clip, ..
+            } if value == "4.0/22 GiB" => Some((*rect, *clip)),
+            _ => None,
+        })
+        .expect("GPU memory value must be present in scene");
+
+    assert_eq!(memory.0.width, TEXT_SLOT_GEOMETRY.gpu_value.width() as f32);
+    assert_eq!(TEXT_SLOT_GEOMETRY.gpu_value.capacity_columns(), 11);
+    assert!(!memory.1);
 }

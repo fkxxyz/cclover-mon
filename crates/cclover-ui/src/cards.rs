@@ -1,9 +1,11 @@
 use std::collections::VecDeque;
 
+use cclover_presentation::BoundedText;
+
 use crate::{
     Block, Card, DISK_CARD_GEOMETRY, Element, GPU_CARD_GEOMETRY, GraphSpec, IO_PROCESS_GEOMETRY,
     METRIC_CARD_GEOMETRY, NETWORK_CARD_GEOMETRY, ProgressSpec, SMALL_GRAPH_CARD_GEOMETRY, Stack,
-    TEXT_SLOT_GEOMETRY, TextCell, TextRow, Tone,
+    TEXT_SLOT_GEOMETRY, TextCell, TextRow, TextSlot, Tone,
 };
 
 pub(crate) const CARD_PADDING: u32 = 9;
@@ -15,13 +17,13 @@ pub(crate) fn section(title: &'static str) -> Block<'static> {
 
 pub(crate) struct MetricCardParams<'a> {
     pub(crate) title: &'static str,
-    pub(crate) value: String,
-    pub(crate) subtitle: String,
+    pub(crate) value: BoundedText,
+    pub(crate) subtitle: BoundedText,
     pub(crate) secondary_label: &'static str,
-    pub(crate) secondary_value: String,
+    pub(crate) secondary_value: BoundedText,
     pub(crate) progress: f32,
     pub(crate) graph: GraphSpec<'a>,
-    pub(crate) processes: Vec<(&'a str, String)>,
+    pub(crate) processes: Vec<(&'a str, BoundedText)>,
 }
 
 pub(crate) fn metric_card<'a>(params: MetricCardParams<'a>) -> Block<'a> {
@@ -40,14 +42,15 @@ pub(crate) fn metric_card<'a>(params: MetricCardParams<'a>) -> Block<'a> {
             .bold()
             .fill()
             .clip(),
-        TextCell::owned(value, 16, Tone::Foreground)
-            .bold()
-            .fixed(TEXT_SLOT_GEOMETRY.metric_value),
+        bounded_cell(value, 16, Tone::Foreground, TEXT_SLOT_GEOMETRY.metric_value).bold(),
     ];
-    if !subtitle.is_empty() {
-        header_cells.push(
-            TextCell::owned(subtitle, 11, Tone::Muted).fixed(TEXT_SLOT_GEOMETRY.metric_subtitle),
-        );
+    if !subtitle.as_str().is_empty() {
+        header_cells.push(bounded_cell(
+            subtitle,
+            11,
+            Tone::Muted,
+            TEXT_SLOT_GEOMETRY.metric_subtitle,
+        ));
     }
 
     let process_children = processes
@@ -56,7 +59,7 @@ pub(crate) fn metric_card<'a>(params: MetricCardParams<'a>) -> Block<'a> {
             Element::Row(TextRow {
                 cells: vec![
                     TextCell::borrowed(name, 12, Tone::Foreground).fill().clip(),
-                    TextCell::owned(value, 12, Tone::Muted).fixed(TEXT_SLOT_GEOMETRY.process_value),
+                    bounded_cell(value, 12, Tone::Muted, TEXT_SLOT_GEOMETRY.process_value),
                 ],
                 height: METRIC_CARD_GEOMETRY.process_row_height,
                 gap: 5,
@@ -77,8 +80,12 @@ pub(crate) fn metric_card<'a>(params: MetricCardParams<'a>) -> Block<'a> {
                         .bold()
                         .static_content()
                         .fill(),
-                    TextCell::owned(secondary_value, 11, Tone::Muted)
-                        .fixed(TEXT_SLOT_GEOMETRY.secondary_value),
+                    bounded_cell(
+                        secondary_value,
+                        11,
+                        Tone::Muted,
+                        TEXT_SLOT_GEOMETRY.secondary_value,
+                    ),
                 ],
                 height: METRIC_CARD_GEOMETRY.secondary_row_height,
                 gap: 4,
@@ -126,7 +133,7 @@ pub(crate) fn gpu_card<'a>(gpu: cclover_presentation::GpuPanel<'a>, capacity: us
             }),
             metric_row(
                 "UTILIZATION",
-                gpu.utilization_value(),
+                gpu.compact_utilization_value(),
                 GPU_CARD_GEOMETRY.metric_row_height,
             ),
             Element::Graph(graph(
@@ -138,7 +145,7 @@ pub(crate) fn gpu_card<'a>(gpu: cclover_presentation::GpuPanel<'a>, capacity: us
             )),
             metric_row(
                 "MEMORY",
-                gpu.memory_value(),
+                gpu.compact_memory_value(),
                 GPU_CARD_GEOMETRY.metric_row_height,
             ),
             Element::Graph(graph(
@@ -150,7 +157,7 @@ pub(crate) fn gpu_card<'a>(gpu: cclover_presentation::GpuPanel<'a>, capacity: us
             )),
             metric_row(
                 "TEMPERATURE",
-                gpu.temperature_value(),
+                gpu.compact_temperature_value(),
                 GPU_CARD_GEOMETRY.metric_row_height,
             ),
             Element::Graph(graph(
@@ -160,37 +167,37 @@ pub(crate) fn gpu_card<'a>(gpu: cclover_presentation::GpuPanel<'a>, capacity: us
                 Tone::Red,
                 0.13,
             )),
-            status_row("POWER", gpu.power_value()),
-            status_row("CORE CLOCK", gpu.core_clock_value()),
-            status_row("FAN", gpu.fan_value()),
+            status_row("POWER", gpu.compact_power_value()),
+            status_row("CORE CLOCK", gpu.compact_core_clock_value()),
+            status_row("FAN", gpu.compact_fan_value()),
         ],
         gap: GPU_CARD_GEOMETRY.spacing,
         height: None,
     })
 }
 
-fn metric_row<'a>(label: &'static str, value: String, height: u32) -> Element<'a> {
+fn metric_row<'a>(label: &'static str, value: BoundedText, height: u32) -> Element<'a> {
     Element::Row(TextRow {
         cells: vec![
             TextCell::borrowed(label, 10, Tone::Muted)
                 .bold()
                 .static_content()
                 .fill(),
-            TextCell::owned(value, 12, Tone::Foreground).fixed(TEXT_SLOT_GEOMETRY.gpu_value),
+            bounded_cell(value, 12, Tone::Foreground, TEXT_SLOT_GEOMETRY.gpu_value),
         ],
         height,
         gap: 0,
     })
 }
 
-fn status_row<'a>(label: &'static str, value: String) -> Element<'a> {
+fn status_row<'a>(label: &'static str, value: BoundedText) -> Element<'a> {
     Element::Row(TextRow {
         cells: vec![
             TextCell::borrowed(label, 10, Tone::Muted)
                 .bold()
                 .static_content()
                 .fill(),
-            TextCell::owned(value, 11, Tone::Muted).fixed(TEXT_SLOT_GEOMETRY.gpu_value),
+            bounded_cell(value, 11, Tone::Muted, TEXT_SLOT_GEOMETRY.gpu_value),
         ],
         height: GPU_CARD_GEOMETRY.status_row_height,
         gap: 0,
@@ -199,7 +206,7 @@ fn status_row<'a>(label: &'static str, value: String) -> Element<'a> {
 
 pub(crate) fn small_graph_card<'a>(
     name: &'a str,
-    value: String,
+    value: BoundedText,
     graph: GraphSpec<'a>,
 ) -> Block<'a> {
     card(Stack {
@@ -210,8 +217,7 @@ pub(crate) fn small_graph_card<'a>(
                         .bold()
                         .fill()
                         .clip(),
-                    TextCell::owned(value, 12, Tone::Foreground)
-                        .fixed(TEXT_SLOT_GEOMETRY.card_value),
+                    bounded_cell(value, 12, Tone::Foreground, TEXT_SLOT_GEOMETRY.card_value),
                 ],
                 height: SMALL_GRAPH_CARD_GEOMETRY.header_height,
                 gap: 0,
@@ -229,8 +235,14 @@ pub(crate) fn disk_card<'a>(
 ) -> Block<'a> {
     let process_rows_visible = disk.process_rows_visible();
     let process_rows = io_process_rows(
-        disk.processes()
-            .map(|row| (row.name, row.pid, row.first_value, row.second_value)),
+        disk.processes().map(|row| {
+            (
+                row.name,
+                row.pid,
+                row.compact_first_value,
+                row.compact_second_value,
+            )
+        }),
         "R",
         "W",
         Tone::Green,
@@ -243,8 +255,12 @@ pub(crate) fn disk_card<'a>(
                     .bold()
                     .fill()
                     .clip(),
-                TextCell::owned(disk.value(), 12, Tone::Foreground)
-                    .fixed(TEXT_SLOT_GEOMETRY.card_value),
+                bounded_cell(
+                    disk.compact_value(),
+                    12,
+                    Tone::Foreground,
+                    TEXT_SLOT_GEOMETRY.card_value,
+                ),
             ],
             height: DISK_CARD_GEOMETRY.header_height,
             gap: 0,
@@ -280,9 +296,14 @@ pub(crate) fn network_card<'a>(
         .unwrap_or((&EMPTY_GRAPH_VALUES, &EMPTY_GRAPH_VALUES));
     let process_rows_visible = network.process_rows_visible();
     let process_rows = io_process_rows(
-        network
-            .processes()
-            .map(|row| (row.name, row.pid, row.first_value, row.second_value)),
+        network.processes().map(|row| {
+            (
+                row.name,
+                row.pid,
+                row.compact_first_value,
+                row.compact_second_value,
+            )
+        }),
         "↓",
         "↑",
         Tone::Green,
@@ -300,7 +321,7 @@ pub(crate) fn network_card<'a>(
             height: NETWORK_CARD_GEOMETRY.header_height,
             gap: 0,
         }),
-        value_row("↓", network.down_value(), Tone::Green),
+        value_row("↓", network.compact_down_value(), Tone::Green),
         Element::Graph(GraphSpec {
             values: down,
             min: 0.0,
@@ -311,7 +332,7 @@ pub(crate) fn network_card<'a>(
             capacity,
             height: NETWORK_CARD_GEOMETRY.graph_height,
         }),
-        value_row("↑", network.up_value(), Tone::Orange),
+        value_row("↑", network.compact_up_value(), Tone::Orange),
         Element::Graph(GraphSpec {
             values: up,
             min: 0.0,
@@ -333,7 +354,7 @@ pub(crate) fn network_card<'a>(
     })
 }
 
-fn value_row<'a>(label: &'static str, value: String, tone: Tone) -> Element<'a> {
+fn value_row<'a>(label: &'static str, value: BoundedText, tone: Tone) -> Element<'a> {
     Element::Row(TextRow {
         cells: vec![
             TextCell::borrowed(label, 13, tone)
@@ -341,9 +362,7 @@ fn value_row<'a>(label: &'static str, value: String, tone: Tone) -> Element<'a> 
                 .fixed(14)
                 .align_start(),
             TextCell::owned(String::new(), 1, tone).fill(),
-            TextCell::owned(value, 11, tone)
-                .bold()
-                .fixed(TEXT_SLOT_GEOMETRY.network_value),
+            bounded_cell(value, 11, tone, TEXT_SLOT_GEOMETRY.network_value).bold(),
         ],
         height: NETWORK_CARD_GEOMETRY.value_row_height,
         gap: 4,
@@ -351,7 +370,7 @@ fn value_row<'a>(label: &'static str, value: String, tone: Tone) -> Element<'a> 
 }
 
 fn io_process_rows<'a>(
-    rows: impl Iterator<Item = (Option<&'a str>, u32, String, String)>,
+    rows: impl Iterator<Item = (Option<&'a str>, u32, BoundedText, BoundedText)>,
     first_label: &'static str,
     second_label: &'static str,
     first_tone: Tone,
@@ -359,16 +378,27 @@ fn io_process_rows<'a>(
 ) -> Stack<'a> {
     let mut children = Vec::new();
     for (name, pid, first, second) in rows {
+        let identity = match name {
+            Some(name) => format!("{name} ·{pid}"),
+            None => format!("pid {pid}"),
+        };
         children.push(Element::Row(TextRow {
             cells: vec![
-                TextCell::borrowed(name.unwrap_or("process"), 10, Tone::Foreground)
+                TextCell::owned(identity, 10, Tone::Foreground)
                     .fill()
                     .clip(),
-                TextCell::owned(format!("·{pid}"), 9, Tone::Muted).fixed(TEXT_SLOT_GEOMETRY.io_pid),
-                TextCell::owned(format!("{first_label}{first}"), 9, first_tone)
-                    .fixed(TEXT_SLOT_GEOMETRY.io_value),
-                TextCell::owned(format!("{second_label}{second}"), 9, second_tone)
-                    .fixed(TEXT_SLOT_GEOMETRY.io_value),
+                bounded_cell(
+                    first.prefixed(first_label),
+                    9,
+                    first_tone,
+                    TEXT_SLOT_GEOMETRY.io_value,
+                ),
+                bounded_cell(
+                    second.prefixed(second_label),
+                    9,
+                    second_tone,
+                    TEXT_SLOT_GEOMETRY.io_value,
+                ),
             ],
             height: IO_PROCESS_GEOMETRY.row_height,
             gap: 3,
@@ -379,6 +409,22 @@ fn io_process_rows<'a>(
         gap: IO_PROCESS_GEOMETRY.spacing,
         height: Some(IO_PROCESS_GEOMETRY.height()),
     }
+}
+
+fn bounded_cell<'a>(value: BoundedText, size: u32, tone: Tone, slot: TextSlot) -> TextCell<'a> {
+    assert!(
+        value.max_columns() <= slot.capacity_columns(),
+        "bounded value {:?} requires {} columns but slot provides {}",
+        value.as_str(),
+        value.max_columns(),
+        slot.capacity_columns()
+    );
+    assert!(
+        size <= slot.max_font_size(),
+        "bounded value font size {size} exceeds slot budget {}",
+        slot.max_font_size()
+    );
+    TextCell::owned(value.into_string(), size, tone).fixed(slot.width())
 }
 
 fn card(content: Stack<'_>) -> Block<'_> {

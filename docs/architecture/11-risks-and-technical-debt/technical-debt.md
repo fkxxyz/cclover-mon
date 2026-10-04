@@ -23,6 +23,7 @@ Presence is the state: every document in `technical-debt/` represents debt that 
 
 Current architecture-level technical debt:
 
+- [Graphical text font metrics contract](technical-debt/graphical-text-font-metrics-contract.md) — Medium priority; shared bounded text-slot geometry still lacks a renderer-level guarantee that the concrete Web, Cairo, and GDI font realizations satisfy the same advance budget.
 - [Native C host textual module boundaries](technical-debt/native-c-host-textual-module-boundaries.md) — Low-medium priority; Linux and Windows host responsibilities are physically separated but still share one C translation unit, so cross-fragment dependencies are not compiler-enforced.
 - [Server release and packaging pipeline](technical-debt/server-release-packaging-pipeline.md) — Medium-high priority; the new `cclover-mon-server` product is continuously validated but is not yet a first-class published artifact in repository release automation.
 - [Native event-loop validation seam](technical-debt/native-event-loop-validation-seam.md) — Medium priority; native wakeup-to-frame scheduling still lacks a deterministic behavioral test seam independent of real X11, Wayland, or Win32 runtimes.

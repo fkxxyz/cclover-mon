@@ -18,6 +18,10 @@ impl<'a> DiskPanel<'a> {
         format_rate(self.value.bytes_per_sec)
     }
 
+    pub fn compact_value(self) -> BoundedText {
+        format_compact_rate(self.value.bytes_per_sec)
+    }
+
     pub fn history(self) -> Option<&'a VecDeque<f64>> {
         self.history
     }
@@ -37,8 +41,10 @@ impl<'a> DiskPanel<'a> {
             .map(|process| IoProcessRow {
                 name: process.name.as_deref(),
                 pid: process.process.pid,
-                first_value: format_compact_rate(process.read_bytes_per_sec),
-                second_value: format_compact_rate(process.write_bytes_per_sec),
+                first_value: format_rate(process.read_bytes_per_sec),
+                second_value: format_rate(process.write_bytes_per_sec),
+                compact_first_value: format_compact_rate(process.read_bytes_per_sec),
+                compact_second_value: format_compact_rate(process.write_bytes_per_sec),
             })
     }
 }
@@ -68,8 +74,16 @@ impl<'a> NetworkPanel<'a> {
         format_rate(self.value.down_bytes_per_sec)
     }
 
+    pub fn compact_down_value(self) -> BoundedText {
+        format_compact_rate(self.value.down_bytes_per_sec)
+    }
+
     pub fn up_value(self) -> String {
         format_rate(self.value.up_bytes_per_sec)
+    }
+
+    pub fn compact_up_value(self) -> BoundedText {
+        format_compact_rate(self.value.up_bytes_per_sec)
     }
 
     pub fn history(self) -> Option<&'a NetworkDirectionHistory> {
@@ -91,8 +105,10 @@ impl<'a> NetworkPanel<'a> {
             .map(|process| IoProcessRow {
                 name: process.name.as_deref(),
                 pid: process.process.pid,
-                first_value: format_compact_rate(process.rx_bytes_per_sec),
-                second_value: format_compact_rate(process.tx_bytes_per_sec),
+                first_value: format_rate(process.rx_bytes_per_sec),
+                second_value: format_rate(process.tx_bytes_per_sec),
+                compact_first_value: format_compact_rate(process.rx_bytes_per_sec),
+                compact_second_value: format_compact_rate(process.tx_bytes_per_sec),
             })
     }
 }
@@ -102,4 +118,6 @@ pub struct IoProcessRow<'a> {
     pub pid: u32,
     pub first_value: String,
     pub second_value: String,
+    pub compact_first_value: BoundedText,
+    pub compact_second_value: BoundedText,
 }

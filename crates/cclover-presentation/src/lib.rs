@@ -12,7 +12,7 @@ mod panels;
 
 pub use dashboard::Dashboard;
 pub(crate) use format::format_compact_rate;
-pub use format::{format_bytes, format_percent, format_rate, unavailable};
+pub use format::{BoundedText, format_bytes, format_percent, format_rate, unavailable};
 pub use panels::{
     CpuPanel, DiskPanel, FanPanel, GpuPanel, IoProcessRow, MemoryPanel, NetworkPanel, ProcessRow,
     TemperaturePanel,

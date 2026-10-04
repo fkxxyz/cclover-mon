@@ -1,6 +1,6 @@
 use cclover_presentation::{
-    CpuPanel, DISK_SECTION, Dashboard, FAN_SECTION, GPU_SECTION, MemoryPanel, NETWORK_SECTION,
-    TEMPERATURE_SECTION,
+    BoundedText, CpuPanel, DISK_SECTION, Dashboard, FAN_SECTION, GPU_SECTION, MemoryPanel,
+    NETWORK_SECTION, TEMPERATURE_SECTION,
 };
 
 use crate::cards::{
@@ -25,10 +25,10 @@ impl<'a> DashboardUi<'a> {
 
         let mut left = vec![metric_card(MetricCardParams {
             title: MemoryPanel::TITLE,
-            value: memory.value(),
-            subtitle: memory.subtitle(),
+            value: memory.compact_value(),
+            subtitle: memory.compact_subtitle(),
             secondary_label: MemoryPanel::SECONDARY_LABEL,
-            secondary_value: memory.secondary_value(),
+            secondary_value: memory.compact_secondary_value(),
             progress: memory.fraction(),
             graph: GraphSpec {
                 values: memory.graph_values(),
@@ -42,7 +42,7 @@ impl<'a> DashboardUi<'a> {
             },
             processes: memory
                 .processes()
-                .map(|row| (row.name, row.value))
+                .map(|row| (row.name, row.compact_value))
                 .collect(),
         })];
         left.push(section(GPU_SECTION));
@@ -59,7 +59,7 @@ impl<'a> DashboardUi<'a> {
                 .expect("dashboard temperature count and lookup must agree");
             left.push(small_graph_card(
                 temperature.name(),
-                temperature.value(),
+                temperature.compact_value(),
                 GraphSpec {
                     values: temperature.history().unwrap_or(&EMPTY_GRAPH_VALUES),
                     min: 20.0,
@@ -79,7 +79,7 @@ impl<'a> DashboardUi<'a> {
                 .expect("dashboard fan count and lookup must agree");
             left.push(small_graph_card(
                 fan.name(),
-                fan.value(),
+                fan.compact_value(),
                 GraphSpec {
                     values: fan.history().unwrap_or(&EMPTY_GRAPH_VALUES),
                     min: 0.0,
@@ -95,10 +95,10 @@ impl<'a> DashboardUi<'a> {
 
         let mut right = vec![metric_card(MetricCardParams {
             title: CpuPanel::TITLE,
-            value: cpu.value(),
-            subtitle: String::new(),
+            value: cpu.compact_value(),
+            subtitle: BoundedText::default(),
             secondary_label: "",
-            secondary_value: String::new(),
+            secondary_value: BoundedText::default(),
             progress: cpu.fraction(),
             graph: GraphSpec {
                 values: cpu.graph_values(),
@@ -110,7 +110,10 @@ impl<'a> DashboardUi<'a> {
                 capacity,
                 height: METRIC_CARD_GEOMETRY.graph_height,
             },
-            processes: cpu.processes().map(|row| (row.name, row.value)).collect(),
+            processes: cpu
+                .processes()
+                .map(|row| (row.name, row.compact_value))
+                .collect(),
         })];
         right.push(section(DISK_SECTION));
         for index in 0..dashboard.disk_count() {

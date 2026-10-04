@@ -1,3 +1,6 @@
+use crate::format::{
+    compact_unavailable, format_compact_bytes, format_compact_bytes_pair, format_compact_percent,
+};
 use crate::*;
 #[derive(Clone, Copy)]
 pub struct MemoryPanel<'a> {
@@ -16,10 +19,22 @@ impl<'a> MemoryPanel<'a> {
             .unwrap_or_else(unavailable)
     }
 
+    pub fn compact_value(self) -> BoundedText {
+        self.memory
+            .map(|memory| format_compact_bytes(memory.used_bytes))
+            .unwrap_or_else(compact_unavailable)
+    }
+
     pub fn subtitle(self) -> String {
         self.memory
             .map(|memory| format!("/ {}", format_bytes(memory.total_bytes)))
             .unwrap_or_default()
+    }
+
+    pub fn compact_subtitle(self) -> BoundedText {
+        self.memory
+            .map(|memory| format_compact_bytes(memory.total_bytes).prefixed("/"))
+            .unwrap_or_else(BoundedText::empty)
     }
 
     pub fn secondary_value(self) -> String {
@@ -32,6 +47,14 @@ impl<'a> MemoryPanel<'a> {
                 )
             })
             .unwrap_or_else(unavailable)
+    }
+
+    pub fn compact_secondary_value(self) -> BoundedText {
+        self.memory
+            .map(|memory| {
+                format_compact_bytes_pair(memory.swap_used_bytes, memory.swap_total_bytes)
+            })
+            .unwrap_or_else(compact_unavailable)
     }
 
     pub fn fraction(self) -> f32 {
@@ -61,6 +84,7 @@ impl<'a> MemoryPanel<'a> {
         self.processes.iter().map(|process| ProcessRow {
             name: &process.name,
             value: format_bytes(process.bytes),
+            compact_value: format_compact_bytes(process.bytes),
         })
     }
 }
@@ -79,6 +103,12 @@ impl<'a> CpuPanel<'a> {
         self.percent.map(format_percent).unwrap_or_else(unavailable)
     }
 
+    pub fn compact_value(self) -> BoundedText {
+        self.percent
+            .map(format_compact_percent)
+            .unwrap_or_else(compact_unavailable)
+    }
+
     pub fn fraction(self) -> f32 {
         self.percent.unwrap_or(0.0) as f32 / 100.0
     }
@@ -95,6 +125,7 @@ impl<'a> CpuPanel<'a> {
         self.processes.iter().map(|process| ProcessRow {
             name: &process.name,
             value: format_percent(process.percent),
+            compact_value: format_compact_percent(process.percent),
         })
     }
 }
@@ -102,4 +133,5 @@ impl<'a> CpuPanel<'a> {
 pub struct ProcessRow<'a> {
     pub name: &'a str,
     pub value: String,
+    pub compact_value: BoundedText,
 }

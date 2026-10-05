@@ -30,7 +30,9 @@ The NVML adapter dynamically loads `libnvidia-ml.so.1`, owns one reusable sessio
 
 AMD collection is capability-based. DRM discovery identifies `amdgpu` devices and reads supported telemetry from available sysfs/hwmon files. Card numbers and native paths remain locators, not shared identities.
 
-Long-lived eBPF collectors own their links, maps, and bounded native state. Disk and network attribution may share a narrow libbpf lifecycle/map-access adapter, but their attribution semantics and map schemas remain independent. Privilege, verifier, BTF, or attach failures affect only the dependent metric and remain typed failures rather than fabricated zeroes.
+Long-lived eBPF collectors own their links, maps, and bounded native state. Disk and network attribution may share a narrow libbpf lifecycle/map-access adapter, but their attribution semantics and map schemas remain independent. The adapter consumes the deployment-owned libbpf baseline directly: APIs within the baseline may be linked normally, while APIs newer than the baseline may only be optional accelerations whose absence cannot remove established attribution behavior. `bpf_map_lookup_batch` is within the current baseline and is linked directly; when the kernel or map rejects batch lookup before any batch has been consumed, map access restarts through the scalar traversal path. Once a batch has been consumed, later batch failure remains a real map-access failure rather than mixing traversal strategies. Privilege, verifier, BTF, attach, or non-compatibility map failures affect only the dependent metric and remain typed failures rather than fabricated zeroes.
+
+Compatibility-path choice stays Linux-private. Scalar fallback preserves metric quality and therefore does not mark a collection degraded; probe diagnostics may report the fallback for investigation without adding normal-path logging or exposing libbpf mechanics through core/UI contracts.
 
 ## Desktop integration
 

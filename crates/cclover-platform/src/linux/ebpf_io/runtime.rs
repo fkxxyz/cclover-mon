@@ -4,7 +4,6 @@ use std::ffi::{CStr, c_int, c_long, c_void};
 use std::mem::MaybeUninit;
 use std::path::Path;
 use std::ptr;
-use std::sync::OnceLock;
 
 use super::{AttributionFailure, FailureKind};
 
@@ -32,23 +31,45 @@ unsafe extern "C" {
     fn bpf_map__fd(map: *const BpfMap) -> c_int;
     fn bpf_map_get_next_key(fd: c_int, key: *const c_void, next_key: *mut c_void) -> c_int;
     fn bpf_map_lookup_elem(fd: c_int, key: *const c_void, value: *mut c_void) -> c_int;
+    fn bpf_map_lookup_batch(
+        fd: c_int,
+        in_batch: *mut c_void,
+        out_batch: *mut c_void,
+        keys: *mut c_void,
+        values: *mut c_void,
+        count: *mut u32,
+        opts: *const c_void,
+    ) -> c_int;
     fn bpf_map_delete_elem(fd: c_int, key: *const c_void) -> c_int;
     fn libbpf_get_error(ptr: *const c_void) -> c_long;
 }
 
-type BpfMapLookupBatch = unsafe extern "C" fn(
-    fd: c_int,
-    in_batch: *mut c_void,
-    out_batch: *mut c_void,
-    keys: *mut c_void,
-    values: *mut c_void,
-    count: *mut u32,
-    opts: *const c_void,
-) -> c_int;
-
 // Conservative syscall-amortization choice for map reads; not a libbpf or kernel ABI limit.
 const MAP_BATCH_SIZE: usize = 64;
-static BPF_MAP_LOOKUP_BATCH: OnceLock<Option<BpfMapLookupBatch>> = OnceLock::new();
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct BatchFallback {
+    errno: i32,
+}
+
+impl BatchFallback {
+    pub(super) fn diagnostic(self) -> String {
+        format!(
+            "BPF batch map lookup unsupported by kernel/map ({}); using scalar lookup fallback",
+            std::io::Error::from_raw_os_error(self.errno)
+        )
+    }
+}
+
+pub(super) struct MapRead<K, V> {
+    pub(super) rows: Vec<(K, V)>,
+    pub(super) batch_fallback: Option<BatchFallback>,
+}
+
+enum BatchRead<K, V> {
+    Rows(Vec<(K, V)>),
+    Unsupported(BatchFallback),
+}
 
 pub(super) struct LoadedObject {
     object: *mut BpfObject,
@@ -152,26 +173,28 @@ impl Drop for LoadedObject {
     }
 }
 
-pub(super) fn read_map<K, V>(fd: c_int) -> Result<Vec<(K, V)>, AttributionFailure>
+pub(super) fn read_map<K, V>(fd: c_int) -> Result<MapRead<K, V>, AttributionFailure>
 where
     K: Copy + Default,
     V: Copy + Default,
 {
-    if let Some(rows) = try_read_map_batch(fd)? {
-        return Ok(rows);
+    match try_read_map_batch(fd)? {
+        BatchRead::Rows(rows) => Ok(MapRead {
+            rows,
+            batch_fallback: None,
+        }),
+        BatchRead::Unsupported(batch_fallback) => Ok(MapRead {
+            rows: read_map_scalar(fd)?,
+            batch_fallback: Some(batch_fallback),
+        }),
     }
-    read_map_scalar(fd)
 }
 
-fn try_read_map_batch<K, V>(fd: c_int) -> Result<Option<Vec<(K, V)>>, AttributionFailure>
+fn try_read_map_batch<K, V>(fd: c_int) -> Result<BatchRead<K, V>, AttributionFailure>
 where
     K: Copy + Default,
     V: Copy + Default,
 {
-    let Some(lookup_batch) = lookup_batch_api() else {
-        return Ok(None);
-    };
-
     let mut rows = Vec::new();
     // Hash-family batch cursors require at least four bytes even when the map key is smaller.
     let mut cursor = vec![0_u8; size_of::<K>().max(size_of::<u32>())];
@@ -186,7 +209,7 @@ where
         // initialized elements whose layouts match the selected map ABI. A null opts pointer
         // selects default libbpf batch behavior.
         let rc = unsafe {
-            lookup_batch(
+            bpf_map_lookup_batch(
                 fd,
                 if has_completed_batch {
                     cursor.as_mut_ptr().cast()
@@ -217,12 +240,16 @@ where
         if error.raw_os_error() == Some(libc::ENOENT) {
             // ENOENT terminates batch iteration but count still describes the final rows returned.
             append_batch_rows(&mut rows, &keys, &values, count)?;
-            return Ok(Some(rows));
+            return Ok(BatchRead::Rows(rows));
         }
         if should_fallback_batch_lookup(&error, has_completed_batch) {
             // No batch result has been consumed, so restarting through the scalar path cannot mix
             // two traversal strategies in one returned sample.
-            return Ok(None);
+            return Ok(BatchRead::Unsupported(BatchFallback {
+                errno: error
+                    .raw_os_error()
+                    .expect("batch fallback classification requires an OS errno"),
+            }));
         }
         return Err(AttributionFailure::new(
             FailureKind::MapAccess,
@@ -335,22 +362,6 @@ fn delete_map_key_scalar<K>(fd: c_int, key: &K) -> Result<(), AttributionFailure
         FailureKind::MapAccess,
         format!("delete BPF map key: {error}"),
     ))
-}
-
-fn lookup_batch_api() -> Option<BpfMapLookupBatch> {
-    *BPF_MAP_LOOKUP_BATCH.get_or_init(|| {
-        // SAFETY: libbpf is already linked for this module. dlsym either returns null or the
-        // process-wide symbol address. The function type exactly matches libbpf's public ABI.
-        let symbol = unsafe { libc::dlsym(libc::RTLD_DEFAULT, c"bpf_map_lookup_batch".as_ptr()) };
-        if symbol.is_null() {
-            None
-        } else {
-            // SAFETY: the symbol name identifies bpf_map_lookup_batch and the type above mirrors
-            // its C declaration. Function pointers and data pointers have the same representation
-            // on supported Linux targets.
-            Some(unsafe { std::mem::transmute::<*mut c_void, BpfMapLookupBatch>(symbol) })
-        }
-    })
 }
 
 fn should_fallback_batch_lookup(error: &std::io::Error, has_completed_batch: bool) -> bool {

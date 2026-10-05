@@ -19,6 +19,7 @@ describe("validation profiles", () => {
         "release.test.ts",
         "release-redistribution.test.ts",
         "release-publication.test.ts",
+        "libbpf-compat.test.ts",
         "validate.test.ts",
         "windows-validate.test.ts",
         "sync-linux-hwmon.test.ts",
@@ -57,6 +58,21 @@ describe("validation profiles", () => {
       "x86_64-pc-windows-msvc",
       "i686-pc-windows-msvc",
     ]);
+  });
+
+  test("Linux eBPF runtime validation is isolated and requires elevated execution", () => {
+    expect(validationSteps("linux-ebpf-runtime").map((step) => step.command)).toEqual([
+      ["cargo", "build", "--locked", "--release"],
+      ["bun", "libbpf-compat.ts", "target/release/cclover-mon"],
+      ["bun", "linux-ebpf-runtime-smoke.ts"],
+    ]);
+    expect(validationExecution("linux-ebpf-runtime")).toEqual({
+      host: "local",
+      privilege: "elevated",
+    });
+    expect(
+      validationSteps("portable").some((step) => step.command.includes("linux-ebpf-runtime-smoke.ts")),
+    ).toBe(false);
   });
 
   test("Windows native validation executes deterministic tests on a Windows host", () => {
@@ -121,10 +137,19 @@ describe("validation profiles", () => {
     expect(validationSteps("linux").some((step) => step.command.includes("web-browser-smoke.ts"))).toBe(false);
   });
 
-  test("server validation owns the headless product smoke", () => {
+  test("Linux validation checks the built executable against the libbpf ABI baseline", () => {
+    expect(validationSteps("linux").map((step) => step.command)).toContainEqual([
+      "bun",
+      "libbpf-compat.ts",
+      "target/release/cclover-mon",
+    ]);
+  });
+
+  test("server validation owns the headless product smoke and libbpf ABI check", () => {
     expect(validationSteps("server").map((step) => step.command)).toEqual([
       ["cargo", "test", "--locked", "-p", "cclover-server"],
       ["cargo", "build", "--locked", "--release", "-p", "cclover-server"],
+      ["bun", "libbpf-compat.ts", "target/release/cclover-mon-server"],
       ["bun", "server-smoke.ts"],
     ]);
   });

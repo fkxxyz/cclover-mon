@@ -30,6 +30,7 @@ const FAST_STEPS: readonly ValidationStep[] = [
       "release.test.ts",
       "release-redistribution.test.ts",
       "release-publication.test.ts",
+      "libbpf-compat.test.ts",
       "validate.test.ts",
       "windows-validate.test.ts",
       "sync-linux-hwmon.test.ts",
@@ -56,6 +57,10 @@ const LINUX_STEPS: readonly ValidationStep[] = [
     ],
   },
   { name: "release build", command: ["cargo", "build", "--locked", "--release"] },
+  {
+    name: "Linux libbpf ABI compatibility",
+    command: ["bun", "libbpf-compat.ts", "target/release/cclover-mon"],
+  },
   {
     name: "minimal-feature tests",
     command: ["cargo", "test", "--locked", "-p", "cclover-mon", "--no-default-features"],
@@ -156,6 +161,15 @@ const WINDOWS_ETW_RUNTIME_STEPS: readonly ValidationStep[] = [
   },
 ];
 
+const LINUX_EBPF_RUNTIME_STEPS: readonly ValidationStep[] = [
+  { name: "Linux eBPF release build", command: ["cargo", "build", "--locked", "--release"] },
+  {
+    name: "Linux libbpf ABI compatibility",
+    command: ["bun", "libbpf-compat.ts", "target/release/cclover-mon"],
+  },
+  { name: "Linux eBPF scalar-fallback smoke", command: ["bun", "linux-ebpf-runtime-smoke.ts"] },
+];
+
 const WEB_BROWSER_STEPS: readonly ValidationStep[] = [
   { name: "web release build", command: ["cargo", "build", "--locked", "--release"] },
   { name: "Chromium web runtime smoke", command: ["bun", "web-browser-smoke.ts"] },
@@ -166,6 +180,10 @@ const SERVER_STEPS: readonly ValidationStep[] = [
   {
     name: "server release build",
     command: ["cargo", "build", "--locked", "--release", "-p", "cclover-server"],
+  },
+  {
+    name: "Linux server libbpf ABI compatibility",
+    command: ["bun", "libbpf-compat.ts", "target/release/cclover-mon-server"],
   },
   { name: "server headless runtime smoke", command: ["bun", "server-smoke.ts"] },
 ];
@@ -182,6 +200,10 @@ export const VALIDATION_PROFILES = {
   windows: {
     steps: WINDOWS_STEPS,
     execution: { host: "local", privilege: "ordinary" },
+  },
+  "linux-ebpf-runtime": {
+    steps: LINUX_EBPF_RUNTIME_STEPS,
+    execution: { host: "local", privilege: "elevated" },
   },
   "windows-native": {
     steps: WINDOWS_NATIVE_STEPS,
@@ -229,7 +251,7 @@ export function formatValidationStep(step: ValidationStep): string {
 
 function usage(): void {
   console.log(
-    "usage: bun validate.ts <fast|linux|windows|windows-native|windows-etw-runtime|web-browser|server|portable>",
+    "usage: bun validate.ts <fast|linux|linux-ebpf-runtime|windows|windows-native|windows-etw-runtime|web-browser|server|portable>",
   );
 }
 

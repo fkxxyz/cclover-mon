@@ -20,7 +20,7 @@ A lightweight native system monitor for Linux and Windows, with interactive desk
 
 ## Build
 
-Requires a Rust toolchain with Cargo.
+Requires a Rust toolchain with Cargo. Default Linux builds also require clang and libbpf development files; the resulting `ebpf-io` artifact requires libbpf 1.0.0 or newer within the `libbpf.so.1` ABI generation. `--no-default-features` omits the eBPF integration and its libbpf dependency.
 
 ```bash
 cargo build --release
@@ -86,7 +86,7 @@ On a Windows host, run the deterministic Windows test suite with:
 bun validate.ts windows-native
 ```
 
-For local preflight and Linux validation, use `bun validate.ts fast` and `bun validate.ts linux`. Use `bun validate.ts server` for the headless product dependency/runtime/SIGTERM smoke. `bun validate.ts portable` runs the host-portable fast/Linux/Windows-cross profiles; CI additionally runs `windows-native` on a Windows runner.
+For local preflight and Linux validation, use `bun validate.ts fast` and `bun validate.ts linux`. Linux ABI validation requires `readelf` from binutils. On a Linux host where elevated BPF execution is available, `bun validate.ts linux-ebpf-runtime` verifies the production eBPF path and scalar map-lookup fallback; it uses the existing clang toolchain and requires root or `sudo`. Use `bun validate.ts server` for the headless product dependency/runtime/SIGTERM smoke. `bun validate.ts portable` runs the host-portable fast/Linux/Windows-cross profiles; CI additionally runs `windows-native` on a Windows runner.
 
 The 32-bit executable is written to:
 

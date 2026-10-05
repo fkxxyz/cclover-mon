@@ -66,11 +66,13 @@ impl Collector {
     ) -> Result<AttributionRows<ProcessNetworkIoCounter>, AttributionFailure> {
         let object = self.object()?;
         let map_fd = object.map_fd(MAP)?;
+        let map_read = read_map::<Key, CounterValue>(map_fd)?;
+        let batch_fallback = map_read.batch_fallback;
         let mut rows = Vec::new();
         let mut stale_keys = Vec::new();
         let mut unresolved_native_ids = 0;
         let mut identities = HashMap::new();
-        for (key, value) in read_map::<Key, CounterValue>(map_fd)? {
+        for (key, value) in map_read.rows {
             let process = ProcessInstanceId {
                 pid: key.tgid,
                 birth_marker: birth_marker_from_start_boottime_ns(value.process_start_time),
@@ -102,6 +104,7 @@ impl Collector {
         Ok(AttributionRows {
             rows,
             unresolved_native_ids,
+            batch_fallback,
         })
     }
 

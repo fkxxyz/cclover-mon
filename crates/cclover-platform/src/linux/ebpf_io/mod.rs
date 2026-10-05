@@ -85,6 +85,15 @@ pub(super) struct AttributionRows<T> {
     pub(super) rows: Vec<T>,
     #[cfg(feature = "ebpf-io")]
     pub(super) unresolved_native_ids: usize,
+    #[cfg(feature = "ebpf-io")]
+    batch_fallback: Option<runtime::BatchFallback>,
+}
+
+#[cfg(feature = "ebpf-io")]
+fn note_batch_fallback<T>(result: &AttributionRows<T>, notes: &mut Option<&mut Vec<String>>) {
+    if let Some(fallback) = result.batch_fallback {
+        probe_note(notes, || fallback.diagnostic());
+    }
 }
 
 #[cfg(feature = "ebpf-io")]
@@ -118,6 +127,7 @@ impl Collector {
     ) -> Collection<AttributionRows<ProcessDiskIoCounter>> {
         match self.disk.collect(active_processes) {
             Ok(result) if result.unresolved_native_ids > 0 => {
+                note_batch_fallback(&result, &mut notes);
                 probe_note(&mut notes, || {
                     format!(
                         "{} disk attribution rows skipped: dev_t could not be resolved through sysfs",
@@ -126,7 +136,10 @@ impl Collector {
                 });
                 Collection::degraded(result)
             }
-            Ok(result) => Collection::available(result),
+            Ok(result) => {
+                note_batch_fallback(&result, &mut notes);
+                Collection::available(result)
+            }
             Err(error) => {
                 let reason = unavailable_reason(error.kind);
                 report_issue(&mut notes, || error.to_string());
@@ -142,6 +155,7 @@ impl Collector {
     ) -> Collection<AttributionRows<ProcessNetworkIoCounter>> {
         match self.network.collect(active_processes) {
             Ok(result) if result.unresolved_native_ids > 0 => {
+                note_batch_fallback(&result, &mut notes);
                 probe_note(&mut notes, || {
                     format!(
                         "{} network attribution rows skipped: ifindex could not be resolved in the current network namespace",
@@ -150,7 +164,10 @@ impl Collector {
                 });
                 Collection::degraded(result)
             }
-            Ok(result) => Collection::available(result),
+            Ok(result) => {
+                note_batch_fallback(&result, &mut notes);
+                Collection::available(result)
+            }
             Err(error) => {
                 let reason = unavailable_reason(error.kind);
                 report_issue(&mut notes, || error.to_string());

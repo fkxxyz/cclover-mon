@@ -21,4 +21,6 @@ Network coverage includes TCP/UDP send through `tcp_sendmsg` / `udp_sendmsg`, fi
 
 Controlled correctness validation includes TCP and UDP loopback with exact transferred byte counts so process identity, interface identity, direction, and payload-byte semantics are independently checkable. Concurrent processes are required so attribution errors cannot hide behind whole-system totals.
 
+Userspace libbpf compatibility has two repository-owned proofs. Ordinary Linux/server validation inspects the built ELF and rejects a libbpf SONAME other than `libbpf.so.1` or any direct import newer than the deployment-owned `LIBBPF_1.0.0` ceiling. The separate elevated `linux-ebpf-runtime` profile runs the production attribution probe with a validation-only preload shim that forces `bpf_map_lookup_batch` to return `EOPNOTSUPP`; disk and network attribution must remain available through scalar traversal and emit a probe diagnostic identifying the fallback. This shim replaces only the batch syscall wrapper and does not duplicate collector or BPF-program behavior.
+
 Bridges, tunnels, VPNs, cross-namespace traffic, route changes, and less common protocol paths remain representative validation cases rather than being inferred from loopback success. Performance validation is defined in the performance View rather than duplicated here.

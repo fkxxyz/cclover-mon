@@ -1,3 +1,4 @@
+#include "wayland_buffer_contract.h"
 #include "wayland_buffer_policy.h"
 
 #include <assert.h>
@@ -25,6 +26,14 @@ int main(void) {
     assert(cclover_wayland_draw_mode(0, 1, 1, 1) == CCLOVER_WAYLAND_DRAW_FULL);
     assert(cclover_wayland_draw_mode(0, 1, 0, 0) == CCLOVER_WAYLAND_DRAW_SKIP);
     assert(cclover_wayland_draw_mode(0, 1, 0, 1) == CCLOVER_WAYLAND_DRAW_INCREMENTAL);
+
+    CcloverWaylandBufferBaseline baseline = {
+        .previous_buffer = (struct WaylandBuffer *)1,
+    };
+    cclover_wayland_buffer_baseline_reset(&baseline);
+    assert(baseline.previous_buffer == NULL);
+    assert(cclover_wayland_draw_mode(0, baseline.previous_buffer != NULL, 0, 1) ==
+           CCLOVER_WAYLAND_DRAW_FULL);
 
     return 0;
 }

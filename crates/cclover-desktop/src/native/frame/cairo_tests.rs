@@ -26,7 +26,12 @@ unsafe extern "C" {
     fn cairo_rectangle(cr: *mut c_void, x: f64, y: f64, width: f64, height: f64);
     fn cairo_clip(cr: *mut c_void);
     fn cclover_cairo_configure_context(cr: *mut c_void);
-    fn cclover_cairo_validate_scene(cr: *mut c_void, scene: *const SceneView, mode: i32) -> i32;
+    fn cclover_cairo_validate_scene(
+        cr: *mut c_void,
+        scene: *const SceneView,
+        mode: i32,
+        cull_to_redraw_mask: i32,
+    ) -> i32;
     fn cclover_cairo_execute_validated_scene(
         renderer: *mut c_void,
         cr: *mut c_void,
@@ -86,12 +91,14 @@ fn production_cairo_incremental_culling_matches_full_redraw_for_overlapping_shap
         radius: 0.0,
         static_content: true,
     };
-    let scenes = [
-        cairo_shape_scene(background.clone(), 10.0, color(20), 60.0),
-        cairo_shape_scene(background.clone(), 20.0, color(20), 60.0),
-        cairo_shape_scene(background.clone(), 20.0, color(50), 64.0),
-        cairo_shape_scene(background, 5.0, color(50), 64.0),
-    ];
+    let first_scene = cairo_shape_scene(background.clone(), 10.0, color(20), 60.0);
+    let second_scene = cairo_shape_scene(background.clone(), 20.0, color(20), 60.0);
+    let mut inserted_scene = second_scene.clone();
+    inserted_scene
+        .primitives
+        .insert(2, fill(45.0, color(30), false));
+    let removed_scene = cairo_shape_scene(background, 5.0, color(50), 64.0);
+    let scenes = [first_scene, second_scene, inserted_scene, removed_scene];
 
     let first = FrameStorage::from_scene(scenes[0].clone(), None, 0);
     let mut incremental = CairoImage::new(first.scene.width as i32, first.scene.height as i32);
@@ -117,6 +124,50 @@ fn production_cairo_incremental_culling_matches_full_redraw_for_overlapping_shap
         revision = frame.static_revision;
         previous = current;
     }
+}
+
+#[test]
+fn cairo_incremental_validation_uses_the_same_redraw_mask_as_execution() {
+    let previous = scene(vec![
+        must_fit_text(0.0, 1.0, "999.9%"),
+        must_fit_text(50.0, 40.0, "10%"),
+    ]);
+    let current = scene(vec![
+        must_fit_text(0.0, 1.0, "999.9%"),
+        must_fit_text(50.0, 40.0, "11%"),
+    ]);
+    let frame = FrameStorage::from_scene(current, Some(&previous), 7);
+    assert_eq!(frame.redraw_mask, vec![0, 1]);
+
+    let image = CairoImage::new(frame.scene.width as i32, frame.scene.height as i32);
+    let view = frame.view();
+    assert_eq!(
+        unsafe { cclover_cairo_validate_scene(image.cr, &view, CAIRO_DRAW_DYNAMIC, 1) },
+        1,
+        "incremental validation must skip unchanged text that execution will not draw"
+    );
+    assert_eq!(
+        unsafe { cclover_cairo_validate_scene(image.cr, &view, CAIRO_DRAW_DYNAMIC, 0) },
+        0,
+        "full dynamic validation must still reject the unchanged overflowing text"
+    );
+
+    let previous = scene(vec![
+        must_fit_text(0.0, 40.0, "10%"),
+        must_fit_text(50.0, 40.0, "10%"),
+    ]);
+    let current = scene(vec![
+        must_fit_text(0.0, 40.0, "10%"),
+        must_fit_text(50.0, 1.0, "999.9%"),
+    ]);
+    let frame = FrameStorage::from_scene(current, Some(&previous), 7);
+    assert_eq!(frame.redraw_mask, vec![0, 1]);
+    let view = frame.view();
+    assert_eq!(
+        unsafe { cclover_cairo_validate_scene(image.cr, &view, CAIRO_DRAW_DYNAMIC, 1) },
+        0,
+        "incremental validation must reject overflowing text selected for execution"
+    );
 }
 
 fn cairo_shape_scene(background: Primitive, x: f32, fill_color: Rgba, line_y: f32) -> Scene {
@@ -157,6 +208,25 @@ fn cairo_shape_scene(background: Primitive, x: f32, fill_color: Rgba, line_y: f3
             color: color(180),
         },
     ])
+}
+
+fn must_fit_text(x: f32, width: f32, value: &str) -> Primitive {
+    Primitive::Text {
+        rect: Rect {
+            x,
+            y: 40.0,
+            width,
+            height: 20.0,
+        },
+        value: value.to_owned(),
+        size: 12,
+        color: color(255),
+        bold: false,
+        align: TextAlign::End,
+        clip: false,
+        must_fit: true,
+        static_content: false,
+    }
 }
 
 struct CairoImage {
@@ -224,7 +294,9 @@ fn cairo_render(
     assert_shape_only(frame);
     let view = frame.view();
     assert_eq!(
-        unsafe { cclover_cairo_validate_scene(image.cr, &view, mode) },
+        unsafe {
+            cclover_cairo_validate_scene(image.cr, &view, mode, i32::from(cull_to_redraw_mask))
+        },
         1,
         "shape-only test scene must satisfy production Cairo validation"
     );
@@ -271,7 +343,7 @@ fn cairo_render_incremental(image: &mut CairoImage, frame: &FrameStorage) {
     assert_shape_only(frame);
     let view = frame.view();
     assert_eq!(
-        unsafe { cclover_cairo_validate_scene(image.cr, &view, CAIRO_DRAW_DYNAMIC) },
+        unsafe { cclover_cairo_validate_scene(image.cr, &view, CAIRO_DRAW_DYNAMIC, 1) },
         1,
         "candidate dynamic content must validate before incremental execution"
     );

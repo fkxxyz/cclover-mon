@@ -22,9 +22,11 @@ typedef struct CcloverCairoRenderer {
 void cclover_cairo_configure_context(cairo_t *cr);
 int cclover_cairo_scene_fits(CcloverCairoRenderer *renderer, cairo_t *cr,
                              const CcloverScene *scene,
-                             CcloverCairoDrawMode mode);
+                             CcloverCairoDrawMode mode,
+                             int cull_to_redraw_mask);
 int cclover_cairo_validate_scene(cairo_t *cr, const CcloverScene *scene,
-                                 CcloverCairoDrawMode mode);
+                                 CcloverCairoDrawMode mode,
+                                 int cull_to_redraw_mask);
 void cclover_cairo_execute_validated_scene(CcloverCairoRenderer *renderer, cairo_t *cr,
                                            const CcloverScene *scene, int clear,
                                            CcloverCairoDrawMode mode,

@@ -251,9 +251,21 @@ int cclover_wayland_buffers_draw(CcloverWaylandBuffers *buffers,
 
     acquired = wayland_buffer_acquire(buffers, shm, scene, scale, &owned);
     if (acquired != 0) return acquired;
+
+    if (!full_redraw && owned != buffers->baseline.previous_buffer &&
+        (!buffers->baseline.previous_buffer ||
+         buffers->baseline.previous_buffer->size != owned->size)) {
+        full_redraw = 1;
+        dirty = &full_damage;
+        dirty_count = 1;
+    }
+
+    /* Validation and execution must use the same final command selection. */
     if (!cclover_cairo_scene_fits(renderer, owned->cr, scene,
-                                  CCLOVER_CAIRO_DRAW_DYNAMIC))
+                                  CCLOVER_CAIRO_DRAW_DYNAMIC, !full_redraw)) {
+        cclover_wayland_buffer_baseline_reset(&buffers->baseline);
         return 1;
+    }
     cairo_surface_flush(owned->image);
 
     if (full_redraw) {
@@ -261,22 +273,11 @@ int cclover_wayland_buffers_draw(CcloverWaylandBuffers *buffers,
         cairo_surface_mark_dirty(owned->image);
     } else {
         if (owned != buffers->baseline.previous_buffer) {
-            if (buffers->baseline.previous_buffer &&
-                buffers->baseline.previous_buffer->size == owned->size) {
-                memcpy(owned->data, buffers->baseline.previous_buffer->data, owned->size);
-                cairo_surface_mark_dirty(owned->image);
-            } else {
-                memcpy(owned->data, buffers->static_layer.data, owned->size);
-                cairo_surface_mark_dirty(owned->image);
-                full_redraw = 1;
-                dirty = &full_damage;
-                dirty_count = 1;
-            }
+            memcpy(owned->data, buffers->baseline.previous_buffer->data, owned->size);
+            cairo_surface_mark_dirty(owned->image);
         }
-        if (!full_redraw) {
-            for (i = 0; i < dirty_count; ++i)
-                wayland_restore_rect(buffers, owned, scene, dirty[i], scale);
-        }
+        for (i = 0; i < dirty_count; ++i)
+            wayland_restore_rect(buffers, owned, scene, dirty[i], scale);
     }
 
     cairo_save(owned->cr);
@@ -309,7 +310,8 @@ int cclover_wayland_buffers_draw(CcloverWaylandBuffers *buffers,
         for (i = 0; i < dirty_count; ++i)
             dirty_area += (dirty[i].x2 - dirty[i].x1) * (dirty[i].y2 - dirty[i].y1);
         fprintf(stderr,
-                "drawparts dynamic=%.3f static=%.3f raster=%.3f submit=%.3fms dirty=%zu area=%.0f\n",
+                "drawparts mode=%s dynamic=%.3f static=%.3f raster=%.3f submit=%.3fms dirty=%zu area=%.0f\n",
+                full_redraw ? "full" : "incremental",
                 profile_dynamic - profile_started,
                 profile_static - profile_dynamic,
                 profile_raster - profile_static,

@@ -173,7 +173,7 @@ fn static_change_advances_revision_and_forces_full_redraw() {
 }
 
 #[test]
-fn dynamic_primitive_count_change_falls_back_to_full_redraw() {
+fn appended_dynamic_primitive_damages_only_its_bounds() {
     let previous = scene(vec![
         fill(10.0, color(1), true),
         fill(20.0, color(2), false),
@@ -186,7 +186,77 @@ fn dynamic_primitive_count_change_falls_back_to_full_redraw() {
 
     let invalidation = scene_invalidation(Some(&previous), &current, 7);
 
-    assert!(invalidation.full_redraw);
+    assert!(!invalidation.full_redraw);
     assert_eq!(invalidation.static_revision, 7);
-    assert!(invalidation.damage_rects.is_empty());
+    assert_eq!(invalidation.damage_rects.len(), 1);
+    let damage = invalidation.damage_rects[0];
+    assert_eq!(
+        (
+            damage.x,
+            damage.y,
+            damage.x + damage.width,
+            damage.y + damage.height,
+        ),
+        (39.0, 9.0, 51.0, 21.0)
+    );
+}
+
+#[test]
+fn removed_dynamic_primitive_damages_its_old_bounds() {
+    let previous = scene(vec![
+        fill(10.0, color(1), true),
+        fill(20.0, color(2), false),
+        fill(40.0, color(3), false),
+    ]);
+    let current = scene(vec![
+        fill(10.0, color(1), true),
+        fill(20.0, color(2), false),
+    ]);
+
+    let invalidation = scene_invalidation(Some(&previous), &current, 7);
+
+    assert!(!invalidation.full_redraw);
+    assert_eq!(invalidation.static_revision, 7);
+    assert_eq!(invalidation.damage_rects.len(), 1);
+    let damage = invalidation.damage_rects[0];
+    assert_eq!(
+        (
+            damage.x,
+            damage.y,
+            damage.x + damage.width,
+            damage.y + damage.height,
+        ),
+        (39.0, 9.0, 51.0, 21.0)
+    );
+}
+
+#[test]
+fn inserted_dynamic_primitive_conservatively_damages_shifted_tail() {
+    let previous = scene(vec![
+        fill(10.0, color(1), true),
+        fill(20.0, color(2), false),
+        fill(60.0, color(3), false),
+    ]);
+    let current = scene(vec![
+        fill(10.0, color(1), true),
+        fill(20.0, color(2), false),
+        fill(40.0, color(4), false),
+        fill(60.0, color(3), false),
+    ]);
+
+    let invalidation = scene_invalidation(Some(&previous), &current, 7);
+
+    assert!(!invalidation.full_redraw);
+    assert_eq!(invalidation.static_revision, 7);
+    assert_eq!(invalidation.damage_rects.len(), 1);
+    let damage = invalidation.damage_rects[0];
+    assert_eq!(
+        (
+            damage.x,
+            damage.y,
+            damage.x + damage.width,
+            damage.y + damage.height,
+        ),
+        (39.0, 9.0, 71.0, 21.0)
+    );
 }

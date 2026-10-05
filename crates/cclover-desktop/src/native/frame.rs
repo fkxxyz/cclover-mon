@@ -108,7 +108,7 @@ fn scene_invalidation(
     } else {
         previous_static_revision
     };
-    let mut full_redraw = previous.is_none() || dimensions_changed || static_changed;
+    let full_redraw = previous.is_none() || dimensions_changed || static_changed;
     let mut damage = Vec::new();
 
     if !full_redraw {
@@ -132,10 +132,11 @@ fn scene_invalidation(
                         );
                     }
                 }
-                _ => {
-                    full_redraw = true;
-                    damage.clear();
-                    break;
+                (Some(old), None) => {
+                    add_damage(&mut damage, old.damage_bounds());
+                }
+                (None, Some(new)) => {
+                    add_damage(&mut damage, new.damage_bounds());
                 }
             }
         }

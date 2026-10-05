@@ -111,8 +111,12 @@ mod tests {
         fn cairo_create(surface: *mut c_void) -> *mut c_void;
         fn cairo_destroy(cr: *mut c_void);
         fn cclover_cairo_configure_context(cr: *mut c_void);
-        fn cclover_cairo_validate_scene(cr: *mut c_void, scene: *const SceneView, mode: i32)
-        -> i32;
+        fn cclover_cairo_validate_scene(
+            cr: *mut c_void,
+            scene: *const SceneView,
+            mode: i32,
+            cull_to_redraw_mask: i32,
+        ) -> i32;
     }
 
     #[test]
@@ -169,7 +173,7 @@ mod tests {
         let frame = build_frame(&MonitorState::default(), None, 0);
         let production = frame.view();
         assert_eq!(
-            unsafe { cclover_cairo_validate_scene(cr, &production, CCLOVER_CAIRO_DRAW_ALL) },
+            unsafe { cclover_cairo_validate_scene(cr, &production, CCLOVER_CAIRO_DRAW_ALL, 0) },
             1,
             "production bounded text must fit the actual Cairo font realization"
         );
@@ -206,7 +210,7 @@ mod tests {
             point_count: 0,
         };
         assert_eq!(
-            unsafe { cclover_cairo_validate_scene(cr, &overflow, CCLOVER_CAIRO_DRAW_ALL) },
+            unsafe { cclover_cairo_validate_scene(cr, &overflow, CCLOVER_CAIRO_DRAW_ALL, 0) },
             0,
             "Cairo must reject a MustFit string wider than its authoritative Scene slot"
         );

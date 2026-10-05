@@ -74,7 +74,38 @@ impl Backend {
     }
 
     pub fn collect_for_perf(&mut self, kind: ProbeKind) {
-        std::hint::black_box(self.collect_probe_once(kind, None));
+        // Keep this match exhaustive. Perf uses production projections and prepares the
+        // minimum production context required by stateful attribution collectors; probe
+        // projections intentionally remain independent diagnostics.
+        let sample = match kind {
+            ProbeKind::Cpu => ProbeSample::Cpu(cpu::collect(None)),
+            ProbeKind::Memory => ProbeSample::Memory(memory::collect(None)),
+            ProbeKind::Processes => ProbeSample::Processes(process::collect(None)),
+            ProbeKind::Network => ProbeSample::Network(self.network.collect(None)),
+            ProbeKind::NetworkAttribution => {
+                let processes = process::collect(None);
+                ProbeSample::NetworkAttribution(self.network_attribution.collect(&processes, None))
+            }
+            ProbeKind::Disk => ProbeSample::Disk(disk::collect_batch(None).counters),
+            ProbeKind::DiskAttribution => {
+                let processes = process::collect(None);
+                let disks = disk::collect_batch(None);
+                ProbeSample::DiskAttribution(
+                    self.disk_attribution.collect(&processes, &disks, None),
+                )
+            }
+            ProbeKind::Temperatures => {
+                let hardware = self.hardware.collect(None);
+                let native = self.temperatures.collect(None);
+                ProbeSample::Temperatures(hardware::merge_temperature_sources([
+                    hardware.temperatures,
+                    native,
+                ]))
+            }
+            ProbeKind::Fans => ProbeSample::Fans(self.hardware.collect(None).fans),
+            ProbeKind::Gpu => ProbeSample::Gpu(self.gpus.collect(None)),
+        };
+        std::hint::black_box(sample);
     }
 
     fn collect_probe_once(

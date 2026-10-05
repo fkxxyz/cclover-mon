@@ -55,7 +55,7 @@ Performance claims used to accept or reject an optimization must be reproducible
 
 ## Scope discovery
 
-Review performance workflows that compare revisions rather than merely attribute current cost. Include `perf headless`, every `perf collector` workload, documented performance-validation procedures, release or regression checks that make comparative claims, and any ad hoc scripts that duplicate baseline/candidate orchestration. Keep workload-fidelity concerns under the separate `performance-diagnostic-workload-context-fidelity` debt; this debt governs comparison and proof once a trustworthy workload has been selected.
+Review performance workflows that compare revisions rather than merely attribute current cost. Include `perf headless`, every `perf collector` workload, documented performance-validation procedures, release or regression checks that make comparative claims, and any ad hoc scripts that duplicate baseline/candidate orchestration. Keep workload-fidelity concerns governed by [Performance Diagnostic Workloads](../../13-performance-view/diagnostic-workloads.md); this debt governs comparison and proof once a trustworthy workload has been selected.
 
 ## Repair direction
 

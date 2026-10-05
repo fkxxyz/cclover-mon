@@ -20,7 +20,7 @@ facets:
 
 Start with the metric that matches the reported problem: CPU time, CPU percentage, memory footprint, wakeups, allocation, or data movement. Establish a process baseline with tools such as `ps`, `top`, and `perf stat`.
 
-Use production-path diagnostic workloads to remove layers without replacing the work under investigation. Then use sampling profilers such as `perf record -g` / `perf report` to attribute cost to functions and connect measured hot paths to the responsible algorithm, I/O, allocation, data movement, layout, text, renderer, driver, or native-library behavior.
+Use production-path diagnostic workloads to remove layers without replacing the work under investigation. A diagnostic may remove unrelated work, but it must preserve prerequisite lifecycle and identity context that materially determines the measured work's steady-state cost. Then use sampling profilers such as `perf record -g` / `perf report` to attribute cost to functions and connect measured hot paths to the responsible algorithm, I/O, allocation, data movement, layout, text, renderer, driver, or native-library behavior.
 
 Optimize the dominant measured cause with the smallest change that preserves product semantics. Local collector timing is insufficient when cost may originate elsewhere in the process.
 

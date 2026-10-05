@@ -23,7 +23,8 @@ Presence is the state: every document in `technical-debt/` represents debt that 
 
 Current architecture-level technical debt:
 
-- [Performance diagnostic workload context fidelity](technical-debt/performance-diagnostic-workload-context-fidelity.md) — Medium priority; isolated collector workloads can omit production lifecycle context and therefore misstate the steady-state cost of context-dependent collectors.
+- [Performance diagnostic workload context fidelity](technical-debt/performance-diagnostic-workload-context-fidelity.md) — Medium priority; repaired production-context semantics still need real Linux eBPF runtime acceptance before the original diagnostic-fidelity debt can be closed.
+- [Performance diagnostic composition authority](technical-debt/performance-diagnostic-composition-authority.md) — Low-medium priority; production and performance orchestration still maintain production-equivalence decisions separately enough that future context or projection changes can drift without compilation failure.
 - [Performance comparison proof authority](technical-debt/performance-comparison-proof-authority.md) — Low-medium priority; production performance workloads exist, but repeatable baseline-versus-candidate orchestration and noise-aware comparison still require ad hoc maintainer work.
 - [Linux libbpf compatibility authority](technical-debt/linux-libbpf-compatibility-authority.md) — Low-medium priority; Linux attribution lacks one explicit libbpf userspace compatibility baseline and representative proof that optional newer APIs fall back without raising runtime requirements.
 - [Graphical text font metrics contract](technical-debt/graphical-text-font-metrics-contract.md) — Low-medium priority; the bounded-text contract is implemented and validated on Linux/Web, but its GDI production-font test still needs real-Windows execution before the debt can be closed.

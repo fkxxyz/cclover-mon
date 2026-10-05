@@ -140,6 +140,8 @@ fn print_help() {
            No frontend flag auto-selects desktop when available, otherwise TUI on an interactive terminal.\n\n\
          Collectors:\n  \
            {}\n\n\
+         Performance diagnostics:\n  \
+           Collector workloads preserve required production context; whole-process cost may include prerequisite collection.\n\n\
          Development logging:\n  \
            CCLOVER_MON_DEBUG=1 cclover-mon",
         ProbeKind::names_csv()

@@ -21,7 +21,9 @@ use crate::probe::ProbeSample;
 use crate::{ProbeKind, ProbeReport};
 use cclover_core::Collector as CoreCollector;
 use cclover_core::devlog;
-use cclover_core::model::{Collection, GpuSnapshot, RawSnapshot, TemperatureSnapshot};
+use cclover_core::model::{
+    Collection, GpuSnapshot, ProcessCounter, ProcessInstanceId, RawSnapshot, TemperatureSnapshot,
+};
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct PhysicalDeviceId(PathBuf);
@@ -32,13 +34,35 @@ impl PhysicalDeviceId {
     }
 }
 
+#[derive(Default)]
+struct ActiveProcessContext {
+    processes: HashSet<ProcessInstanceId>,
+    complete: bool,
+}
+
+impl ActiveProcessContext {
+    fn refresh(&mut self, snapshot: &Collection<Vec<ProcessCounter>>) {
+        self.processes.clear();
+        self.complete = false;
+        if let Collection::Available(processes) = snapshot {
+            self.processes
+                .extend(processes.iter().map(|process| process.process));
+            self.complete = true;
+        }
+    }
+
+    fn current(&self) -> Option<&HashSet<ProcessInstanceId>> {
+        self.complete.then_some(&self.processes)
+    }
+}
+
 pub struct Backend {
     processes: process::Collector,
     temperatures: temperature::Collector,
     fans: fan::Collector,
     nvidia: nvidia::Collector,
     ebpf_io: ebpf_io::Collector,
-    active_processes: HashSet<cclover_core::model::ProcessInstanceId>,
+    active_processes: ActiveProcessContext,
 }
 
 impl Backend {
@@ -49,7 +73,7 @@ impl Backend {
             fans: fan::Collector::new(),
             nvidia: nvidia::Collector::new(),
             ebpf_io: ebpf_io::Collector::new(),
-            active_processes: HashSet::new(),
+            active_processes: ActiveProcessContext::default(),
         }
     }
 
@@ -66,7 +90,44 @@ impl Backend {
     }
 
     pub fn collect_for_perf(&mut self, kind: ProbeKind) {
-        std::hint::black_box(self.collect_probe_once(kind, None));
+        // Keep this match exhaustive. Every new collector must explicitly choose whether
+        // direct isolation preserves its production lifecycle context.
+        let sample = match kind {
+            ProbeKind::NetworkAttribution => {
+                let _ = self.collect_processes(None);
+                ProbeSample::NetworkAttribution(
+                    self.ebpf_io
+                        .collect_network(self.active_processes.current(), None)
+                        .map(|result| result.rows),
+                )
+            }
+            ProbeKind::DiskAttribution => {
+                let _ = self.collect_processes(None);
+                ProbeSample::DiskAttribution(
+                    self.ebpf_io
+                        .collect_disk(self.active_processes.current(), None)
+                        .map(|result| result.rows),
+                )
+            }
+            ProbeKind::Cpu
+            | ProbeKind::Memory
+            | ProbeKind::Processes
+            | ProbeKind::Network
+            | ProbeKind::Disk
+            | ProbeKind::Temperatures
+            | ProbeKind::Fans
+            | ProbeKind::Gpu => self.collect_probe_once(kind, None),
+        };
+        std::hint::black_box(sample);
+    }
+
+    fn collect_processes(
+        &mut self,
+        notes: Option<&mut Vec<String>>,
+    ) -> Collection<Vec<ProcessCounter>> {
+        let snapshot = self.processes.collect(notes);
+        self.active_processes.refresh(&snapshot);
+        snapshot
     }
 
     fn collect_probe_once(
@@ -77,7 +138,7 @@ impl Backend {
         match kind {
             ProbeKind::Cpu => ProbeSample::Cpu(cpu::collect(notes)),
             ProbeKind::Memory => ProbeSample::Memory(memory::collect(notes)),
-            ProbeKind::Processes => ProbeSample::Processes(self.processes.collect(notes)),
+            ProbeKind::Processes => ProbeSample::Processes(self.collect_processes(notes)),
             ProbeKind::Network => ProbeSample::Network(network::collect(notes)),
             ProbeKind::NetworkAttribution => ProbeSample::NetworkAttribution(
                 self.ebpf_io
@@ -196,15 +257,8 @@ impl CoreCollector for Backend {
         let collected_at = Instant::now();
         let cpu = devlog::timed("collector.cpu", || cpu::collect(None));
         let memory = devlog::timed("collector.memory", || memory::collect(None));
-        let processes = devlog::timed("collector.processes", || self.processes.collect(None));
-        self.active_processes.clear();
-        let active_processes = if let Collection::Available(processes) = &processes {
-            self.active_processes
-                .extend(processes.iter().map(|process| process.process));
-            Some(&self.active_processes)
-        } else {
-            None
-        };
+        let processes = devlog::timed("collector.processes", || self.collect_processes(None));
+        let active_processes = self.active_processes.current();
         let networks = devlog::timed("collector.network", || network::collect(None));
         let disks = devlog::timed("collector.disk", || disk::collect(None));
         let process_disk_io = devlog::timed("collector.disk-attribution", || {
@@ -241,6 +295,15 @@ mod tests {
     use super::*;
     use cclover_core::model::{CollectionUnavailable, GpuId};
 
+    fn process_counter(pid: u32, birth_marker: u64) -> ProcessCounter {
+        ProcessCounter {
+            process: ProcessInstanceId { pid, birth_marker },
+            name: std::sync::Arc::from("test"),
+            cpu_time_units: 0,
+            rss_bytes: 0,
+        }
+    }
+
     fn gpu(device: &str, temperature_celsius: Option<f64>) -> gpu::Observation {
         gpu::Observation {
             physical_device: Some(PhysicalDeviceId(PathBuf::from(device))),
@@ -268,6 +331,38 @@ mod tests {
                 celsius: value,
             },
         }
+    }
+
+    #[test]
+    fn active_process_context_tracks_complete_process_identity() {
+        let mut context = ActiveProcessContext::default();
+        let first = ProcessInstanceId {
+            pid: 42,
+            birth_marker: 100,
+        };
+        let reused = ProcessInstanceId {
+            pid: 42,
+            birth_marker: 200,
+        };
+
+        context.refresh(&Collection::available(vec![process_counter(42, 100)]));
+        assert_eq!(context.current(), Some(&HashSet::from([first])));
+
+        context.refresh(&Collection::available(vec![process_counter(42, 200)]));
+        assert_eq!(context.current(), Some(&HashSet::from([reused])));
+    }
+
+    #[test]
+    fn incomplete_process_snapshot_disables_stale_retirement_context() {
+        let mut context = ActiveProcessContext::default();
+        context.refresh(&Collection::available(vec![process_counter(42, 100)]));
+        assert!(context.current().is_some());
+
+        context.refresh(&Collection::degraded(vec![process_counter(42, 100)]));
+        assert!(context.current().is_none());
+
+        context.refresh(&Collection::unavailable(CollectionUnavailable::Unavailable));
+        assert!(context.current().is_none());
     }
 
     #[test]

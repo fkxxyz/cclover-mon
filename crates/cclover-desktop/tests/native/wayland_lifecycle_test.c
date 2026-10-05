@@ -8,8 +8,14 @@ struct wl_output {
     int marker;
 };
 
+struct WaylandBuffer {
+    int marker;
+};
+
 static void test_surface_recovery(void) {
     WaylandLifecycle lifecycle;
+    CcloverWaylandBufferBaseline baseline = {0};
+    struct WaylandBuffer previous_buffer = {0};
     int i;
 
     cclover_wayland_lifecycle_init(&lifecycle);
@@ -46,7 +52,9 @@ static void test_surface_recovery(void) {
         cclover_wayland_surface_configured(&lifecycle);
         assert(cclover_wayland_needs_recreate(&lifecycle));
 
-        cclover_wayland_surface_destroyed(&lifecycle);
+        baseline.previous_buffer = &previous_buffer;
+        cclover_wayland_surface_destroyed(&lifecycle, &baseline);
+        assert(baseline.previous_buffer == NULL);
         assert(lifecycle.surface_state == WAYLAND_SURFACE_ABSENT);
         cclover_wayland_surface_created(&lifecycle);
         assert(lifecycle.surface_state == WAYLAND_SURFACE_WAITING_CONFIGURE);

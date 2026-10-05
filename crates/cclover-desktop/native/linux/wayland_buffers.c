@@ -155,13 +155,13 @@ static int wayland_buffer_acquire(CcloverWaylandBuffers *buffers, struct wl_shm 
                                   const CcloverScene *scene, int32_t scale,
                                   WaylandBuffer **out) {
     size_t i;
-    if (buffers->previous_buffer &&
+    if (buffers->baseline.previous_buffer &&
         cclover_wayland_buffer_reusable(
-            buffers->previous_buffer->busy,
-            buffers->previous_buffer->buffer != NULL,
-            buffers->previous_buffer->width, buffers->previous_buffer->height,
-            buffers->previous_buffer->scale, scene->width, scene->height, scale)) {
-        *out = buffers->previous_buffer;
+            buffers->baseline.previous_buffer->busy,
+            buffers->baseline.previous_buffer->buffer != NULL,
+            buffers->baseline.previous_buffer->width, buffers->baseline.previous_buffer->height,
+            buffers->baseline.previous_buffer->scale, scene->width, scene->height, scale)) {
+        *out = buffers->baseline.previous_buffer;
         return 0;
     }
     for (i = 0; i < CCLOVER_WAYLAND_BUFFER_COUNT; ++i) {
@@ -230,7 +230,7 @@ int cclover_wayland_buffers_draw(CcloverWaylandBuffers *buffers,
 
     if (wayland_static_layer_ensure(buffers, renderer, scene, scale, &static_rebuilt) < 0) return -1;
     draw_mode = cclover_wayland_draw_mode(
-        scene->full_redraw != 0, buffers->previous_buffer != NULL,
+        scene->full_redraw != 0, buffers->baseline.previous_buffer != NULL,
         static_rebuilt, dirty_count);
     full_redraw = draw_mode == CCLOVER_WAYLAND_DRAW_FULL;
     if (profiling) profile_static = cclover_profile_cpu_ms();
@@ -249,9 +249,10 @@ int cclover_wayland_buffers_draw(CcloverWaylandBuffers *buffers,
         memcpy(owned->data, buffers->static_layer.data, owned->size);
         cairo_surface_mark_dirty(owned->image);
     } else {
-        if (owned != buffers->previous_buffer) {
-            if (buffers->previous_buffer && buffers->previous_buffer->size == owned->size) {
-                memcpy(owned->data, buffers->previous_buffer->data, owned->size);
+        if (owned != buffers->baseline.previous_buffer) {
+            if (buffers->baseline.previous_buffer &&
+                buffers->baseline.previous_buffer->size == owned->size) {
+                memcpy(owned->data, buffers->baseline.previous_buffer->data, owned->size);
                 cairo_surface_mark_dirty(owned->image);
             } else {
                 memcpy(owned->data, buffers->static_layer.data, owned->size);
@@ -290,7 +291,7 @@ int cclover_wayland_buffers_draw(CcloverWaylandBuffers *buffers,
     owned->busy = 1;
     wl_surface_commit(surface);
     wl_display_flush(display);
-    buffers->previous_buffer = owned;
+    buffers->baseline.previous_buffer = owned;
     if (profiling) {
         double dirty_area = 0.0;
         for (i = 0; i < dirty_count; ++i)
@@ -307,14 +308,10 @@ int cclover_wayland_buffers_draw(CcloverWaylandBuffers *buffers,
 }
 
 
-void cclover_wayland_buffers_surface_reset(CcloverWaylandBuffers *buffers) {
-    buffers->previous_buffer = NULL;
-}
-
 void cclover_wayland_buffers_destroy(CcloverWaylandBuffers *buffers) {
     size_t i;
     for (i = 0; i < CCLOVER_WAYLAND_BUFFER_COUNT; ++i)
         wayland_buffer_destroy(&buffers->buffers[i]);
     wayland_static_layer_destroy(&buffers->static_layer);
-    buffers->previous_buffer = NULL;
+    cclover_wayland_buffer_baseline_reset(&buffers->baseline);
 }

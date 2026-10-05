@@ -25,7 +25,9 @@ void cclover_wayland_surface_closed(WaylandLifecycle *lifecycle) {
         lifecycle->surface_state = WAYLAND_SURFACE_RECREATE_PENDING;
 }
 
-void cclover_wayland_surface_destroyed(WaylandLifecycle *lifecycle) {
+void cclover_wayland_surface_destroyed(WaylandLifecycle *lifecycle,
+                                       CcloverWaylandBufferBaseline *baseline) {
+    cclover_wayland_buffer_baseline_reset(baseline);
     lifecycle->surface_state = WAYLAND_SURFACE_ABSENT;
     lifecycle->dirty = 1;
 }

@@ -35,6 +35,13 @@ fn native_policies_are_deterministic_without_desktop_runtimes() {
         "tests/native/wayland_buffer_policy_test.c",
         "native/linux",
     );
+    run_c_test(
+        &manifest,
+        "dbusmenu-policy",
+        &["native/linux/dbusmenu_policy.c"],
+        "tests/native/dbusmenu_policy_test.c",
+        "native/linux",
+    );
 }
 
 fn run_c_test(manifest: &Path, name: &str, sources: &[&str], test: &str, include: &str) {

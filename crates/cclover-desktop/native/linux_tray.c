@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "linux/dbusmenu_policy.h"
+
 typedef void (*CcloverTrayQuitFn)(void *context);
 
 typedef struct {
@@ -116,105 +118,146 @@ static GVariant *item_get_property(GDBusConnection *connection, const gchar *sen
     return NULL;
 }
 
-static gboolean menu_item_exists(gint32 id) {
-    return id == 0 || id == 1;
-}
-
-static gboolean menu_handle_event(CcloverLinuxTray *tray, gint32 id, const gchar *event_id) {
-    if (!menu_item_exists(id)) return FALSE;
-    if (id == 1 && g_str_equal(event_id, "clicked") && tray->quit_fn != NULL) {
+static void menu_apply_action(CcloverLinuxTray *tray, CcloverDbusMenuAction action) {
+    if (action == CCLOVER_DBUSMENU_ACTION_QUIT && tray->quit_fn != NULL) {
         tray->quit_fn(tray->quit_context);
     }
-    return TRUE;
 }
+
+typedef void (*CcloverDbusMenuMethodFn)(CcloverLinuxTray *tray, GVariant *parameters,
+                                        GDBusMethodInvocation *invocation);
+
+static void menu_method_get_layout(CcloverLinuxTray *tray, GVariant *parameters,
+                                   GDBusMethodInvocation *invocation) {
+    (void)tray;
+    (void)parameters;
+    g_dbus_method_invocation_return_value(
+        invocation, g_variant_new("(u@(ia{sv}av))", 1u, menu_layout()));
+}
+
+static void menu_method_get_group_properties(CcloverLinuxTray *tray, GVariant *parameters,
+                                             GDBusMethodInvocation *invocation) {
+    GVariantBuilder values;
+    (void)tray;
+    (void)parameters;
+    g_variant_builder_init(&values, G_VARIANT_TYPE("a(ia{sv})"));
+    g_variant_builder_add(&values, "(i@a{sv})", 0, menu_properties(0));
+    g_variant_builder_add(&values, "(i@a{sv})", 1, menu_properties(1));
+    g_dbus_method_invocation_return_value(
+        invocation, g_variant_new("(@a(ia{sv}))", g_variant_builder_end(&values)));
+}
+
+static void menu_method_get_property(CcloverLinuxTray *tray, GVariant *parameters,
+                                     GDBusMethodInvocation *invocation) {
+    gint32 id;
+    const gchar *name;
+    GVariant *value = NULL;
+    (void)tray;
+    g_variant_get(parameters, "(i&s)", &id, &name);
+    if (id == 1 && g_str_equal(name, "label")) value = g_variant_new_string("Quit");
+    else if (id == 1 && g_str_equal(name, "icon-name"))
+        value = g_variant_new_string("application-exit");
+    else if (g_str_equal(name, "enabled") || g_str_equal(name, "visible"))
+        value = g_variant_new_boolean(TRUE);
+    else
+        value = g_variant_new_string("");
+    g_dbus_method_invocation_return_value(invocation, g_variant_new("(v)", value));
+}
+
+static void menu_method_event(CcloverLinuxTray *tray, GVariant *parameters,
+                              GDBusMethodInvocation *invocation) {
+    gint32 id;
+    const gchar *event_id;
+    GVariant *data;
+    CcloverDbusMenuEventResult result;
+    guint32 timestamp;
+    g_variant_get(parameters, "(i&svu)", &id, &event_id, &data, &timestamp);
+    (void)timestamp;
+    result = cclover_dbusmenu_event(id, event_id);
+    menu_apply_action(tray, result.action);
+    g_variant_unref(data);
+    g_dbus_method_invocation_return_value(invocation, NULL);
+}
+
+static void menu_method_event_group(CcloverLinuxTray *tray, GVariant *parameters,
+                                    GDBusMethodInvocation *invocation) {
+    GVariant *events = g_variant_get_child_value(parameters, 0);
+    GVariantBuilder errors;
+    g_variant_builder_init(&errors, G_VARIANT_TYPE("ai"));
+    for (gsize i = 0; i < g_variant_n_children(events); ++i) {
+        GVariant *event = g_variant_get_child_value(events, i);
+        gint32 id;
+        const gchar *event_id;
+        GVariant *data;
+        CcloverDbusMenuEventResult result;
+        guint32 timestamp;
+        g_variant_get(event, "(i&svu)", &id, &event_id, &data, &timestamp);
+        (void)timestamp;
+        result = cclover_dbusmenu_event(id, event_id);
+        menu_apply_action(tray, result.action);
+        if (!result.accepted) g_variant_builder_add(&errors, "i", id);
+        g_variant_unref(data);
+        g_variant_unref(event);
+    }
+    g_variant_unref(events);
+    g_dbus_method_invocation_return_value(
+        invocation, g_variant_new("(@ai)", g_variant_builder_end(&errors)));
+}
+
+static void menu_method_about_to_show(CcloverLinuxTray *tray, GVariant *parameters,
+                                      GDBusMethodInvocation *invocation) {
+    (void)tray;
+    (void)parameters;
+    g_dbus_method_invocation_return_value(invocation, g_variant_new("(b)", FALSE));
+}
+
+static void menu_method_about_to_show_group(CcloverLinuxTray *tray, GVariant *parameters,
+                                            GDBusMethodInvocation *invocation) {
+    GVariant *ids = g_variant_get_child_value(parameters, 0);
+    GVariantBuilder updates;
+    GVariantBuilder errors;
+    (void)tray;
+    g_variant_builder_init(&updates, G_VARIANT_TYPE("ai"));
+    g_variant_builder_init(&errors, G_VARIANT_TYPE("ai"));
+    for (gsize i = 0; i < g_variant_n_children(ids); ++i) {
+        gint32 id;
+        g_variant_get_child(ids, i, "i", &id);
+        if (!cclover_dbusmenu_item_exists(id)) g_variant_builder_add(&errors, "i", id);
+    }
+    g_variant_unref(ids);
+    g_dbus_method_invocation_return_value(
+        invocation,
+        g_variant_new("(@ai@ai)", g_variant_builder_end(&updates),
+                      g_variant_builder_end(&errors)));
+}
+
+static const CcloverDbusMenuMethodFn MENU_METHOD_HANDLERS[] = {
+    menu_method_get_layout,
+    menu_method_get_group_properties,
+    menu_method_get_property,
+    menu_method_event,
+    menu_method_event_group,
+    menu_method_about_to_show,
+    menu_method_about_to_show_group,
+};
+
+_Static_assert(sizeof(MENU_METHOD_HANDLERS) / sizeof(MENU_METHOD_HANDLERS[0]) ==
+                   CCLOVER_DBUSMENU_METHOD_COUNT,
+               "every D-BusMenu method must have a production handler");
 
 static void menu_method_call(GDBusConnection *connection, const gchar *sender, const gchar *object_path,
                              const gchar *interface_name, const gchar *method_name, GVariant *parameters,
                              GDBusMethodInvocation *invocation, gpointer user_data) {
+    CcloverDbusMenuMethod method;
     (void)connection; (void)sender; (void)object_path; (void)interface_name;
     CcloverLinuxTray *tray = (CcloverLinuxTray *)user_data;
-    if (g_str_equal(method_name, "GetLayout")) {
-        g_dbus_method_invocation_return_value(invocation, g_variant_new("(u@(ia{sv}av))", 1u, menu_layout()));
+    method = cclover_dbusmenu_method_from_name(method_name);
+    if (method != CCLOVER_DBUSMENU_METHOD_UNKNOWN) {
+        MENU_METHOD_HANDLERS[method](tray, parameters, invocation);
         return;
     }
-    if (g_str_equal(method_name, "GetGroupProperties")) {
-        GVariantBuilder values;
-        g_variant_builder_init(&values, G_VARIANT_TYPE("a(ia{sv})"));
-        g_variant_builder_add(&values, "(i@a{sv})", 0, menu_properties(0));
-        g_variant_builder_add(&values, "(i@a{sv})", 1, menu_properties(1));
-        g_dbus_method_invocation_return_value(invocation, g_variant_new("(@a(ia{sv}))", g_variant_builder_end(&values)));
-        return;
-    }
-    if (g_str_equal(method_name, "GetProperty")) {
-        gint32 id;
-        const gchar *name;
-        g_variant_get(parameters, "(i&s)", &id, &name);
-        GVariant *value = NULL;
-        if (id == 1 && g_str_equal(name, "label")) value = g_variant_new_string("Quit");
-        else if (id == 1 && g_str_equal(name, "icon-name")) value = g_variant_new_string("application-exit");
-        else if (g_str_equal(name, "enabled") || g_str_equal(name, "visible")) value = g_variant_new_boolean(TRUE);
-        else value = g_variant_new_string("");
-        g_dbus_method_invocation_return_value(invocation, g_variant_new("(v)", value));
-        return;
-    }
-    if (g_str_equal(method_name, "Event")) {
-        gint32 id;
-        const gchar *event_id;
-        GVariant *data;
-        guint32 timestamp;
-        g_variant_get(parameters, "(i&svu)", &id, &event_id, &data, &timestamp);
-        (void)timestamp;
-        menu_handle_event(tray, id, event_id);
-        g_variant_unref(data);
-        g_dbus_method_invocation_return_value(invocation, NULL);
-        return;
-    }
-    if (g_str_equal(method_name, "EventGroup")) {
-        GVariant *events = g_variant_get_child_value(parameters, 0);
-        GVariantBuilder errors;
-        g_variant_builder_init(&errors, G_VARIANT_TYPE("ai"));
-        for (gsize i = 0; i < g_variant_n_children(events); ++i) {
-            GVariant *event = g_variant_get_child_value(events, i);
-            gint32 id;
-            const gchar *event_id;
-            GVariant *data;
-            guint32 timestamp;
-            g_variant_get(event, "(i&svu)", &id, &event_id, &data, &timestamp);
-            (void)timestamp;
-            if (!menu_handle_event(tray, id, event_id)) {
-                g_variant_builder_add(&errors, "i", id);
-            }
-            g_variant_unref(data);
-            g_variant_unref(event);
-        }
-        g_variant_unref(events);
-        g_dbus_method_invocation_return_value(
-            invocation, g_variant_new("(@ai)", g_variant_builder_end(&errors)));
-        return;
-    }
-    if (g_str_equal(method_name, "AboutToShow")) {
-        g_dbus_method_invocation_return_value(invocation, g_variant_new("(b)", FALSE));
-        return;
-    }
-    if (g_str_equal(method_name, "AboutToShowGroup")) {
-        GVariant *ids = g_variant_get_child_value(parameters, 0);
-        GVariantBuilder updates;
-        GVariantBuilder errors;
-        g_variant_builder_init(&updates, G_VARIANT_TYPE("ai"));
-        g_variant_builder_init(&errors, G_VARIANT_TYPE("ai"));
-        for (gsize i = 0; i < g_variant_n_children(ids); ++i) {
-            gint32 id;
-            g_variant_get_child(ids, i, "i", &id);
-            if (!menu_item_exists(id)) g_variant_builder_add(&errors, "i", id);
-        }
-        g_variant_unref(ids);
-        g_dbus_method_invocation_return_value(
-            invocation,
-            g_variant_new("(@ai@ai)", g_variant_builder_end(&updates),
-                          g_variant_builder_end(&errors)));
-        return;
-    }
-    g_dbus_method_invocation_return_dbus_error(invocation, "com.canonical.dbusmenu.Error.UnknownMethod", "unknown menu method");
+    g_dbus_method_invocation_return_dbus_error(
+        invocation, "com.canonical.dbusmenu.Error.UnknownMethod", "unknown menu method");
 }
 
 static GVariant *menu_get_property(GDBusConnection *connection, const gchar *sender, const gchar *object_path,

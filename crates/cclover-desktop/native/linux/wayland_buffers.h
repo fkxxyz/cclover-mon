@@ -1,6 +1,7 @@
 #ifndef CCLOVER_LINUX_WAYLAND_BUFFERS_H
 #define CCLOVER_LINUX_WAYLAND_BUFFERS_H
 
+#include "wayland_buffer_contract.h"
 #include "native_scene.h"
 #include "render.h"
 
@@ -40,11 +41,10 @@ typedef struct {
 
 typedef struct {
     WaylandBuffer buffers[CCLOVER_WAYLAND_BUFFER_COUNT];
-    WaylandBuffer *previous_buffer;
+    CcloverWaylandBufferBaseline baseline;
     WaylandStaticLayer static_layer;
 } CcloverWaylandBuffers;
 
-void cclover_wayland_buffers_surface_reset(CcloverWaylandBuffers *buffers);
 void cclover_wayland_buffers_destroy(CcloverWaylandBuffers *buffers);
 int cclover_wayland_buffers_draw(CcloverWaylandBuffers *buffers,
                                  CcloverCairoRenderer *renderer,

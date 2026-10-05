@@ -219,8 +219,7 @@ static void wayland_surface_destroy(WaylandHost *host) {
     if (host->surface) wl_surface_destroy(host->surface);
     host->layer_surface = NULL;
     host->surface = NULL;
-    cclover_wayland_buffers_surface_reset(&host->buffers);
-    cclover_wayland_surface_destroyed(&host->lifecycle);
+    cclover_wayland_surface_destroyed(&host->lifecycle, &host->buffers.baseline);
 }
 
 static int wayland_surface_create(WaylandHost *host) {

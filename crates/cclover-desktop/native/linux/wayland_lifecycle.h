@@ -1,6 +1,8 @@
 #ifndef CCLOVER_WAYLAND_LIFECYCLE_H
 #define CCLOVER_WAYLAND_LIFECYCLE_H
 
+#include "wayland_buffer_contract.h"
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -31,7 +33,8 @@ void cclover_wayland_lifecycle_init(WaylandLifecycle *lifecycle);
 void cclover_wayland_surface_created(WaylandLifecycle *lifecycle);
 void cclover_wayland_surface_configured(WaylandLifecycle *lifecycle);
 void cclover_wayland_surface_closed(WaylandLifecycle *lifecycle);
-void cclover_wayland_surface_destroyed(WaylandLifecycle *lifecycle);
+void cclover_wayland_surface_destroyed(WaylandLifecycle *lifecycle,
+                                       CcloverWaylandBufferBaseline *baseline);
 void cclover_wayland_state_status(WaylandLifecycle *lifecycle, uint32_t status,
                                   uint32_t changed_flag);
 void cclover_wayland_state_changed(WaylandLifecycle *lifecycle);

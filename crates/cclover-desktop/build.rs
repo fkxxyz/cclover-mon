@@ -127,6 +127,7 @@ fn build_linux(out_dir: &Path) {
     build
         .file("native/linux_host.c")
         .file("native/linux_tray.c")
+        .file("native/linux/dbusmenu_policy.c")
         .file("native/linux/render.c")
         .file("native/linux/wayland.c")
         .file("native/linux/wayland_buffers.c")

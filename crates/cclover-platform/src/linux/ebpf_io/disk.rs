@@ -7,7 +7,7 @@ use std::path::Path;
 use cclover_core::model::{DiskId, ProcessDiskIoCounter, ProcessInstanceId};
 
 use super::abi;
-use super::runtime::{LoadedObject, delete_map_key, read_map};
+use super::runtime::{LoadedObject, delete_map_keys, read_map};
 use super::{AttributionFailure, AttributionRows, FailureKind, is_stale_process};
 use crate::linux::disk as disk_metric;
 use crate::linux::process::birth_marker_from_start_boottime_ns;
@@ -96,9 +96,7 @@ impl Collector {
                 write_bytes: if key.direction == 1 { value.bytes } else { 0 },
             });
         }
-        for key in &stale_keys {
-            delete_map_key(map_fd, key)?;
-        }
+        delete_map_keys(map_fd, &stale_keys)?;
         merge_rows(&mut rows);
         Ok(AttributionRows {
             rows,

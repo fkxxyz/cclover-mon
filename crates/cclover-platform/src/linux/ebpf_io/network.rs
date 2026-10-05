@@ -5,7 +5,7 @@ use std::mem::offset_of;
 use cclover_core::model::{ProcessInstanceId, ProcessNetworkIoCounter};
 
 use super::abi;
-use super::runtime::{LoadedObject, delete_map_key, read_map};
+use super::runtime::{LoadedObject, delete_map_keys, read_map};
 use super::{AttributionFailure, AttributionRows, FailureKind, is_stale_process};
 use crate::linux::native;
 use crate::linux::network as network_metric;
@@ -97,9 +97,7 @@ impl Collector {
                 tx_bytes: if key.direction == 1 { value.bytes } else { 0 },
             });
         }
-        for key in &stale_keys {
-            delete_map_key(map_fd, key)?;
-        }
+        delete_map_keys(map_fd, &stale_keys)?;
         merge_rows(&mut rows);
         Ok(AttributionRows {
             rows,

@@ -11,7 +11,6 @@ import {
 } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
-import { PAWNIO } from "../../deps/pawnio";
 import { createArchive, verifyArchiveContents } from "./archive";
 import { resolveBuildContext, validateBuildProvenance, type BuildInvocation } from "./build-context";
 import {
@@ -25,6 +24,12 @@ import {
   type ReleaseManifest,
   type ReleaseSummary,
 } from "./plan";
+import {
+  redistributionFulfillmentsForArtifact,
+  thirdPartySourcesText,
+  validateRedistributionPlan,
+  verifyRedistributionSourceAssets,
+} from "./redistribution";
 
 const DEFAULT_REPO_ROOT = resolve(import.meta.dir, "../..");
 
@@ -78,32 +83,10 @@ export async function assertStaticPackageInputs(
   artifact: ReleaseArtifact,
   repoRoot = DEFAULT_REPO_ROOT,
 ): Promise<void> {
+  validateRedistributionPlan();
   for (const file of artifact.staticFiles) {
     await assertFile(join(repoRoot, file.source), `package input ${file.source}`);
   }
-}
-
-function windowsThirdPartySources(): string {
-  return [
-    "Third-party source provenance for embedded Windows payloads",
-    "",
-    `PawnIO driver ${PAWNIO.driver.version}`,
-    `  Source: ${PAWNIO.driver.sourceUrl}`,
-    `  Binary input: ${PAWNIO.driver.installerUrl}`,
-    `  Binary SHA-256: ${PAWNIO.driver.installerSha256}`,
-    "  License: GPL-2.0-or-later with the upstream PawnIO special exception",
-    "  Notice: LICENSES/PawnIO-NOTICE.txt",
-    "",
-    `PawnIO.Modules ${PAWNIO.modules.version}`,
-    `  Source: ${PAWNIO.modules.sourceUrl}`,
-    `  Binary input: ${PAWNIO.modules.archiveUrl}`,
-    `  Binary SHA-256: ${PAWNIO.modules.archiveSha256}`,
-    `  License: ${PAWNIO.modules.license}`,
-    "  License text: LICENSES/LGPL-2.1-or-later.txt",
-    "",
-    "The cclover-mon source release/repository contains the project build scripts and vendored source used to build this executable.",
-    "",
-  ].join("\n");
 }
 
 async function copyPackageInputs(
@@ -117,8 +100,8 @@ async function copyPackageInputs(
     await mkdir(dirname(destination), { recursive: true });
     await copyFile(join(repoRoot, file.source), destination);
   }
-  if (artifact.platform === "windows") {
-    await writeFile(join(stageRoot, "THIRD-PARTY-SOURCES.txt"), windowsThirdPartySources());
+  if (artifact.thirdPartyPayloads.length > 0) {
+    await writeFile(join(stageRoot, "THIRD-PARTY-SOURCES.txt"), thirdPartySourcesText(artifact));
   }
 }
 
@@ -131,7 +114,7 @@ async function setStableMtime(path: string): Promise<void> {
   await utimes(path, fixed, fixed);
 }
 
-async function gitCommit(repoRoot: string): Promise<string> {
+export async function workspaceCommit(repoRoot = DEFAULT_REPO_ROOT): Promise<string> {
   const result = Bun.spawnSync({ cmd: ["git", "rev-parse", "HEAD"], cwd: repoRoot, stdout: "pipe", stderr: "pipe" });
   if (result.exitCode !== 0) throw new Error(`git rev-parse HEAD failed: ${result.stderr.toString()}`);
   const commit = result.stdout.toString().trim();
@@ -174,7 +157,7 @@ export async function packageBuiltReleaseArtifact(
     verifyArchiveContents(artifact, outputPath, options.version, repoRoot);
 
     const manifest: ReleaseManifest = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       artifactId: artifact.id,
       product: artifact.product,
       version: options.version,
@@ -182,6 +165,7 @@ export async function packageBuiltReleaseArtifact(
       gitCommit: options.commit,
       archive: outputName,
       sha256: await sha256File(outputPath),
+      redistributionFulfillments: redistributionFulfillmentsForArtifact(artifact),
       buildProvenance: options.provenance,
     };
     await writeFile(
@@ -222,7 +206,7 @@ export async function buildReleaseArtifact(
     outDir,
     binary,
     version,
-    commit: await gitCommit(repoRoot),
+    commit: await workspaceCommit(repoRoot),
     provenance: context.provenance,
   });
 }
@@ -233,7 +217,7 @@ function validateManifestIdentity(
   version: string,
   commit: string,
 ): void {
-  if (manifest.schemaVersion !== 2) throw new Error(`unsupported manifest schema for ${expected.id}`);
+  if (manifest.schemaVersion !== 3) throw new Error(`unsupported manifest schema for ${expected.id}`);
   if (manifest.artifactId !== expected.id) throw new Error(`manifest artifact mismatch for ${expected.id}`);
   if (manifest.product !== expected.product) throw new Error(`manifest product mismatch for ${expected.id}`);
   if (manifest.target !== expected.target) throw new Error(`manifest target mismatch for ${expected.id}`);
@@ -241,6 +225,12 @@ function validateManifestIdentity(
   if (manifest.gitCommit !== commit) throw new Error(`manifest commit mismatch for ${expected.id}`);
   if (manifest.archive !== archiveName(expected, version)) {
     throw new Error(`manifest archive name mismatch for ${expected.id}`);
+  }
+  if (
+    JSON.stringify(manifest.redistributionFulfillments) !==
+    JSON.stringify(redistributionFulfillmentsForArtifact(expected))
+  ) {
+    throw new Error(`manifest redistribution fulfillment mismatch for ${expected.id}`);
   }
   if (!/^[0-9a-f]{64}$/.test(manifest.sha256)) throw new Error(`invalid SHA-256 for ${expected.id}`);
   validateBuildProvenance(manifest.buildProvenance, expected);
@@ -253,7 +243,7 @@ export async function verifyReleaseArtifacts(
   const repoRoot = options.repoRoot ?? DEFAULT_REPO_ROOT;
   const version = options.version ?? (await workspaceVersion(repoRoot));
   validateReleaseTag(version, options.tag);
-  const commit = options.commit ?? (await gitCommit(repoRoot));
+  const commit = options.commit ?? (await workspaceCommit(repoRoot));
   const root = resolve(repoRoot, directory);
 
   const manifestFiles = (await readdir(root)).filter((name) => name.endsWith(".manifest.json"));
@@ -291,7 +281,14 @@ export async function verifyReleaseArtifacts(
     }
   }
 
-  const summary: ReleaseSummary = { schemaVersion: 2, version, gitCommit: commit, artifacts: manifests };
+  const companionAssets = await verifyRedistributionSourceAssets(root, { gitCommit: commit, repoRoot });
+  const summary: ReleaseSummary = {
+    schemaVersion: 4,
+    version,
+    gitCommit: commit,
+    artifacts: manifests,
+    companionAssets,
+  };
   await writeFile(join(root, "release-manifest.json"), `${JSON.stringify(summary, null, 2)}\n`);
   return summary;
 }

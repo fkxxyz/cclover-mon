@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import {
   RELEASE_ARTIFACTS,
+  RELEASE_COMPANION_ASSETS,
   archiveFiles,
   archiveName,
   assertStaticPackageInputs,
@@ -54,6 +55,20 @@ describe("release authority", () => {
       expect(destinations).toContain("LICENSES/LGPL-2.1-or-later.txt");
       expect(destinations).toContain("LICENSES/MPL-2.0.txt");
     }
+  });
+
+  test("release plan maps embedded PawnIO payloads to one source fulfillment", () => {
+    expect(releaseArtifact("cclover-mon-x86_64-pc-windows-msvc").thirdPartyPayloads).toEqual([
+      "pawnio-driver",
+      "pawnio-modules",
+    ]);
+    expect(releaseArtifact("cclover-mon-i686-pc-windows-msvc").thirdPartyPayloads).toEqual([
+      "pawnio-modules",
+    ]);
+    expect(RELEASE_COMPANION_ASSETS.map((asset) => asset.fulfillsPayloads)).toEqual([
+      ["pawnio-driver"],
+      ["pawnio-modules"],
+    ]);
   });
 
   test("all declared static package inputs exist", async () => {
@@ -182,11 +197,39 @@ describe("release completeness", () => {
         RELEASE_ARTIFACTS.map((artifact) => artifact.id),
       );
       const written = JSON.parse(await readFile(join(root, "release-manifest.json"), "utf8"));
-      expect(written.schemaVersion).toBe(2);
+      expect(written.schemaVersion).toBe(4);
       expect(written.version).toBe(VERSION);
       expect(written.gitCommit).toBe(COMMIT);
       expect(written.artifacts).toHaveLength(6);
+      expect(written.companionAssets).toHaveLength(2);
       expect(written.artifacts.every((artifact: ReleaseManifest) => artifact.buildProvenance)).toBe(true);
+      expect(
+        written.artifacts.find(
+          (artifact: ReleaseManifest) => artifact.artifactId === "cclover-mon-x86_64-pc-windows-msvc",
+        ).redistributionFulfillments,
+      ).toEqual([
+        {
+          payload: "pawnio-driver",
+          companionAssetId: "pawnio-driver-source",
+          companionAsset: "pawnio-2.2.0-source.tar.gz",
+        },
+        {
+          payload: "pawnio-modules",
+          companionAssetId: "pawnio-modules-source",
+          companionAsset: "pawnio-modules-0.2.10-source.tar.gz",
+        },
+      ]);
+      expect(
+        written.artifacts.find(
+          (artifact: ReleaseManifest) => artifact.artifactId === "cclover-mon-i686-pc-windows-msvc",
+        ).redistributionFulfillments,
+      ).toEqual([
+        {
+          payload: "pawnio-modules",
+          companionAssetId: "pawnio-modules-source",
+          companionAsset: "pawnio-modules-0.2.10-source.tar.gz",
+        },
+      ]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -218,6 +261,23 @@ describe("release completeness", () => {
       await writeFile(path, JSON.stringify({ ...manifest, gitCommit: "f".repeat(40) }));
       await expect(verifyReleaseArtifacts(root, { version: VERSION, commit: COMMIT })).rejects.toThrow(
         `manifest commit mismatch for ${artifact.id}`,
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("fails when durable redistribution evidence diverges from the release plan", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cclover-release-test-"));
+    try {
+      await completeFixture(root);
+      const artifact = releaseArtifact("cclover-mon-x86_64-pc-windows-msvc");
+      const archive = archiveName(artifact, VERSION);
+      const path = join(root, `${archive}.manifest.json`);
+      const manifest = JSON.parse(await readFile(path, "utf8")) as ReleaseManifest;
+      await writeFile(path, JSON.stringify({ ...manifest, redistributionFulfillments: [] }));
+      await expect(verifyReleaseArtifacts(root, { version: VERSION, commit: COMMIT })).rejects.toThrow(
+        `manifest redistribution fulfillment mismatch for ${artifact.id}`,
       );
     } finally {
       await rm(root, { recursive: true, force: true });

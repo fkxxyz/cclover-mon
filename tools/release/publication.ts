@@ -248,6 +248,9 @@ async function expectedPublication(
     ...summary.artifacts.map((artifact) =>
       expectedAsset(join(root, artifact.archive), artifact.sha256),
     ),
+    ...summary.companionAssets.map((asset) =>
+      expectedAsset(join(root, asset.name), asset.sha256),
+    ),
     expectedAsset(join(root, "release-manifest.json")),
   ]);
   const names = assets.map((asset) => asset.name);

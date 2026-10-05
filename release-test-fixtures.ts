@@ -3,10 +3,13 @@ import { join } from "node:path";
 
 import {
   RELEASE_ARTIFACTS,
+  RELEASE_COMPANION_ASSETS,
   packageBuiltReleaseArtifact,
+  sourceManifestFileName,
   type BuildProvenance,
   type NativeToolRole,
   type ReleaseArtifact,
+  type ReleaseCompanionAssetManifest,
 } from "./release";
 
 export const VERSION = "0.1.0";
@@ -69,4 +72,28 @@ export async function completeFixture(root: string, commit = COMMIT): Promise<vo
     });
   }
   await rm(binary);
+
+  for (const plan of RELEASE_COMPANION_ASSETS) {
+    const asset = join(root, plan.name);
+    await writeFile(asset, `fixture source bytes for ${plan.id}\n`);
+    const manifest: ReleaseCompanionAssetManifest = {
+      schemaVersion: 1,
+      ...plan,
+      gitCommit: commit,
+      sha256: await sha256(asset),
+      resolvedSourceCommit: plan.source.commit,
+      producerTools: {
+        git: { command: "git", version: "git version fixture" },
+        archiveTools: [
+          { role: "archiver", command: "tar", version: "tar fixture" },
+          { role: "compressor", command: "gzip", version: "gzip fixture" },
+        ],
+      },
+      submodules: [],
+    };
+    await writeFile(
+      join(root, sourceManifestFileName(plan)),
+      `${JSON.stringify(manifest, null, 2)}\n`,
+    );
+  }
 }

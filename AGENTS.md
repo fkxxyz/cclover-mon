@@ -71,7 +71,8 @@ crates/cclover-runtime/src/             shared native sampler execution, state p
 crates/cclover-http/src/                shared HTTP/SSE/API transport over published MonitorState
 crates/cclover-server/src/              headless cclover-mon-server composition root and service lifecycle
 release.ts                   release CLI facade consumed by maintainers and CI
-tools/release/plan.ts        single publishable product/target and packaging-policy authority
+tools/release/plan.ts        single publishable product/target, companion-asset, and packaging-policy authority
+tools/release/redistribution.ts  third-party payload/source fulfillment projection, source-asset creation, and verification
 tools/release/build-context.ts  artifact-local build invocation and resolved provenance authority
 tools/release/archive.ts     archive creation, producer identity, and exact file-set verification
 tools/release/pipeline.ts    release build, staging, manifest, and aggregate verification execution
@@ -115,7 +116,7 @@ bun archdoc.ts check
 
 `validate.ts` is the repository validation-plan authority. Keep validation command composition there; documentation and CI should invoke profiles rather than copy the underlying Cargo/Bun command list.
 
-`release.ts` is the repository release entry point. `tools/release/plan.ts` is the release-plan authority: keep publishable product/target combinations, artifact naming, and service assets there. `tools/release/build-context.ts` resolves each artifact's build invocation and native build provenance from the same environment; `tools/release/archive.ts` owns both archive execution and archive-producer provenance. `tools/release/pipeline.ts` executes those authorities and enforces local release completeness; `tools/release/publication.ts` owns GitHub-specific draft reconciliation, remote asset verification, and the final public transition. Release CI must consume the entry point rather than maintain a second matrix, provenance collector, or asset-selection policy.
+`release.ts` is the repository release entry point. `tools/release/plan.ts` is the release-plan authority: keep publishable product/target combinations, artifact naming, embedded third-party payload mapping, required companion assets, and service assets there. `tools/release/redistribution.ts` projects declared third-party payload/source obligations into package notices, deterministic source companion assets, and fulfillment verification; it must not become a general license solver. `tools/release/build-context.ts` resolves each product artifact's build invocation and native build provenance from the same environment; `tools/release/archive.ts` owns product archive execution and archive-producer provenance. `tools/release/pipeline.ts` executes those authorities and enforces local release completeness; `tools/release/publication.ts` owns GitHub-specific draft reconciliation, remote asset verification, and the final public transition. Release CI must consume the entry point rather than maintain a second product matrix, fulfillment matrix, provenance collector, or asset-selection policy.
 
 Run the fast deterministic profile during implementation:
 

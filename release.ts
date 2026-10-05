@@ -2,10 +2,20 @@ export * from "./tools/release/plan";
 export * from "./tools/release/build-context";
 export { archiveFiles, expectedArchiveFiles, verifyArchiveContents } from "./tools/release/archive";
 export {
+  buildRedistributionSourceAsset,
+  buildRedistributionSourceAssets,
+  redistributionFulfillmentsForArtifact,
+  sourceManifestFileName,
+  thirdPartySourcesText,
+  validateRedistributionPlan,
+  verifyRedistributionSourceAssets,
+} from "./tools/release/redistribution";
+export {
   assertStaticPackageInputs,
   buildReleaseArtifact,
   packageBuiltReleaseArtifact,
   verifyReleaseArtifacts,
+  workspaceCommit,
   workspaceVersion,
 } from "./tools/release/pipeline";
 export {
@@ -26,8 +36,13 @@ import {
 import {
   buildReleaseArtifact,
   verifyReleaseArtifacts,
+  workspaceCommit,
   workspaceVersion,
 } from "./tools/release/pipeline";
+import {
+  buildRedistributionSourceAssets,
+  validateRedistributionPlan,
+} from "./tools/release/redistribution";
 import {
   publishGitHubRelease,
   type GitHubPublicationGateway,
@@ -47,6 +62,7 @@ function usage(): void {
   console.log(`usage:
   bun release.ts plan [--json] [--tag vVERSION]
   bun release.ts build <artifact-id> [--out-dir DIR] [--tag vVERSION]
+  bun release.ts sources [--out-dir DIR] [--tag vVERSION]
   bun release.ts verify <artifact-directory> [--tag vVERSION]
   bun release.ts publish <artifact-directory> --tag vVERSION`);
 }
@@ -81,6 +97,7 @@ async function main(args: readonly string[]): Promise<number> {
   if (command === "plan") {
     const version = await workspaceVersion();
     validateReleaseTag(version, tag);
+    validateRedistributionPlan();
     if (rest.includes("--json")) {
       console.log(JSON.stringify(releaseMatrix()));
     } else {
@@ -97,11 +114,24 @@ async function main(args: readonly string[]): Promise<number> {
     console.log(`${manifest.archive}\t${manifest.sha256}`);
     return 0;
   }
+  if (command === "sources") {
+    const version = await workspaceVersion();
+    validateReleaseTag(version, tag);
+    const outDir = option(rest, "--out-dir") ?? "release-out";
+    const manifests = await buildRedistributionSourceAssets({
+      outDir,
+      gitCommit: await workspaceCommit(),
+    });
+    for (const manifest of manifests) console.log(`${manifest.name}\t${manifest.sha256}`);
+    return 0;
+  }
   if (command === "verify") {
     const [directory] = positional(rest);
     if (!directory) throw new Error("verify requires an artifact directory");
     const summary = await verifyReleaseArtifacts(directory, { tag });
-    console.log(`verified ${summary.artifacts.length} release artifacts for v${summary.version} at ${summary.gitCommit}`);
+    console.log(
+      `verified ${summary.artifacts.length} product artifacts and ${summary.companionAssets.length} companion assets for v${summary.version} at ${summary.gitCommit}`,
+    );
     return 0;
   }
   if (command === "publish") {

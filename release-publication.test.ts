@@ -108,7 +108,11 @@ describe("release publication transaction", () => {
       expect(gateway.release?.draft).toBe(false);
       expect(gateway.mutations).toEqual(["create-draft", "upload", "publish"]);
       expect(gateway.release?.assets.map((asset) => asset.name).sort()).toEqual(
-        [...summary.artifacts.map((artifact) => artifact.archive), "release-manifest.json"].sort(),
+        [
+          ...summary.artifacts.map((artifact) => artifact.archive),
+          ...summary.companionAssets.map((asset) => asset.name),
+          "release-manifest.json",
+        ].sort(),
       );
     } finally {
       await rm(root, { recursive: true, force: true });

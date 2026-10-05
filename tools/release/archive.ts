@@ -112,7 +112,7 @@ export function expectedArchiveFiles(
   const files = [
     binaryFileName(artifact),
     ...artifact.staticFiles.map((file) => file.destination),
-    ...(artifact.platform === "windows" ? ["THIRD-PARTY-SOURCES.txt"] : []),
+    ...(artifact.thirdPartyPayloads.length > 0 ? ["THIRD-PARTY-SOURCES.txt"] : []),
   ];
   return files.map((file) => `${root}/${file}`).sort();
 }

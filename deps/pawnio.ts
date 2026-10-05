@@ -1,11 +1,22 @@
 export const PAWNIO = {
   driver: {
+    id: "pawnio-driver",
     version: "2.2.0",
     installerUrl:
       "https://github.com/namazso/PawnIO.Setup/releases/download/2.2.0/PawnIO_setup.exe",
     installerSha256: "1f519a22e47187f70a1379a48ca604981c4fcf694f4e65b734aaa74a9fba3032",
     embeddedCabSha256: "c2f74446ddebabeeaa8a5fe36c3be3622edb4fac0635d81abba331a817f432b0",
-    sourceUrl: "https://github.com/namazso/PawnIO/tree/2.2.0",
+    correspondingSource: {
+      repository: "https://github.com/namazso/PawnIO.git",
+      ref: "2.2.0",
+      commit: "5cdf470831fdfff3f7f1d06363ca6b230f3bf35a",
+      browseUrl: "https://github.com/namazso/PawnIO/tree/2.2.0",
+    },
+    redistribution: {
+      license: "GPL-2.0-or-later with the upstream PawnIO special exception",
+      noticeFiles: ["LICENSES/PawnIO-NOTICE.txt"],
+      fulfillment: "companion-source",
+    },
     minWindowsBuild: 17763,
     targets: {
       x86_64: {
@@ -35,12 +46,22 @@ export const PAWNIO = {
     },
   },
   modules: {
+    id: "pawnio-modules",
     version: "0.2.10",
     archiveUrl:
       "https://github.com/namazso/PawnIO.Modules/releases/download/0.2.10/release_0_2_10.zip",
     archiveSha256: "971c7c974c538b62ac020e0442fa99d0423417bfb496dfe9a4a43ccc0abc0e63",
-    sourceUrl: "https://github.com/namazso/PawnIO.Modules/tree/0.2.10",
-    license: "LGPL-2.1-or-later",
+    correspondingSource: {
+      repository: "https://github.com/namazso/PawnIO.Modules.git",
+      ref: "0.2.10",
+      commit: "c683032770575d7705d1149f9d7fa7fd381766fc",
+      browseUrl: "https://github.com/namazso/PawnIO.Modules/tree/0.2.10",
+    },
+    redistribution: {
+      license: "LGPL-2.1-or-later",
+      noticeFiles: ["LICENSES/LGPL-2.1-or-later.txt"],
+      fulfillment: "companion-source",
+    },
     required: {
       intelMsr: {
         name: "IntelMSR.bin",
@@ -79,3 +100,5 @@ export const PAWNIO = {
     },
   },
 } as const;
+
+export type PawnioPayloadId = typeof PAWNIO.driver.id | typeof PAWNIO.modules.id;

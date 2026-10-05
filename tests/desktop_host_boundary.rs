@@ -173,8 +173,10 @@ fn graphical_layout_is_shared_and_renderer_independent() {
 #[test]
 fn linux_incremental_rendering_preserves_steady_state_fast_path() {
     let source = linux_native();
+    let wayland = include_str!("../crates/cclover-desktop/native/linux/wayland.c");
+    let buffers = include_str!("../crates/cclover-desktop/native/linux/wayland_buffers.c");
 
-    let wayland_run = source
+    let wayland_run = wayland
         .split_once("int cclover_linux_wayland_run")
         .expect("Linux host must provide a Wayland lifecycle")
         .1;
@@ -186,14 +188,12 @@ fn linux_incremental_rendering_preserves_steady_state_fast_path() {
         .expect("Wayland host must separate scene production from drawing")
         .0;
     assert_eq!(
-        frame_poll
-            .matches("cclover_scene(&host.host, &scene);")
-            .count(),
+        frame_poll.matches("wayland_scene(&host, &scene);").count(),
         1,
         "one state change must lower exactly one shared Scene"
     );
 
-    let static_layer = source
+    let static_layer = buffers
         .split_once("static int wayland_static_layer_ensure")
         .expect("Wayland host must own a static render layer")
         .1
@@ -206,7 +206,7 @@ fn linux_incremental_rendering_preserves_steady_state_fast_path() {
         "unchanged static content must reuse the existing static layer"
     );
 
-    let acquire = source
+    let acquire = buffers
         .split_once("static int wayland_buffer_acquire")
         .expect("Wayland host must own reusable buffers")
         .1
@@ -214,28 +214,28 @@ fn linux_incremental_rendering_preserves_steady_state_fast_path() {
         .expect("buffer acquisition must stay separate from damage application")
         .0;
     let reuse = acquire
-        .find("host->previous_buffer && !host->previous_buffer->busy")
+        .find("buffers->previous_buffer && !buffers->previous_buffer->busy")
         .expect("buffer acquisition must try the released previous buffer first");
     let create = acquire
-        .find("wayland_buffer_create(host, owned, scene, scale)")
+        .find("wayland_buffer_create(shm, owned, scene, scale)")
         .expect("buffer acquisition must retain a creation fallback");
     assert!(
         reuse < create,
         "stable-size steady state must reuse a released Wayland buffer before creating one"
     );
 
-    let draw = source
-        .split_once("static int wayland_draw")
-        .expect("Wayland host must own incremental drawing")
+    let draw = buffers
+        .split_once("int cclover_wayland_buffers_draw")
+        .expect("Wayland buffer module must own incremental drawing")
         .1
-        .split_once("int cclover_linux_wayland_run")
-        .expect("draw helper must stay separate from the host lifecycle")
+        .split_once("void cclover_wayland_buffers_surface_reset")
+        .expect("draw helper must stay separate from buffer lifecycle cleanup")
         .0;
     for required in [
         "const CcloverDamageRect *dirty = scene->damage_rects",
         "int full_redraw = scene->full_redraw != 0",
-        "wayland_restore_rect(host, owned, dirty[i], scale)",
-        "cclover_draw_scene(&host->host, owned->cr, scene, 0, CCLOVER_DRAW_DYNAMIC)",
+        "wayland_restore_rect(buffers, owned, scene, dirty[i], scale)",
+        "cclover_cairo_draw_scene(renderer, owned->cr, scene, 0, CCLOVER_CAIRO_DRAW_DYNAMIC)",
     ] {
         assert!(
             draw.contains(required),
@@ -253,6 +253,8 @@ fn linux_incremental_rendering_preserves_steady_state_fast_path() {
 #[test]
 fn linux_wayland_host_delegates_lifecycle_policy_to_tested_module() {
     let source = linux_native();
+    let wayland = include_str!("../crates/cclover-desktop/native/linux/wayland.c");
+    let buffers = include_str!("../crates/cclover-desktop/native/linux/wayland_buffers.c");
 
     for required in [
         "cclover_wayland_surface_closed(&host->lifecycle)",
@@ -269,9 +271,10 @@ fn linux_wayland_host_delegates_lifecycle_policy_to_tested_module() {
         );
     }
     assert!(
-        source.contains("host->previous_buffer = NULL")
-            && source.contains("scene->full_redraw != 0 || host->previous_buffer == NULL"),
-        "replacement surfaces must not inherit incremental-frame assumptions"
+        wayland.contains("cclover_wayland_buffers_surface_reset(&host->buffers)")
+            && buffers.contains("buffers->previous_buffer = NULL")
+            && buffers.contains("scene->full_redraw != 0 || buffers->previous_buffer == NULL"),
+        "replacement surfaces must reset buffer-owned incremental-frame state through its module contract"
     );
 }
 

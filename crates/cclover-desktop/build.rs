@@ -98,6 +98,9 @@ fn build_windows(out_dir: &Path) {
     }
     cc::Build::new()
         .file("native/windows_host.c")
+        .file("native/windows/display.c")
+        .file("native/windows/drawing.c")
+        .file("native/windows/shell.c")
         .file("native/windows_geometry.c")
         .file("native/windows/message_policy.c")
         .include(out_dir)
@@ -124,7 +127,11 @@ fn build_linux(out_dir: &Path) {
     build
         .file("native/linux_host.c")
         .file("native/linux_tray.c")
+        .file("native/linux/render.c")
+        .file("native/linux/wayland.c")
+        .file("native/linux/wayland_buffers.c")
         .file("native/linux/wayland_lifecycle.c")
+        .file("native/linux/x11.c")
         .file("native/linux/x11_lifecycle.c")
         .file("native/wayland/wlr-layer-shell-unstable-v1-protocol.c")
         .file("native/wayland/xdg-shell-protocol.c")

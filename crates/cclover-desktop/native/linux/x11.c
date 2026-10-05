@@ -1,4 +1,25 @@
-/* ---------------- X11 host ---------------- */
+#include "host_result.h"
+#include "render.h"
+#include "x11_lifecycle.h"
+
+#include <X11/Xatom.h>
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#include <X11/extensions/Xrender.h>
+#include <X11/extensions/shape.h>
+#include <cairo/cairo-xlib.h>
+#include <poll.h>
+#include <stdint.h>
+#include <string.h>
+#include <unistd.h>
+
+#define CCLOVER_MARGIN 16
+
+static void x11_scene(void *context, const CcloverCallbacks *callbacks,
+                      CcloverScene *scene) {
+    memset(scene, 0, sizeof(*scene));
+    callbacks->scene(context, scene);
+}
 
 static Atom x11_atom(Display *display, const char *name) {
     return XInternAtom(display, name, False);
@@ -79,7 +100,7 @@ static void cclover_drain_wake_fd(int fd) {
 }
 
 int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks, int state_wake_fd, int quit_wake_fd) {
-    CcloverHost host = { .context = context, .callbacks = callbacks };
+    CcloverCairoRenderer renderer = {0};
     CcloverScene scene;
     Display *display = XOpenDisplay(NULL);
     Window window;
@@ -96,7 +117,7 @@ int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks, int 
     if (!display) return CCLOVER_LINUX_HOST_X11_DISPLAY_CONNECT_FAILED;
     cclover_x11_lifecycle_init(&lifecycle);
 
-    cclover_scene(&host, &scene);
+    x11_scene(context, callbacks, &scene);
     width = scene.width;
     height = scene.height;
     screen = DefaultScreen(display);
@@ -130,7 +151,7 @@ int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks, int 
 
     surface = cairo_xlib_surface_create(display, window, visual, width, height);
     cr = cairo_create(surface);
-    cclover_configure_context(cr);
+    cclover_cairo_configure_context(cr);
     fd = ConnectionNumber(display);
 
     while (lifecycle.running) {
@@ -138,7 +159,7 @@ int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks, int 
         uint32_t status = callbacks->take_state(context);
         cclover_x11_state_status(&lifecycle, status, CCLOVER_STATE_CHANGED);
         if (status & CCLOVER_STATE_CHANGED) {
-            cclover_scene(&host, &scene);
+            x11_scene(context, callbacks, &scene);
             if (scene.width != width || scene.height != height) {
                 width = scene.width;
                 height = scene.height;
@@ -154,7 +175,7 @@ int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks, int 
         }
         if (!lifecycle.running) break;
         if (cclover_x11_can_draw(&lifecycle)) {
-            cclover_draw_scene(&host, cr, &scene, 1, CCLOVER_DRAW_ALL);
+            cclover_cairo_draw_scene(&renderer, cr, &scene, 1, CCLOVER_CAIRO_DRAW_ALL);
             cairo_surface_flush(surface);
             XFlush(display);
             cclover_x11_draw_completed(&lifecycle);

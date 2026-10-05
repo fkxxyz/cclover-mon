@@ -7,7 +7,6 @@
 #define CCLOVER_WAYLAND_MAX_OUTPUTS 16
 
 struct wl_output;
-typedef struct WaylandHost WaylandHost;
 
 typedef enum {
     WAYLAND_SURFACE_ABSENT,
@@ -23,7 +22,6 @@ typedef struct {
 
 typedef struct {
     struct wl_output *output;
-    WaylandHost *host;
     uint32_t global_name;
     int32_t scale;
     int entered;

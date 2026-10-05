@@ -7,6 +7,7 @@ import {
   DOMAIN_NAMES,
   DOMAIN_RULES,
   domainForWorkspaceCrate,
+  findNativeTextualIncludeViolationsInSource,
   findViolationsInSource,
   scanArchitecture,
   stripRustNonCode,
@@ -79,6 +80,48 @@ describe("architecture dependency rules", () => {
       for (const crateName of DOMAIN_RULES[domain].workspaceCrates) {
         expect(domainForWorkspaceCrate(crateName.replaceAll("-", "_"))).toBe(domain);
       }
+    }
+  });
+});
+
+describe("native host implementation boundaries", () => {
+  test("textual implementation includes are rejected", () => {
+    const source = `#include "render.h"\n#include "legacy.inc"\n#include <other.c>\n`;
+    expect(findNativeTextualIncludeViolationsInSource(source, "native/linux_host.c")).toEqual([
+      expect.objectContaining({ line: 2, includePath: "legacy.inc" }),
+      expect.objectContaining({ line: 3, includePath: "other.c" }),
+    ]);
+  });
+
+  test("headers remain valid dependencies", () => {
+    expect(
+      findNativeTextualIncludeViolationsInSource(
+        `#include "render.h"\n#include <windows.h>\n`,
+        "native/linux/render.c",
+      ),
+    ).toEqual([]);
+  });
+
+  test("generated Wayland protocol sources are excluded without exempting project-owned neighbors", () => {
+    const root = mkdtempSync(join(tmpdir(), "cclover-archgate-native-"));
+    try {
+      const wayland = join(root, "crates", "cclover-desktop", "native", "wayland");
+      mkdirSync(wayland, { recursive: true });
+      writeFileSync(
+        join(wayland, "wlr-layer-shell-unstable-v1-protocol.c"),
+        `#include "generated.inc"\n`,
+      );
+      writeFileSync(join(wayland, "project_owned.c"), `#include "forbidden.inc"\n`);
+
+      expect(scanArchitecture(root)).toEqual([
+        expect.objectContaining({
+          line: 1,
+          rule: "native-textual-implementation-include",
+          includePath: "forbidden.inc",
+        }),
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

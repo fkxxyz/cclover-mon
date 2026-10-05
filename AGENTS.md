@@ -52,8 +52,10 @@ Ownership rules:
 crates/cclover-desktop/src/linux.rs    Linux Wayland/X11 hosting and tray integration
 crates/cclover-desktop/src/native.rs   shared Scene FFI bridge
 crates/cclover-desktop/src/windows.rs  Windows native host bridge
-crates/cclover-desktop/native/windows_host.c  Win32/GDI window, drawing, and tray host
-crates/cclover-desktop/native/linux_host.c    Wayland/X11 + Cairo host/drawing
+crates/cclover-desktop/native/windows_host.c  Win32 desktop-availability ABI entry point
+crates/cclover-desktop/native/windows/         Win32 shell, display/DPI, GDI drawing, and message-policy translation units
+crates/cclover-desktop/native/linux_host.c    Linux native-host error ABI entry point
+crates/cclover-desktop/native/linux/           X11, Wayland, Cairo rendering/buffers, and lifecycle-policy translation units
 crates/cclover-core/src/model.rs    shared typed snapshots and history model
 crates/cclover-core/src/sampler.rs  delta/rate derivation, Top-N, sampling state
 crates/cclover-core/src/history.rs  bounded history updates

@@ -1,21 +1,8 @@
-static double cclover_profile_cpu_ms(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
-    return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1000000.0;
-}
+#include "render.h"
 
-typedef struct {
-    uint32_t size;
-    uint32_t bold;
-    cairo_font_extents_t extents;
-    int valid;
-} CcloverFontMetricsCacheEntry;
-
-typedef struct {
-    void *context;
-    const CcloverCallbacks *callbacks;
-    CcloverFontMetricsCacheEntry font_metrics[32];
-} CcloverHost;
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
 
 static void cclover_source_argb(cairo_t *cr, uint32_t argb) {
     double a = ((argb >> 24) & 0xff) / 255.0;
@@ -51,7 +38,7 @@ static char *cclover_text_copy(const uint8_t *bytes, size_t len, char stack[512]
     return text;
 }
 
-static void cclover_configure_context(cairo_t *cr) {
+void cclover_cairo_configure_context(cairo_t *cr) {
     cairo_font_options_t *font_options = cairo_font_options_create();
     cairo_font_options_set_hint_metrics(font_options, CAIRO_HINT_METRICS_OFF);
     cairo_set_font_options(cr, font_options);
@@ -64,10 +51,10 @@ static void cclover_select_font(cairo_t *cr, uint32_t size, int bold) {
     cairo_set_font_size(cr, size);
 }
 
-static void cclover_font_extents(CcloverHost *host, cairo_t *cr, uint32_t size,
+static void cclover_font_extents(CcloverCairoRenderer *renderer, cairo_t *cr, uint32_t size,
                                  uint32_t bold, cairo_font_extents_t *extents) {
     CcloverFontMetricsCacheEntry *cached =
-        &host->font_metrics[(size * 2u + bold) % 32u];
+        &renderer->font_metrics[(size * 2u + bold) % 32u];
     if (cached->valid && cached->size == size && cached->bold == bold) {
         *extents = cached->extents;
         return;
@@ -79,7 +66,7 @@ static void cclover_font_extents(CcloverHost *host, cairo_t *cr, uint32_t size,
     cached->valid = 1;
 }
 
-static void cclover_draw_text(CcloverHost *host, cairo_t *cr, const CcloverCommand *cmd,
+static void cclover_draw_text(CcloverCairoRenderer *renderer, cairo_t *cr, const CcloverCommand *cmd,
                               uint32_t *font_size, uint32_t *font_bold, int *font_valid) {
     char stack[512];
     char *text = cclover_text_copy(cmd->text, cmd->text_len, stack);
@@ -103,7 +90,7 @@ static void cclover_draw_text(CcloverHost *host, cairo_t *cr, const CcloverComma
         cairo_rectangle(cr, cmd->x, cmd->y, cmd->width, cmd->height);
         cairo_clip(cr);
     }
-    cclover_font_extents(host, cr, cmd->text_size, bold, &font);
+    cclover_font_extents(renderer, cr, cmd->text_size, bold, &font);
     x = cmd->x;
     if (cmd->flags & CCLOVER_TEXT_END) {
         cairo_text_extents(cr, text, &text_extents);
@@ -117,19 +104,16 @@ static void cclover_draw_text(CcloverHost *host, cairo_t *cr, const CcloverComma
     if (text != stack) free(text);
 }
 
-#define CCLOVER_DRAW_ALL 0
-#define CCLOVER_DRAW_STATIC 1
-#define CCLOVER_DRAW_DYNAMIC 2
-
-static int cclover_draw_command(int mode, const CcloverCommand *cmd) {
+static int cclover_draw_command(CcloverCairoDrawMode mode, const CcloverCommand *cmd) {
     int is_static = (cmd->flags & CCLOVER_STATIC_CONTENT) != 0;
-    return mode == CCLOVER_DRAW_ALL ||
-           (mode == CCLOVER_DRAW_STATIC && is_static) ||
-           (mode == CCLOVER_DRAW_DYNAMIC && !is_static);
+    return mode == CCLOVER_CAIRO_DRAW_ALL ||
+           (mode == CCLOVER_CAIRO_DRAW_STATIC && is_static) ||
+           (mode == CCLOVER_CAIRO_DRAW_DYNAMIC && !is_static);
 }
 
-static void cclover_draw_scene(CcloverHost *host, cairo_t *cr, const CcloverScene *scene,
-                               int clear, int mode) {
+void cclover_cairo_draw_scene(CcloverCairoRenderer *renderer, cairo_t *cr,
+                              const CcloverScene *scene, int clear,
+                              CcloverCairoDrawMode mode) {
     size_t i, j;
     uint32_t font_size = 0;
     uint32_t font_bold = 0;
@@ -155,7 +139,7 @@ static void cclover_draw_scene(CcloverHost *host, cairo_t *cr, const CcloverScen
             cairo_set_line_width(cr, cmd->stroke_width);
             cairo_stroke(cr);
         } else if (cmd->kind == CCLOVER_CMD_TEXT) {
-            cclover_draw_text(host, cr, cmd, &font_size, &font_bold, &font_valid);
+            cclover_draw_text(renderer, cr, cmd, &font_size, &font_bold, &font_valid);
         } else if ((cmd->kind == CCLOVER_CMD_POLYLINE ||
                     cmd->kind == CCLOVER_CMD_POLYGON) &&
                    cmd->point_count > 0 &&
@@ -177,9 +161,4 @@ static void cclover_draw_scene(CcloverHost *host, cairo_t *cr, const CcloverScen
         }
     }
     cairo_restore(cr);
-}
-
-static void cclover_scene(CcloverHost *host, CcloverScene *scene) {
-    memset(scene, 0, sizeof(*scene));
-    host->callbacks->scene(host->context, scene);
 }

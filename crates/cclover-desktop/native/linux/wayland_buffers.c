@@ -1,3 +1,33 @@
+#define _GNU_SOURCE
+#include "wayland_buffers.h"
+
+#include <errno.h>
+#include <fcntl.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <time.h>
+#include <unistd.h>
+#include <wayland-client.h>
+
+static double cclover_profile_cpu_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1000000.0;
+}
+
+static void buffer_release(void *data, struct wl_buffer *buffer) {
+    WaylandBuffer *owned = data;
+    (void)buffer;
+    owned->busy = 0;
+}
+
+static const struct wl_buffer_listener buffer_listener = { buffer_release };
+
 static int create_shm_file(size_t size) {
     char name[64];
     int fd;
@@ -28,9 +58,11 @@ static void wayland_static_layer_destroy(WaylandStaticLayer *layer) {
     memset(layer, 0, sizeof(*layer));
 }
 
-static int wayland_static_layer_ensure(WaylandHost *host, const CcloverScene *scene,
+static int wayland_static_layer_ensure(CcloverWaylandBuffers *buffers,
+                                       CcloverCairoRenderer *renderer,
+                                       const CcloverScene *scene,
                                        int32_t scale, int *rebuilt) {
-    WaylandStaticLayer *layer = &host->static_layer;
+    WaylandStaticLayer *layer = &buffers->static_layer;
     *rebuilt = 0;
     uint32_t buffer_width = scene->width * (uint32_t)scale;
     uint32_t buffer_height = scene->height * (uint32_t)scale;
@@ -59,15 +91,15 @@ static int wayland_static_layer_ensure(WaylandHost *host, const CcloverScene *sc
         wayland_static_layer_destroy(layer);
         return -1;
     }
-    cclover_configure_context(layer->cr);
+    cclover_cairo_configure_context(layer->cr);
     cairo_scale(layer->cr, scale, scale);
-    cclover_draw_scene(&host->host, layer->cr, scene, 0, CCLOVER_DRAW_STATIC);
+    cclover_cairo_draw_scene(renderer, layer->cr, scene, 0, CCLOVER_CAIRO_DRAW_STATIC);
     cairo_surface_flush(layer->image);
     *rebuilt = 1;
     return 0;
 }
 
-static int wayland_buffer_create(WaylandHost *host, WaylandBuffer *owned,
+static int wayland_buffer_create(struct wl_shm *shm, WaylandBuffer *owned,
                                  const CcloverScene *scene, int32_t scale) {
     uint32_t buffer_width = scene->width * (uint32_t)scale;
     uint32_t buffer_height = scene->height * (uint32_t)scale;
@@ -89,7 +121,7 @@ static int wayland_buffer_create(WaylandHost *host, WaylandBuffer *owned,
         return -1;
     }
 
-    pool = wl_shm_create_pool(host->globals.shm, fd, (int)size);
+    pool = wl_shm_create_pool(shm, fd, (int)size);
     owned->buffer = wl_shm_pool_create_buffer(pool, 0, buffer_width, buffer_height,
                                               stride, WL_SHM_FORMAT_ARGB8888);
     wl_shm_pool_destroy(pool);
@@ -110,32 +142,33 @@ static int wayland_buffer_create(WaylandHost *host, WaylandBuffer *owned,
         wayland_buffer_destroy(owned);
         return -1;
     }
-    cclover_configure_context(owned->cr);
+    cclover_cairo_configure_context(owned->cr);
     cairo_scale(owned->cr, scale, scale);
     wl_buffer_add_listener(owned->buffer, &buffer_listener, owned);
     return 0;
 }
 
-static int wayland_buffer_acquire(WaylandHost *host, const CcloverScene *scene,
-                                  int32_t scale, WaylandBuffer **out) {
+static int wayland_buffer_acquire(CcloverWaylandBuffers *buffers, struct wl_shm *shm,
+                                  const CcloverScene *scene, int32_t scale,
+                                  WaylandBuffer **out) {
     size_t i;
-    if (host->previous_buffer && !host->previous_buffer->busy &&
-        host->previous_buffer->buffer &&
-        host->previous_buffer->width == scene->width &&
-        host->previous_buffer->height == scene->height &&
-        host->previous_buffer->scale == scale) {
-        *out = host->previous_buffer;
+    if (buffers->previous_buffer && !buffers->previous_buffer->busy &&
+        buffers->previous_buffer->buffer &&
+        buffers->previous_buffer->width == scene->width &&
+        buffers->previous_buffer->height == scene->height &&
+        buffers->previous_buffer->scale == scale) {
+        *out = buffers->previous_buffer;
         return 0;
     }
     for (i = 0; i < CCLOVER_WAYLAND_BUFFER_COUNT; ++i) {
-        WaylandBuffer *owned = &host->buffers[i];
+        WaylandBuffer *owned = &buffers->buffers[i];
         if (owned->busy) continue;
         if (owned->buffer &&
             (owned->width != scene->width || owned->height != scene->height ||
              owned->scale != scale)) {
             wayland_buffer_destroy(owned);
         }
-        if (!owned->buffer && wayland_buffer_create(host, owned, scene, scale) < 0)
+        if (!owned->buffer && wayland_buffer_create(shm, owned, scene, scale) < 0)
             return -1;
         *out = owned;
         return 0;
@@ -143,10 +176,11 @@ static int wayland_buffer_acquire(WaylandHost *host, const CcloverScene *scene,
     return 1;
 }
 
-static void wayland_restore_rect(WaylandHost *host, WaylandBuffer *owned,
-                                 CcloverDamageRect rect, int32_t scale) {
-    int buffer_width = (int)(host->width * (uint32_t)scale);
-    int buffer_height = (int)(host->height * (uint32_t)scale);
+static void wayland_restore_rect(CcloverWaylandBuffers *buffers, WaylandBuffer *owned,
+                                 const CcloverScene *scene, CcloverDamageRect rect,
+                                 int32_t scale) {
+    int buffer_width = (int)(scene->width * (uint32_t)scale);
+    int buffer_height = (int)(scene->height * (uint32_t)scale);
     int x1 = (int)floorf(rect.x1 * scale);
     int y1 = (int)floorf(rect.y1 * scale);
     int x2 = (int)ceilf(rect.x2 * scale);
@@ -160,29 +194,35 @@ static void wayland_restore_rect(WaylandHost *host, WaylandBuffer *owned,
     if (x2 <= x1 || y2 <= y1) return;
     for (y = y1; y < y2; ++y) {
         memcpy((uint8_t *)owned->data + (size_t)y * stride + (size_t)x1 * 4,
-               (uint8_t *)host->static_layer.data + (size_t)y * stride + (size_t)x1 * 4,
+               (uint8_t *)buffers->static_layer.data + (size_t)y * stride + (size_t)x1 * 4,
                (size_t)(x2 - x1) * 4);
     }
     cairo_surface_mark_dirty_rectangle(owned->image, x1, y1, x2 - x1, y2 - y1);
 }
 
-static int wayland_draw(WaylandHost *host, const CcloverScene *scene) {
+int cclover_wayland_buffers_draw(CcloverWaylandBuffers *buffers,
+                                 CcloverCairoRenderer *renderer,
+                                 struct wl_shm *shm,
+                                 struct wl_surface *surface,
+                                 struct wl_display *display,
+                                 const CcloverScene *scene,
+                                 int32_t scale) {
     CcloverDamageRect full_damage = { 0.0f, 0.0f, (float)scene->width, (float)scene->height };
     const CcloverDamageRect *dirty = scene->damage_rects;
     size_t dirty_count = scene->damage_count;
-    int32_t scale = host->scale > 0 ? host->scale : 1;
+    scale = scale > 0 ? scale : 1;
     int profiling = getenv("CCLOVER_RENDER_PROFILE") != NULL;
     double profile_started = profiling ? cclover_profile_cpu_ms() : 0.0;
     double profile_dynamic = profiling ? cclover_profile_cpu_ms() : 0.0;
     double profile_static = 0.0;
     double profile_raster = 0.0;
     size_t i;
-    int full_redraw = scene->full_redraw != 0 || host->previous_buffer == NULL;
+    int full_redraw = scene->full_redraw != 0 || buffers->previous_buffer == NULL;
     int static_rebuilt = 0;
     WaylandBuffer *owned;
     int acquired;
 
-    if (wayland_static_layer_ensure(host, scene, scale, &static_rebuilt) < 0) return -1;
+    if (wayland_static_layer_ensure(buffers, renderer, scene, scale, &static_rebuilt) < 0) return -1;
     if (static_rebuilt) full_redraw = 1;
     if (profiling) profile_static = cclover_profile_cpu_ms();
     if (full_redraw) {
@@ -192,20 +232,20 @@ static int wayland_draw(WaylandHost *host, const CcloverScene *scene) {
         return 0;
     }
 
-    acquired = wayland_buffer_acquire(host, scene, scale, &owned);
+    acquired = wayland_buffer_acquire(buffers, shm, scene, scale, &owned);
     if (acquired != 0) return acquired;
     cairo_surface_flush(owned->image);
 
     if (full_redraw) {
-        memcpy(owned->data, host->static_layer.data, owned->size);
+        memcpy(owned->data, buffers->static_layer.data, owned->size);
         cairo_surface_mark_dirty(owned->image);
     } else {
-        if (owned != host->previous_buffer) {
-            if (host->previous_buffer && host->previous_buffer->size == owned->size) {
-                memcpy(owned->data, host->previous_buffer->data, owned->size);
+        if (owned != buffers->previous_buffer) {
+            if (buffers->previous_buffer && buffers->previous_buffer->size == owned->size) {
+                memcpy(owned->data, buffers->previous_buffer->data, owned->size);
                 cairo_surface_mark_dirty(owned->image);
             } else {
-                memcpy(owned->data, host->static_layer.data, owned->size);
+                memcpy(owned->data, buffers->static_layer.data, owned->size);
                 cairo_surface_mark_dirty(owned->image);
                 full_redraw = 1;
                 dirty = &full_damage;
@@ -214,7 +254,7 @@ static int wayland_draw(WaylandHost *host, const CcloverScene *scene) {
         }
         if (!full_redraw) {
             for (i = 0; i < dirty_count; ++i)
-                wayland_restore_rect(host, owned, dirty[i], scale);
+                wayland_restore_rect(buffers, owned, scene, dirty[i], scale);
         }
     }
 
@@ -224,24 +264,24 @@ static int wayland_draw(WaylandHost *host, const CcloverScene *scene) {
                         dirty[i].x2 - dirty[i].x1, dirty[i].y2 - dirty[i].y1);
     }
     cairo_clip(owned->cr);
-    cclover_draw_scene(&host->host, owned->cr, scene, 0, CCLOVER_DRAW_DYNAMIC);
+    cclover_cairo_draw_scene(renderer, owned->cr, scene, 0, CCLOVER_CAIRO_DRAW_DYNAMIC);
     cairo_restore(owned->cr);
     cairo_surface_flush(owned->image);
     if (profiling) profile_raster = cclover_profile_cpu_ms();
 
-    wl_surface_set_buffer_scale(host->surface, scale);
-    wl_surface_attach(host->surface, owned->buffer, 0, 0);
+    wl_surface_set_buffer_scale(surface, scale);
+    wl_surface_attach(surface, owned->buffer, 0, 0);
     for (i = 0; i < dirty_count; ++i) {
         int x = (int)floorf(dirty[i].x1);
         int y = (int)floorf(dirty[i].y1);
         int width = (int)ceilf(dirty[i].x2) - x;
         int height = (int)ceilf(dirty[i].y2) - y;
-        wl_surface_damage(host->surface, x, y, width, height);
+        wl_surface_damage(surface, x, y, width, height);
     }
     owned->busy = 1;
-    wl_surface_commit(host->surface);
-    wl_display_flush(host->globals.display);
-    host->previous_buffer = owned;
+    wl_surface_commit(surface);
+    wl_display_flush(display);
+    buffers->previous_buffer = owned;
     if (profiling) {
         double dirty_area = 0.0;
         for (i = 0; i < dirty_count; ++i)
@@ -257,3 +297,15 @@ static int wayland_draw(WaylandHost *host, const CcloverScene *scene) {
     return 0;
 }
 
+
+void cclover_wayland_buffers_surface_reset(CcloverWaylandBuffers *buffers) {
+    buffers->previous_buffer = NULL;
+}
+
+void cclover_wayland_buffers_destroy(CcloverWaylandBuffers *buffers) {
+    size_t i;
+    for (i = 0; i < CCLOVER_WAYLAND_BUFFER_COUNT; ++i)
+        wayland_buffer_destroy(&buffers->buffers[i]);
+    wayland_static_layer_destroy(&buffers->static_layer);
+    buffers->previous_buffer = NULL;
+}

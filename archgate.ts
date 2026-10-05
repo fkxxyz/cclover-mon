@@ -20,6 +20,15 @@ export interface Violation {
   to: Domain;
 }
 
+export interface NativeTextualIncludeViolation {
+  file: string;
+  line: number;
+  rule: "native-textual-implementation-include";
+  includePath: string;
+}
+
+export type ArchitectureViolation = Violation | NativeTextualIncludeViolation;
+
 interface DomainRule {
   workspaceCrates: readonly string[];
   forbidden: readonly Domain[];
@@ -182,6 +191,25 @@ function lineAt(source: string, offset: number): number {
   return line;
 }
 
+export function findNativeTextualIncludeViolationsInSource(
+  source: string,
+  file: string,
+): NativeTextualIncludeViolation[] {
+  const violations: NativeTextualIncludeViolation[] = [];
+  const include = /^\s*#\s*include\s+(?:"([^"]+\.(?:c|inc))"|<([^>]+\.(?:c|inc))>)/gm;
+  let match: RegExpExecArray | null;
+  while ((match = include.exec(source))) {
+    const includePath = match[1] ?? match[2];
+    violations.push({
+      file,
+      line: lineAt(source, match.index),
+      rule: "native-textual-implementation-include",
+      includePath,
+    });
+  }
+  return violations;
+}
+
 function topLevelUseRoots(body: string): string[] {
   const roots: string[] = [];
   let depth = 0;
@@ -295,7 +323,34 @@ function rustFiles(root: string): string[] {
   return files;
 }
 
-export function scanArchitecture(root = resolve(import.meta.dir)): Violation[] {
+function nativeHostFiles(root: string): string[] {
+  const nativeRoot = join(root, "crates", "cclover-desktop", "native");
+  if (!existsSync(nativeRoot)) return [];
+  const generatedProtocolSources = new Set([
+    "wayland/wlr-layer-shell-unstable-v1-client-protocol.h",
+    "wayland/wlr-layer-shell-unstable-v1-protocol.c",
+    "wayland/xdg-shell-protocol.c",
+  ]);
+
+  const files: string[] = [];
+  const visit = (directory: string) => {
+    for (const entry of readdirSync(directory)) {
+      const path = join(directory, entry);
+      const stat = statSync(path);
+      if (stat.isDirectory()) {
+        visit(path);
+      } else if (entry.endsWith(".c") || entry.endsWith(".h")) {
+        const relativePath = relative(nativeRoot, path).split(sep).join("/");
+        if (generatedProtocolSources.has(relativePath)) continue;
+        files.push(path);
+      }
+    }
+  };
+  visit(nativeRoot);
+  return files;
+}
+
+export function scanArchitecture(root = resolve(import.meta.dir)): ArchitectureViolation[] {
   const roots = root.endsWith(`${sep}src`)
     ? [root]
     : [
@@ -306,13 +361,22 @@ export function scanArchitecture(root = resolve(import.meta.dir)): Violation[] {
           ),
         ),
       ].filter(existsSync);
-  return roots.flatMap((sourceRoot) =>
+  const rustViolations = roots.flatMap((sourceRoot) =>
     rustFiles(sourceRoot).flatMap((file) => findViolationsInSource(readFileSync(file, "utf8"), file)),
   );
+  const nativeViolations = root.endsWith(`${sep}src`)
+    ? []
+    : nativeHostFiles(root).flatMap((file) =>
+        findNativeTextualIncludeViolationsInSource(readFileSync(file, "utf8"), file),
+      );
+  return [...rustViolations, ...nativeViolations];
 }
 
-export function formatViolation(violation: Violation, cwd = import.meta.dir): string {
+export function formatViolation(violation: ArchitectureViolation, cwd = import.meta.dir): string {
   const file = relative(cwd, violation.file) || basename(violation.file);
+  if ("rule" in violation) {
+    return `${file}:${violation.line}: native host implementation must not textually include ${violation.includePath}`;
+  }
   return `${file}:${violation.line}: forbidden architecture dependency ${violation.from} -> ${violation.to}`;
 }
 

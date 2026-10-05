@@ -1,14 +1,50 @@
+#define UNICODE
+#define _UNICODE
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <shellapi.h>
+#include <stdint.h>
+
+#include "native_scene.h"
+#include "display.h"
+#include "drawing.h"
+#include "message_policy.h"
+#include "windows_geometry.h"
+
+#define CCLOVER_WM_TRAY (WM_APP + 7)
+#define CCLOVER_WM_STATE (WM_APP + 8)
+#define CCLOVER_MENU_QUIT 1001
+#define CCLOVER_MARGIN 16
+#ifndef WM_DPICHANGED
+#define WM_DPICHANGED 0x02E0
+#endif
+
+typedef struct {
+    void *context;
+    const CcloverCallbacks *callbacks;
+    NOTIFYICONDATAW tray;
+    UINT taskbar_created;
+    CcloverDisplay display;
+    CcloverGdiRenderer renderer;
+} CcloverHost;
+
+static void cclover_scene(CcloverHost *host, CcloverScene *scene) {
+    ZeroMemory(scene, sizeof(*scene));
+    host->callbacks->scene(host->context, scene);
+}
+
 static void cclover_place(CcloverHost *host, HWND hwnd, uint32_t width, uint32_t height) {
     HWND shell = GetShellWindow();
+    RECT display_work = cclover_display_work_area(&host->display);
     CcloverRectI work = {
-        host->display.work_area.left,
-        host->display.work_area.top,
-        host->display.work_area.right,
-        host->display.work_area.bottom,
+        display_work.left,
+        display_work.top,
+        display_work.right,
+        display_work.bottom,
     };
     CcloverWindowGeometry geometry = cclover_top_right_geometry(
-        width, height, work, host->display.dpi, (float)CCLOVER_MARGIN);
-    int radius = cclover_px(host, 32.0f);
+        width, height, work, cclover_display_dpi(&host->display), (float)CCLOVER_MARGIN);
+    int radius = cclover_display_px(&host->display, 32.0f);
     if (shell && GetWindow(hwnd, GW_OWNER) != shell) {
         SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, (LONG_PTR)shell);
     }
@@ -61,7 +97,7 @@ static LRESULT CALLBACK cclover_wndproc(HWND hwnd, UINT message, WPARAM wparam, 
 
     if (host->taskbar_created && message == host->taskbar_created) {
         CcloverScene scene;
-        cclover_refresh_display(host, hwnd);
+        cclover_display_refresh(&host->display, hwnd);
         cclover_scene(host, &scene);
         cclover_place(host, hwnd, scene.width, scene.height);
         cclover_add_tray(hwnd, host);
@@ -74,7 +110,7 @@ static LRESULT CALLBACK cclover_wndproc(HWND hwnd, UINT message, WPARAM wparam, 
         const RECT *suggested = (const RECT *)lparam;
         HMONITOR monitor = MonitorFromRect(suggested, MONITOR_DEFAULTTONEAREST);
         CcloverScene scene;
-        cclover_set_display(host, monitor, LOWORD(wparam));
+        cclover_display_set(&host->display, monitor, LOWORD(wparam));
         cclover_scene(host, &scene);
         cclover_place(host, hwnd, scene.width, scene.height);
         InvalidateRect(hwnd, NULL, FALSE);
@@ -84,7 +120,7 @@ static LRESULT CALLBACK cclover_wndproc(HWND hwnd, UINT message, WPARAM wparam, 
         uint32_t state = host->callbacks->take_state(host->context);
         if (cclover_win32_state_requires_refresh(state, CCLOVER_STATE_CHANGED)) {
             CcloverScene scene;
-            cclover_refresh_display(host, hwnd);
+            cclover_display_refresh(&host->display, hwnd);
             cclover_scene(host, &scene);
             cclover_place(host, hwnd, scene.width, scene.height);
             InvalidateRect(hwnd, NULL, FALSE);
@@ -104,7 +140,8 @@ static LRESULT CALLBACK cclover_wndproc(HWND hwnd, UINT message, WPARAM wparam, 
         old_bitmap = SelectObject(buffer, bitmap);
         FillRect(buffer, &client, (HBRUSH)GetStockObject(BLACK_BRUSH));
         cclover_scene(host, &scene);
-        cclover_draw_scene(host, buffer, &scene);
+        cclover_gdi_draw_scene(&host->renderer, buffer, &scene,
+                               cclover_display_dpi(&host->display));
         BitBlt(target, 0, 0, client.right, client.bottom, buffer, 0, 0, SRCCOPY);
         SelectObject(buffer, old_bitmap);
         DeleteObject(bitmap);
@@ -125,7 +162,8 @@ static LRESULT CALLBACK cclover_wndproc(HWND hwnd, UINT message, WPARAM wparam, 
         return 0;
     case WM_DESTROY: {
         Shell_NotifyIconW(NIM_DELETE, &host->tray);
-        cclover_release_resources(host);
+        cclover_gdi_renderer_destroy(&host->renderer);
+        cclover_display_destroy(&host->display);
         PostQuitMessage(0);
         return 0;
     }
@@ -157,9 +195,9 @@ int cclover_win32_run(void *context, const CcloverCallbacks *callbacks) {
     ZeroMemory(&host, sizeof(host));
     host.context = context;
     host.callbacks = callbacks;
-    cclover_init_dpi_api(&host.dpi_api);
-    cclover_enable_dpi_awareness(&host.dpi_api);
-    cclover_refresh_display(&host, NULL);
+    cclover_display_init(&host.display);
+    cclover_display_enable_dpi_awareness(&host.display);
+    cclover_display_refresh(&host.display, NULL);
     host.taskbar_created = RegisterWindowMessageW(L"TaskbarCreated");
     cclover_scene(&host, &scene);
     shell = GetShellWindow();
@@ -172,23 +210,25 @@ int cclover_win32_run(void *context, const CcloverCallbacks *callbacks) {
     window_class.lpszClassName = CLASS_NAME;
     if (!RegisterClassExW(&window_class) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
         int error = (int)GetLastError();
-        cclover_release_resources(&host);
+        cclover_gdi_renderer_destroy(&host.renderer);
+        cclover_display_destroy(&host.display);
         return error;
     }
 
     hwnd = CreateWindowExW(
         WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED | WS_EX_TRANSPARENT,
         CLASS_NAME, L"cclover-mon", WS_POPUP,
-        0, 0, cclover_px(&host, (float)scene.width),
-        cclover_px(&host, (float)scene.height),
+        0, 0, cclover_display_px(&host.display, (float)scene.width),
+        cclover_display_px(&host.display, (float)scene.height),
         shell, NULL, instance, &host);
     if (!hwnd) {
         int error = (int)GetLastError();
-        cclover_release_resources(&host);
+        cclover_gdi_renderer_destroy(&host.renderer);
+        cclover_display_destroy(&host.display);
         return error;
     }
 
-    cclover_refresh_display(&host, hwnd);
+    cclover_display_refresh(&host.display, hwnd);
     cclover_scene(&host, &scene);
 
     if (!SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)) {

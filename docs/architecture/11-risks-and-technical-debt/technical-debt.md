@@ -24,7 +24,7 @@ Presence is the state: every document in `technical-debt/` represents debt that 
 Current architecture-level technical debt:
 
 - [Graphical text font metrics contract](technical-debt/graphical-text-font-metrics-contract.md) — Medium priority; shared bounded text-slot geometry still lacks a renderer-level guarantee that the concrete Web, Cairo, and GDI font realizations satisfy the same advance budget.
-- [Native host source-text verification coupling](technical-debt/native-host-source-text-verification-coupling.md) — Low priority; some native-host contracts are still verified through concrete C source spelling, so semantics-preserving refactors can trigger avoidable test maintenance.
+- [Native adapter wiring contract coverage](technical-debt/native-adapter-wiring-contract-coverage.md) — Low-medium priority; selected Wayland and D-Bus adapter mappings still lack stable deterministic proof below full OS integration.
 - [Windows AMD Family 10h upstream authority](technical-debt/windows-amd-family10-upstream-authority.md) — Low-medium priority; Family 10h still retains a second temperature-algorithm authority because the pinned official PawnIO transport cannot execute upstream Erratum 319 validation.
 - [Windows NDU ABI fixture coverage](technical-debt/windows-ndu-abi-fixture-coverage.md) — Medium-high priority; the undocumented NDU ABI still lacks a representative multi-version raw fixture corpus.
 - [Windows NDU end-to-end acceptance](technical-debt/windows-ndu-end-to-end-acceptance.md) — High priority; real process-to-interface NDU attribution still lacks a repeatable end-to-end acceptance harness.

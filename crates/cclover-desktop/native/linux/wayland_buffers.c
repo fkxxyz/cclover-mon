@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "wayland_buffers.h"
+#include "wayland_buffer_policy.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -68,8 +69,10 @@ static int wayland_static_layer_ensure(CcloverWaylandBuffers *buffers,
     uint32_t buffer_height = scene->height * (uint32_t)scale;
     int stride = (int)buffer_width * 4;
     size_t size = (size_t)stride * buffer_height;
-    if (layer->data && layer->width == scene->width && layer->height == scene->height &&
-        layer->scale == scale && layer->revision == scene->static_revision)
+    if (cclover_wayland_static_layer_reusable(
+            layer->data != NULL, layer->width, layer->height, layer->scale,
+            layer->revision, scene->width, scene->height, scale,
+            scene->static_revision))
         return 0;
 
     wayland_static_layer_destroy(layer);
@@ -152,11 +155,12 @@ static int wayland_buffer_acquire(CcloverWaylandBuffers *buffers, struct wl_shm 
                                   const CcloverScene *scene, int32_t scale,
                                   WaylandBuffer **out) {
     size_t i;
-    if (buffers->previous_buffer && !buffers->previous_buffer->busy &&
-        buffers->previous_buffer->buffer &&
-        buffers->previous_buffer->width == scene->width &&
-        buffers->previous_buffer->height == scene->height &&
-        buffers->previous_buffer->scale == scale) {
+    if (buffers->previous_buffer &&
+        cclover_wayland_buffer_reusable(
+            buffers->previous_buffer->busy,
+            buffers->previous_buffer->buffer != NULL,
+            buffers->previous_buffer->width, buffers->previous_buffer->height,
+            buffers->previous_buffer->scale, scene->width, scene->height, scale)) {
         *out = buffers->previous_buffer;
         return 0;
     }
@@ -164,8 +168,9 @@ static int wayland_buffer_acquire(CcloverWaylandBuffers *buffers, struct wl_shm 
         WaylandBuffer *owned = &buffers->buffers[i];
         if (owned->busy) continue;
         if (owned->buffer &&
-            (owned->width != scene->width || owned->height != scene->height ||
-             owned->scale != scale)) {
+            !cclover_wayland_buffer_compatible(
+                owned->width, owned->height, owned->scale,
+                scene->width, scene->height, scale)) {
             wayland_buffer_destroy(owned);
         }
         if (!owned->buffer && wayland_buffer_create(shm, owned, scene, scale) < 0)
@@ -217,18 +222,22 @@ int cclover_wayland_buffers_draw(CcloverWaylandBuffers *buffers,
     double profile_static = 0.0;
     double profile_raster = 0.0;
     size_t i;
-    int full_redraw = scene->full_redraw != 0 || buffers->previous_buffer == NULL;
     int static_rebuilt = 0;
+    CcloverWaylandDrawMode draw_mode;
+    int full_redraw;
     WaylandBuffer *owned;
     int acquired;
 
     if (wayland_static_layer_ensure(buffers, renderer, scene, scale, &static_rebuilt) < 0) return -1;
-    if (static_rebuilt) full_redraw = 1;
+    draw_mode = cclover_wayland_draw_mode(
+        scene->full_redraw != 0, buffers->previous_buffer != NULL,
+        static_rebuilt, dirty_count);
+    full_redraw = draw_mode == CCLOVER_WAYLAND_DRAW_FULL;
     if (profiling) profile_static = cclover_profile_cpu_ms();
     if (full_redraw) {
         dirty = &full_damage;
         dirty_count = 1;
-    } else if (dirty_count == 0) {
+    } else if (draw_mode == CCLOVER_WAYLAND_DRAW_SKIP) {
         return 0;
     }
 

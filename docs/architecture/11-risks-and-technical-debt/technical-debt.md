@@ -23,7 +23,6 @@ Presence is the state: every document in `technical-debt/` represents debt that 
 
 Current architecture-level technical debt:
 
-- [Performance diagnostic workload context fidelity](technical-debt/performance-diagnostic-workload-context-fidelity.md) — Medium priority; repaired production-context semantics still need real Linux eBPF runtime acceptance before the original diagnostic-fidelity debt can be closed.
 - [Performance diagnostic composition authority](technical-debt/performance-diagnostic-composition-authority.md) — Low-medium priority; production and performance orchestration still maintain production-equivalence decisions separately enough that future context or projection changes can drift without compilation failure.
 - [Performance comparison proof authority](technical-debt/performance-comparison-proof-authority.md) — Low-medium priority; production performance workloads exist, but repeatable baseline-versus-candidate orchestration and noise-aware comparison still require ad hoc maintainer work.
 - [Linux release runtime ABI authority](technical-debt/linux-release-runtime-abi-authority.md) — Medium priority; published Linux artifacts lack one system-wide runtime ABI baseline, so build-environment changes can silently raise host requirements.

@@ -28,11 +28,11 @@ Maintenance and validation reliability.
 
 ## Current cost
 
-Maintainers must know which privileged profiles require manual credentials or a host-specific bridge and must trust each smoke script to implement elevation consistently and safely. Adding another privileged runtime proof risks copying `sudo`, administrator bridge, environment forwarding, and failure-reporting policy into another script. A profile can correctly declare `privilege: elevated` while ordinary automated execution still lacks a general mechanism that guarantees the requirement is satisfied.
+Maintainers must know which privileged profiles require manual credentials or a host-specific bridge and must trust each smoke script to implement elevation consistently and safely. Adding another privileged runtime proof risks copying `sudo`, administrator bridge, environment forwarding, and failure-reporting policy into another script. A profile can correctly declare `privilege: elevated` while ordinary automated execution still lacks a general mechanism that guarantees the requirement is satisfied, forcing non-interactive automation or agents to hand execution back to a human when credentials are required.
 
 ## Evidence
 
-The Linux `linux-ebpf-runtime` profile declares elevated privilege in `validate.ts`, but its scalar-fallback smoke obtains elevation by invoking `sudo` when the process is not already root. Windows elevated runtime validation uses a repository-owned Windows host bridge. These mechanisms are valid locally, but they demonstrate that privilege execution policy is distributed across profile metadata, host adapters, and individual validation scripts rather than converging at one execution boundary.
+The Linux `linux-ebpf-runtime` profile declares elevated privilege in `validate.ts`, but its runtime smoke obtains elevation by invoking `sudo` when the process is not already root. During the production-context lifecycle validation work, non-interactive execution reached this boundary, `sudo` required a password, and the automated flow had to stop for a maintainer to run the runtime proof manually. Windows elevated runtime validation uses a repository-owned Windows host bridge. These mechanisms are valid locally, but they demonstrate that privilege execution policy is distributed across profile metadata, host adapters, and individual validation scripts rather than converging at one execution boundary.
 
 ## Cost mechanism
 

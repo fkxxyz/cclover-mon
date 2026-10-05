@@ -167,7 +167,7 @@ const LINUX_EBPF_RUNTIME_STEPS: readonly ValidationStep[] = [
     name: "Linux libbpf ABI compatibility",
     command: ["bun", "libbpf-compat.ts", "target/release/cclover-mon"],
   },
-  { name: "Linux eBPF scalar-fallback smoke", command: ["bun", "linux-ebpf-runtime-smoke.ts"] },
+  { name: "Linux eBPF runtime smoke", command: ["bun", "linux-ebpf-runtime-smoke.ts"] },
 ];
 
 const WEB_BROWSER_STEPS: readonly ValidationStep[] = [

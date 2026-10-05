@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import {
   RELEASE_COMPANION_ASSETS,
@@ -35,6 +36,9 @@ async function fixtureRepository(root: string): Promise<string> {
   run(["git", "config", "user.email", "fixture@example.invalid"], repository);
   await writeFile(join(repository, "README.md"), "fixture corresponding source\n");
   run(["git", "add", "README.md"], repository);
+  run(["git", "commit", "-q", "-m", "fixture source base"], repository);
+  await writeFile(join(repository, "SECOND.md"), "fixture second commit\n");
+  run(["git", "add", "SECOND.md"], repository);
   run(["git", "commit", "-q", "-m", "fixture source"], repository);
   run(["git", "tag", "fixture-v1"], repository);
   return repository;
@@ -49,6 +53,18 @@ async function fixtureSubmoduleRepository(root: string): Promise<string> {
   await writeFile(join(repository, "SUBMODULE.md"), "fixture submodule source\n");
   run(["git", "add", "SUBMODULE.md"], repository);
   run(["git", "commit", "-q", "-m", "fixture submodule source"], repository);
+  return repository;
+}
+
+async function fixtureNestedRepository(root: string): Promise<string> {
+  const repository = join(root, "nested-upstream");
+  await mkdir(repository);
+  run(["git", "init", "-q"], repository);
+  run(["git", "config", "user.name", "fixture"], repository);
+  run(["git", "config", "user.email", "fixture@example.invalid"], repository);
+  await writeFile(join(repository, "NESTED.md"), "fixture nested source\n");
+  run(["git", "add", "NESTED.md"], repository);
+  run(["git", "commit", "-q", "-m", "fixture nested source"], repository);
   return repository;
 }
 
@@ -67,7 +83,7 @@ describe("redistribution fulfillment", () => {
         source: {
           dependency: "Fixture",
           version: "1.0",
-          repository,
+          repository: pathToFileURL(repository).href,
           ref: "fixture-v1",
           commit: expectedCommit,
         },
@@ -77,11 +93,15 @@ describe("redistribution fulfillment", () => {
         outDir: join(root, "out-one"),
         gitCommit: COMMIT,
         repoRoot: root,
+        sourceCacheRoot: join(root, "cache"),
       });
+      await rm(repository, { recursive: true, force: true });
       const second = await buildRedistributionSourceAsset(plan, {
         outDir: join(root, "out-two"),
         gitCommit: COMMIT,
         repoRoot: root,
+        sourcePolicy: "cache-only",
+        sourceCacheRoot: join(root, "cache"),
       });
 
       expect(first.resolvedSourceCommit).toBe(expectedCommit);
@@ -126,6 +146,7 @@ describe("redistribution fulfillment", () => {
           outDir: join(root, "out"),
           gitCommit: COMMIT,
           repoRoot: root,
+          sourceCacheRoot: join(root, "cache"),
         }),
       ).rejects.toThrow("expected pinned commit");
     } finally {
@@ -138,6 +159,13 @@ describe("redistribution fulfillment", () => {
     try {
       const repository = await fixtureRepository(root);
       const submoduleRepository = await fixtureSubmoduleRepository(root);
+      const nestedRepository = await fixtureNestedRepository(root);
+      const nestedCommit = run(["git", "rev-parse", "HEAD"], nestedRepository);
+      run(
+        ["git", "-c", "protocol.file.allow=always", "submodule", "add", nestedRepository, "Nested"],
+        submoduleRepository,
+      );
+      run(["git", "commit", "-q", "-am", "add nested fixture submodule"], submoduleRepository);
       const submoduleCommit = run(["git", "rev-parse", "HEAD"], submoduleRepository);
       run(
         ["git", "-c", "protocol.file.allow=always", "submodule", "add", submoduleRepository, "PawnPP"],
@@ -155,35 +183,123 @@ describe("redistribution fulfillment", () => {
         source: {
           dependency: "Fixture",
           version: "1.1",
-          repository,
+          repository: pathToFileURL(repository).href,
           ref: "fixture-submodules",
           commit: expectedCommit,
         },
       };
 
-      const testHome = join(root, "git-home");
-      await mkdir(testHome);
-      await writeFile(join(testHome, ".gitconfig"), "[protocol \"file\"]\n\tallow = always\n");
-      const previousHome = process.env.HOME;
-      process.env.HOME = testHome;
-      let manifest;
-      try {
-        manifest = await buildRedistributionSourceAsset(plan, {
-          outDir: join(root, "out"),
-          gitCommit: COMMIT,
-          repoRoot: root,
-        });
-      } finally {
-        if (previousHome === undefined) delete process.env.HOME;
-        else process.env.HOME = previousHome;
-      }
+      const manifest = await buildRedistributionSourceAsset(plan, {
+        outDir: join(root, "out"),
+        gitCommit: COMMIT,
+        repoRoot: root,
+        sourceCacheRoot: join(root, "cache"),
+      });
 
       expect(manifest.submodules).toEqual([
         { path: "PawnPP", repository: submoduleRepository, commit: submoduleCommit },
+        { path: "PawnPP/Nested", repository: nestedRepository, commit: nestedCommit },
       ]);
       const listing = run(["tar", "-tzf", join(root, "out", plan.name)], root).split(/\r?\n/);
       expect(listing).toContain("fixture/PawnPP/SUBMODULE.md");
+      expect(listing).toContain("fixture/PawnPP/Nested/NESTED.md");
       expect(listing.some((entry) => entry.endsWith("/.git") || entry.includes("/.git/"))).toBe(false);
+
+      await rm(repository, { recursive: true, force: true });
+      await rm(submoduleRepository, { recursive: true, force: true });
+      await rm(nestedRepository, { recursive: true, force: true });
+      const offline = await buildRedistributionSourceAsset(plan, {
+        outDir: join(root, "out-offline"),
+        gitCommit: COMMIT,
+        repoRoot: root,
+        sourcePolicy: "cache-only",
+        sourceCacheRoot: join(root, "cache"),
+      });
+      expect(offline.sha256).toBe(manifest.sha256);
+      expect(offline.submodules).toEqual(manifest.submodules);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("cache-only acquisition fails on a missing retained source without contacting upstream", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cclover-redistribution-source-test-"));
+    try {
+      const repository = await fixtureRepository(root);
+      const expectedCommit = run(["git", "rev-parse", "HEAD"], repository);
+      const plan: ReleaseCompanionAssetPlan = {
+        id: "fixture-source",
+        role: "redistribution-source",
+        name: "fixture-source.tar.gz",
+        sourceRoot: "fixture",
+        fulfillsPayloads: ["pawnio-modules"],
+        source: {
+          dependency: "Fixture",
+          version: "1.0",
+          repository,
+          ref: "fixture-v1",
+          commit: expectedCommit,
+        },
+      };
+
+      await rm(repository, { recursive: true, force: true });
+      await expect(
+        buildRedistributionSourceAsset(plan, {
+          outDir: join(root, "out"),
+          gitCommit: COMMIT,
+          repoRoot: root,
+          sourcePolicy: "cache-only",
+          sourceCacheRoot: join(root, "cache"),
+        }),
+      ).rejects.toThrow("retained source cache miss");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("fails closed on retained repository corruption instead of fetching upstream again", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cclover-redistribution-source-test-"));
+    try {
+      const repository = await fixtureRepository(root);
+      const expectedCommit = run(["git", "rev-parse", "HEAD"], repository);
+      const cacheRoot = join(root, "cache");
+      const plan: ReleaseCompanionAssetPlan = {
+        id: "fixture-source",
+        role: "redistribution-source",
+        name: "fixture-source.tar.gz",
+        sourceRoot: "fixture",
+        fulfillsPayloads: ["pawnio-modules"],
+        source: {
+          dependency: "Fixture",
+          version: "1.0",
+          repository,
+          ref: "fixture-v1",
+          commit: expectedCommit,
+        },
+      };
+
+      await buildRedistributionSourceAsset(plan, {
+        outDir: join(root, "out-one"),
+        gitCommit: COMMIT,
+        repoRoot: root,
+        sourceCacheRoot: cacheRoot,
+      });
+      const entries = await readdir(cacheRoot);
+      expect(entries).toHaveLength(1);
+      await writeFile(
+        join(cacheRoot, entries[0]!, "root.git", "refs", "heads", "retained-source"),
+        `${"0".repeat(40)}\n`,
+      );
+
+      await expect(
+        buildRedistributionSourceAsset(plan, {
+          outDir: join(root, "out-two"),
+          gitCommit: COMMIT,
+          repoRoot: root,
+          sourcePolicy: "allow-network",
+          sourceCacheRoot: cacheRoot,
+        }),
+      ).rejects.toThrow("retained source cache corrupt");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

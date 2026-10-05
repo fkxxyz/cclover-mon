@@ -10,6 +10,7 @@ export {
   validateRedistributionPlan,
   verifyRedistributionSourceAssets,
 } from "./tools/release/redistribution";
+export { type SourceAcquisitionPolicy } from "./tools/release/source-retention";
 export {
   assertStaticPackageInputs,
   buildReleaseArtifact,
@@ -62,7 +63,7 @@ function usage(): void {
   console.log(`usage:
   bun release.ts plan [--json] [--tag vVERSION]
   bun release.ts build <artifact-id> [--out-dir DIR] [--tag vVERSION]
-  bun release.ts sources [--out-dir DIR] [--tag vVERSION]
+  bun release.ts sources [--out-dir DIR] [--tag vVERSION] [--offline]
   bun release.ts verify <artifact-directory> [--tag vVERSION]
   bun release.ts publish <artifact-directory> --tag vVERSION`);
 }
@@ -79,7 +80,7 @@ function positional(args: readonly string[]): string[] {
   const result: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     if (args[index]?.startsWith("--")) {
-      if (args[index] !== "--json") index += 1;
+      if (args[index] !== "--json" && args[index] !== "--offline") index += 1;
       continue;
     }
     result.push(args[index]!);
@@ -121,6 +122,7 @@ async function main(args: readonly string[]): Promise<number> {
     const manifests = await buildRedistributionSourceAssets({
       outDir,
       gitCommit: await workspaceCommit(),
+      sourcePolicy: rest.includes("--offline") ? "cache-only" : "allow-network",
     });
     for (const manifest of manifests) console.log(`${manifest.name}\t${manifest.sha256}`);
     return 0;

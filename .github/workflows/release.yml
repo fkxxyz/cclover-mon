@@ -67,6 +67,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/cclover-mon/deps/release-sources
+          key: release-sources-v1-${{ hashFiles('deps/pawnio.ts') }}
       - name: Build redistribution source assets
         run: bun release.ts sources --tag "$GITHUB_REF_NAME" --out-dir release-out
       - uses: actions/upload-artifact@v4

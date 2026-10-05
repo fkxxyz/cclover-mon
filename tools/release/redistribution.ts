@@ -13,6 +13,10 @@ import {
   type RedistributionFulfillmentEvidence,
   type ToolIdentity,
 } from "./plan";
+import {
+  materializeRetainedSource,
+  type SourceAcquisitionPolicy,
+} from "./source-retention";
 
 const DEFAULT_REPO_ROOT = resolve(import.meta.dir, "../..");
 
@@ -45,22 +49,6 @@ function capture(command: readonly string[], cwd: string): string {
     );
   }
   return result.stdout.toString().trim();
-}
-
-function captureRaw(command: readonly string[], cwd: string): string {
-  const result = Bun.spawnSync({
-    cmd: [...command],
-    cwd,
-    env: process.env,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (result.exitCode !== 0) {
-    throw new Error(
-      `${command.join(" ")} failed with exit code ${result.exitCode}: ${result.stderr.toString().trim()}`,
-    );
-  }
-  return result.stdout.toString();
 }
 
 function firstLine(output: string, command: string): string {
@@ -112,63 +100,6 @@ async function assertFile(path: string, description: string): Promise<void> {
     throw new Error(`${description} is missing: ${path}`);
   }
   if (!metadata.isFile()) throw new Error(`${description} is not a file: ${path}`);
-}
-
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    return (await stat(path)).isFile();
-  } catch {
-    return false;
-  }
-}
-
-type SourceSubmodule = ReleaseCompanionAssetManifest["submodules"][number];
-
-async function materializeSubmodules(checkout: string, cwd: string): Promise<readonly SourceSubmodule[]> {
-  if (!(await fileExists(join(checkout, ".gitmodules")))) return [];
-
-  run(["git", "-C", checkout, "submodule", "update", "--init", "--recursive", "--depth", "1"], cwd);
-
-  const provenanceText = captureRaw(
-    [
-      "git",
-      "-C",
-      checkout,
-      "submodule",
-      "foreach",
-      "--recursive",
-      "--quiet",
-      'printf "%s\\t%s\\t%s\\t%s\\n" "$displaypath" "$(git remote get-url origin)" "$sha1" "$(git rev-parse HEAD)"',
-    ],
-    cwd,
-  );
-  const paths = new Set<string>();
-  return provenanceText
-    .split(/\r?\n/)
-    .filter((line) => line.length > 0)
-    .map((line) => {
-      const [path, repository, expectedCommit, actualCommit, ...extra] = line.split("\t");
-      if (
-        !path ||
-        !repository ||
-        !expectedCommit ||
-        !actualCommit ||
-        extra.length > 0 ||
-        !/^[0-9a-f]{40}$/.test(expectedCommit) ||
-        !/^[0-9a-f]{40}$/.test(actualCommit)
-      ) {
-        throw new Error(`invalid source submodule provenance for ${checkout}: ${line}`);
-      }
-      if (paths.has(path)) throw new Error(`duplicate source submodule path for ${checkout}: ${path}`);
-      paths.add(path);
-      if (expectedCommit !== actualCommit) {
-        throw new Error(
-          `source submodule ${path} resolved to ${actualCommit}, expected recorded gitlink ${expectedCommit}`,
-        );
-      }
-      return { path, repository, commit: actualCommit };
-    })
-    .sort((left, right) => left.path.localeCompare(right.path));
 }
 
 function payloadMetadata(id: PawnioPayloadId): {
@@ -329,7 +260,13 @@ export function sourceManifestFileName(plan: ReleaseCompanionAssetPlan): string 
 
 export async function buildRedistributionSourceAsset(
   plan: ReleaseCompanionAssetPlan,
-  options: { outDir: string; gitCommit: string; repoRoot?: string },
+  options: {
+    outDir: string;
+    gitCommit: string;
+    repoRoot?: string;
+    sourcePolicy?: SourceAcquisitionPolicy;
+    sourceCacheRoot?: string;
+  },
 ): Promise<ReleaseCompanionAssetManifest> {
   const repoRoot = options.repoRoot ?? DEFAULT_REPO_ROOT;
   if (!/^[0-9a-f]{40}$/.test(options.gitCommit)) {
@@ -344,31 +281,13 @@ export async function buildRedistributionSourceAsset(
   const outputPath = join(outDir, plan.name);
 
   try {
-    run(
-      [
-        "git",
-        "clone",
-        "--quiet",
-        "--depth",
-        "1",
-        "--branch",
-        plan.source.ref,
-        "--single-branch",
-        plan.source.repository,
-        checkout,
-      ],
+    const retained = await materializeRetainedSource(plan, checkout, {
       repoRoot,
-    );
-    const resolvedSourceCommit = capture(["git", "-C", checkout, "rev-parse", "HEAD"], repoRoot);
-    if (!/^[0-9a-f]{40}$/.test(resolvedSourceCommit)) {
-      throw new Error(`invalid resolved source commit for ${plan.id}: ${resolvedSourceCommit}`);
-    }
-    if (resolvedSourceCommit !== plan.source.commit) {
-      throw new Error(
-        `source ref ${plan.source.ref} for ${plan.id} resolved to ${resolvedSourceCommit}, expected pinned commit ${plan.source.commit}`,
-      );
-    }
-    const submodules = await materializeSubmodules(checkout, repoRoot);
+      policy: options.sourcePolicy,
+      cacheRoot: options.sourceCacheRoot,
+    });
+    const resolvedSourceCommit = retained.resolvedSourceCommit;
+    const submodules = retained.submodules;
     const producerTools = sourceProducerTools(repoRoot);
 
     run(
@@ -413,7 +332,13 @@ export async function buildRedistributionSourceAsset(
 }
 
 export async function buildRedistributionSourceAssets(
-  options: { outDir: string; gitCommit: string; repoRoot?: string },
+  options: {
+    outDir: string;
+    gitCommit: string;
+    repoRoot?: string;
+    sourcePolicy?: SourceAcquisitionPolicy;
+    sourceCacheRoot?: string;
+  },
 ): Promise<readonly ReleaseCompanionAssetManifest[]> {
   validateRedistributionPlan();
   const manifests: ReleaseCompanionAssetManifest[] = [];

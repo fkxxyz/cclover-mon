@@ -192,6 +192,7 @@ int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks, int 
         }
     }
 
+    cclover_cairo_renderer_destroy(&renderer);
     cairo_destroy(cr);
     cairo_surface_destroy(surface);
     XDestroyWindow(display, window);

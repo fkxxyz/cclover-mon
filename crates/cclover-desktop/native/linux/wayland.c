@@ -396,6 +396,7 @@ int cclover_linux_wayland_run(void *context, const CcloverCallbacks *callbacks, 
 cleanup:
     wayland_surface_destroy(&host);
     cclover_wayland_buffers_destroy(&host.buffers);
+    cclover_cairo_renderer_destroy(&host.renderer);
     for (i = 0; i < CCLOVER_WAYLAND_MAX_OUTPUTS; ++i)
         wayland_output_reset(&host.globals.outputs[i]);
     if (host.globals.layer_shell) zwlr_layer_shell_v1_destroy(host.globals.layer_shell);

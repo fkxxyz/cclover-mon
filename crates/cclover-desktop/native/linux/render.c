@@ -52,6 +52,16 @@ static void cclover_select_font(cairo_t *cr, uint32_t size, int bold) {
     cairo_set_font_size(cr, size);
 }
 
+static void cclover_ensure_font_selected(cairo_t *cr, uint32_t size, uint32_t bold,
+                                         uint32_t *font_size, uint32_t *font_bold,
+                                         int *font_valid) {
+    if (*font_valid && *font_size == size && *font_bold == bold) return;
+    cclover_select_font(cr, size, (int)bold);
+    *font_size = size;
+    *font_bold = bold;
+    *font_valid = 1;
+}
+
 static void cclover_font_extents(CcloverCairoRenderer *renderer, cairo_t *cr, uint32_t size,
                                  uint32_t bold, cairo_font_extents_t *extents) {
     CcloverFontMetricsCacheEntry *cached =
@@ -68,6 +78,7 @@ static void cclover_font_extents(CcloverCairoRenderer *renderer, cairo_t *cr, ui
 }
 
 static void cclover_draw_text(CcloverCairoRenderer *renderer, cairo_t *cr, const CcloverCommand *cmd,
+                              const CcloverTextAdvance *prepared_advance,
                               uint32_t *font_size, uint32_t *font_bold, int *font_valid) {
     char stack[512];
     char *text = cclover_text_copy(cmd->text, cmd->text_len, stack);
@@ -79,12 +90,8 @@ static void cclover_draw_text(CcloverCairoRenderer *renderer, cairo_t *cr, const
     if (!text) return;
 
     bold = (cmd->flags & CCLOVER_TEXT_BOLD) != 0;
-    if (!*font_valid || *font_size != cmd->text_size || *font_bold != bold) {
-        cclover_select_font(cr, cmd->text_size, bold);
-        *font_size = cmd->text_size;
-        *font_bold = bold;
-        *font_valid = 1;
-    }
+    cclover_ensure_font_selected(cr, cmd->text_size, bold,
+                                 font_size, font_bold, font_valid);
     clipped = (cmd->flags & CCLOVER_TEXT_CLIP) != 0;
     if (clipped) {
         cairo_save(cr);
@@ -94,8 +101,14 @@ static void cclover_draw_text(CcloverCairoRenderer *renderer, cairo_t *cr, const
     cclover_font_extents(renderer, cr, cmd->text_size, bold, &font);
     x = cmd->x;
     if (cmd->flags & CCLOVER_TEXT_END) {
-        cairo_text_extents(cr, text, &text_extents);
-        x = cmd->x + cmd->width - text_extents.x_advance;
+        double x_advance;
+        if (prepared_advance && prepared_advance->valid) {
+            x_advance = prepared_advance->x_advance;
+        } else {
+            cairo_text_extents(cr, text, &text_extents);
+            x_advance = text_extents.x_advance;
+        }
+        x = cmd->x + cmd->width - x_advance;
     }
     y = cmd->y + (cmd->height - (font.ascent + font.descent)) / 2.0 + font.ascent;
     cclover_source_argb(cr, cmd->color);
@@ -123,17 +136,16 @@ static int cclover_redraw_mask_valid(const CcloverScene *scene,
            scene->redraw_mask_count == scene->command_count;
 }
 
-static int cclover_cairo_text_fits(cairo_t *cr, const CcloverCommand *cmd) {
+static int cclover_cairo_text_fits(cairo_t *cr, const CcloverCommand *cmd,
+                                   double *x_advance) {
     char stack[512];
     char *text = cclover_text_copy(cmd->text, cmd->text_len, stack);
     cairo_text_extents_t extents;
     double measured_x, measured_y, allowed_x, allowed_y;
     double measured, allowed;
-    int bold;
     if (!text) return 0;
-    bold = (cmd->flags & CCLOVER_TEXT_BOLD) != 0;
-    cclover_select_font(cr, cmd->text_size, bold);
     cairo_text_extents(cr, text, &extents);
+    *x_advance = extents.x_advance;
     measured_x = extents.x_advance;
     measured_y = 0.0;
     allowed_x = cmd->width;
@@ -148,32 +160,79 @@ static int cclover_cairo_text_fits(cairo_t *cr, const CcloverCommand *cmd) {
 
 static int cclover_cairo_scene_conforms(cairo_t *cr, const CcloverScene *scene,
                                         CcloverCairoDrawMode mode,
-                                        int cull_to_redraw_mask) {
+                                        int cull_to_redraw_mask,
+                                        CcloverTextAdvance *text_advances) {
     int redraw_mask_valid = cclover_redraw_mask_valid(scene, cull_to_redraw_mask);
+    uint32_t font_size = 0;
+    uint32_t font_bold = 0;
+    int font_valid = 0;
     size_t i;
     for (i = 0; i < scene->command_count; ++i) {
         const CcloverCommand *cmd = &scene->commands[i];
+        uint32_t bold;
+        double x_advance;
         if (!cclover_draw_command(scene, mode, i, cull_to_redraw_mask,
                                   redraw_mask_valid) ||
             cmd->kind != CCLOVER_CMD_TEXT ||
             !(cmd->flags & CCLOVER_TEXT_MUST_FIT))
             continue;
-        if (!cclover_cairo_text_fits(cr, cmd)) return 0;
+        bold = (cmd->flags & CCLOVER_TEXT_BOLD) != 0;
+        cclover_ensure_font_selected(cr, cmd->text_size, bold,
+                                     &font_size, &font_bold, &font_valid);
+        if (!cclover_cairo_text_fits(cr, cmd, &x_advance)) return 0;
+        if (text_advances && (cmd->flags & CCLOVER_TEXT_END)) {
+            text_advances[i].x_advance = x_advance;
+            text_advances[i].valid = 1;
+        }
     }
     return 1;
+}
+
+static CcloverTextAdvance *cclover_cairo_prepare_text_advances(
+    CcloverCairoRenderer *renderer, const CcloverScene *scene) {
+    CcloverTextAdvance *resized;
+    renderer->prepared_commands = NULL;
+    renderer->prepared_command_count = 0;
+    if (scene->command_count == 0) return NULL;
+    if (renderer->text_advance_capacity < scene->command_count) {
+        resized = realloc(renderer->text_advances,
+                          scene->command_count * sizeof(*renderer->text_advances));
+        if (!resized) return NULL;
+        renderer->text_advances = resized;
+        renderer->text_advance_capacity = scene->command_count;
+    }
+    memset(renderer->text_advances, 0,
+           scene->command_count * sizeof(*renderer->text_advances));
+    return renderer->text_advances;
+}
+
+void cclover_cairo_renderer_destroy(CcloverCairoRenderer *renderer) {
+    if (!renderer) return;
+    free(renderer->text_advances);
+    renderer->text_advances = NULL;
+    renderer->text_advance_capacity = 0;
+    renderer->prepared_commands = NULL;
+    renderer->prepared_command_count = 0;
 }
 
 int cclover_cairo_scene_fits(CcloverCairoRenderer *renderer, cairo_t *cr,
                              const CcloverScene *scene,
                              CcloverCairoDrawMode mode,
                              int cull_to_redraw_mask) {
-    if (!cclover_cairo_scene_conforms(cr, scene, mode, cull_to_redraw_mask)) {
+    CcloverTextAdvance *text_advances =
+        cclover_cairo_prepare_text_advances(renderer, scene);
+    if (!cclover_cairo_scene_conforms(cr, scene, mode, cull_to_redraw_mask,
+                                      text_advances)) {
         if (!renderer->typography_violation_reported) {
             fprintf(stderr,
                     "cclover-mon: Cairo text exceeded its authoritative Scene slot\n");
             renderer->typography_violation_reported = 1;
         }
         return 0;
+    }
+    if (text_advances) {
+        renderer->prepared_commands = scene->commands;
+        renderer->prepared_command_count = scene->command_count;
     }
     renderer->typography_violation_reported = 0;
     return 1;
@@ -182,7 +241,7 @@ int cclover_cairo_scene_fits(CcloverCairoRenderer *renderer, cairo_t *cr,
 int cclover_cairo_validate_scene(cairo_t *cr, const CcloverScene *scene,
                                  CcloverCairoDrawMode mode,
                                  int cull_to_redraw_mask) {
-    return cclover_cairo_scene_conforms(cr, scene, mode, cull_to_redraw_mask);
+    return cclover_cairo_scene_conforms(cr, scene, mode, cull_to_redraw_mask, NULL);
 }
 
 void cclover_cairo_execute_validated_scene(CcloverCairoRenderer *renderer, cairo_t *cr,
@@ -194,6 +253,8 @@ void cclover_cairo_execute_validated_scene(CcloverCairoRenderer *renderer, cairo
     uint32_t font_bold = 0;
     int font_valid = 0;
     int redraw_mask_valid = cclover_redraw_mask_valid(scene, cull_to_redraw_mask);
+    int prepared = renderer && renderer->prepared_commands == scene->commands &&
+                   renderer->prepared_command_count == scene->command_count;
     cairo_save(cr);
     if (clear) {
         cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
@@ -216,7 +277,10 @@ void cclover_cairo_execute_validated_scene(CcloverCairoRenderer *renderer, cairo
             cairo_set_line_width(cr, cmd->stroke_width);
             cairo_stroke(cr);
         } else if (cmd->kind == CCLOVER_CMD_TEXT) {
-            cclover_draw_text(renderer, cr, cmd, &font_size, &font_bold, &font_valid);
+            const CcloverTextAdvance *advance =
+                prepared ? &renderer->text_advances[i] : NULL;
+            cclover_draw_text(renderer, cr, cmd, advance,
+                              &font_size, &font_bold, &font_valid);
         } else if ((cmd->kind == CCLOVER_CMD_POLYLINE ||
                     cmd->kind == CCLOVER_CMD_POLYGON) &&
                    cmd->point_count > 0 &&
@@ -238,6 +302,10 @@ void cclover_cairo_execute_validated_scene(CcloverCairoRenderer *renderer, cairo
         }
     }
     cairo_restore(cr);
+    if (renderer) {
+        renderer->prepared_commands = NULL;
+        renderer->prepared_command_count = 0;
+    }
 }
 
 int cclover_cairo_draw_scene(CcloverCairoRenderer *renderer, cairo_t *cr,

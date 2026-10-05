@@ -5,6 +5,7 @@
 #include "render_policy.h"
 
 #include <cairo/cairo.h>
+#include <stddef.h>
 #include <stdint.h>
 
 typedef struct {
@@ -14,12 +15,22 @@ typedef struct {
     int valid;
 } CcloverFontMetricsCacheEntry;
 
+typedef struct {
+    double x_advance;
+    uint8_t valid;
+} CcloverTextAdvance;
+
 typedef struct CcloverCairoRenderer {
     CcloverFontMetricsCacheEntry font_metrics[32];
     int typography_violation_reported;
+    CcloverTextAdvance *text_advances;
+    size_t text_advance_capacity;
+    const CcloverCommand *prepared_commands;
+    size_t prepared_command_count;
 } CcloverCairoRenderer;
 
 void cclover_cairo_configure_context(cairo_t *cr);
+void cclover_cairo_renderer_destroy(CcloverCairoRenderer *renderer);
 int cclover_cairo_scene_fits(CcloverCairoRenderer *renderer, cairo_t *cr,
                              const CcloverScene *scene,
                              CcloverCairoDrawMode mode,

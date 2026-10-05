@@ -23,6 +23,7 @@ Presence is the state: every document in `technical-debt/` represents debt that 
 
 Current architecture-level technical debt:
 
+- [Web SVG number formatting allocation](technical-debt/web-svg-number-formatting-allocation.md) — Low-medium priority; active browser-dashboard rendering formats floating-point Scene coordinates through temporary owned strings before appending them to the final SVG output buffer.
 - [Performance diagnostic composition authority](technical-debt/performance-diagnostic-composition-authority.md) — Low-medium priority; production and performance orchestration still maintain production-equivalence decisions separately enough that future context or projection changes can drift without compilation failure.
 - [Performance comparison proof authority](technical-debt/performance-comparison-proof-authority.md) — Low-medium priority; production performance workloads exist, but repeatable baseline-versus-candidate orchestration and noise-aware comparison still require ad hoc maintainer work.
 - [Scene positional invalidation damage amplification](technical-debt/scene-positional-invalidation-damage-amplification.md) — Low-medium priority; dynamic insertion or removal is conservatively matched by ordinal position, so a local collection change can damage much of the following Scene even when most primitives are unchanged.

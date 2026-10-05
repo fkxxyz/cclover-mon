@@ -3,6 +3,7 @@
 #include "drawing.h"
 #include "windows_geometry.h"
 
+#include <stdio.h>
 #include <stdint.h>
 
 static COLORREF cclover_color(uint32_t argb) {
@@ -38,6 +39,7 @@ static void cclover_release_fonts(CcloverGdiRenderer *renderer) {
 static void cclover_prepare_dpi(CcloverGdiRenderer *renderer, UINT dpi) {
     if (renderer->dpi && cclover_dpi_requires_resource_refresh(renderer->dpi, dpi)) {
         cclover_release_fonts(renderer);
+        renderer->typography_violation_reported = 0;
     }
     renderer->dpi = dpi;
 }
@@ -115,10 +117,69 @@ static void cclover_draw_text(CcloverGdiRenderer *renderer, HDC dc,
     SelectObject(dc, old);
 }
 
-void cclover_gdi_draw_scene(CcloverGdiRenderer *renderer, HDC dc,
-                            const CcloverScene *scene, UINT dpi) {
+static int cclover_gdi_text_fits(CcloverGdiRenderer *renderer, HDC dc,
+                                 const CcloverCommand *cmd) {
+    HFONT font = cclover_font(renderer, cmd->text_size,
+                              (cmd->flags & CCLOVER_TEXT_BOLD) != 0);
+    HGDIOBJ old;
+    wchar_t stack_text[256];
+    wchar_t *wide = stack_text;
+    int wide_len;
+    SIZE extent;
+    int left, right;
+    int fits = 0;
+    if (!font) return 0;
+    old = SelectObject(dc, font);
+    if (!old || old == HGDI_ERROR) return 0;
+    wide_len = MultiByteToWideChar(CP_UTF8, 0, (LPCCH)cmd->text,
+                                   (int)cmd->text_len, NULL, 0);
+    if (wide_len <= 0) goto cleanup;
+    if (wide_len > (int)(sizeof(stack_text) / sizeof(stack_text[0]))) {
+        wide = (wchar_t *)HeapAlloc(GetProcessHeap(), 0,
+                                    (size_t)wide_len * sizeof(wchar_t));
+        if (!wide) goto cleanup;
+    }
+    if (MultiByteToWideChar(CP_UTF8, 0, (LPCCH)cmd->text, (int)cmd->text_len,
+                            wide, wide_len) != wide_len)
+        goto cleanup;
+    if (!GetTextExtentPoint32W(dc, wide, wide_len, &extent)) goto cleanup;
+    left = cclover_px(renderer->dpi, cmd->x);
+    right = cclover_px(renderer->dpi, cmd->x + cmd->width);
+    fits = extent.cx <= (right - left) + 1;
+
+cleanup:
+    if (wide != stack_text) HeapFree(GetProcessHeap(), 0, wide);
+    SelectObject(dc, old);
+    return fits;
+}
+
+static int cclover_gdi_scene_fits(CcloverGdiRenderer *renderer, HDC dc,
+                                  const CcloverScene *scene) {
+    size_t i;
+    for (i = 0; i < scene->command_count; ++i) {
+        const CcloverCommand *cmd = &scene->commands[i];
+        if (cmd->kind != CCLOVER_CMD_TEXT || !(cmd->flags & CCLOVER_TEXT_MUST_FIT))
+            continue;
+        if (!cclover_gdi_text_fits(renderer, dc, cmd)) {
+            if (!renderer->typography_violation_reported) {
+                static const char message[] =
+                    "cclover-mon: GDI text exceeded its authoritative Scene slot\n";
+                fputs(message, stderr);
+                OutputDebugStringA(message);
+                renderer->typography_violation_reported = 1;
+            }
+            return 0;
+        }
+    }
+    renderer->typography_violation_reported = 0;
+    return 1;
+}
+
+int cclover_gdi_draw_scene(CcloverGdiRenderer *renderer, HDC dc,
+                           const CcloverScene *scene, UINT dpi) {
     size_t i;
     cclover_prepare_dpi(renderer, dpi);
+    if (!cclover_gdi_scene_fits(renderer, dc, scene)) return 1;
     SetBkMode(dc, TRANSPARENT);
     for (i = 0; i < scene->command_count; ++i) {
         const CcloverCommand *cmd = &scene->commands[i];
@@ -166,6 +227,16 @@ void cclover_gdi_draw_scene(CcloverGdiRenderer *renderer, HDC dc,
             if (points != stack_points) HeapFree(GetProcessHeap(), 0, points);
         }
     }
+    return 0;
+}
+
+int cclover_gdi_validate_scene(HDC dc, const CcloverScene *scene, UINT dpi) {
+    CcloverGdiRenderer renderer = {0};
+    int fits;
+    cclover_prepare_dpi(&renderer, dpi);
+    fits = cclover_gdi_scene_fits(&renderer, dc, scene);
+    cclover_gdi_renderer_destroy(&renderer);
+    return fits;
 }
 
 void cclover_gdi_renderer_destroy(CcloverGdiRenderer *renderer) {

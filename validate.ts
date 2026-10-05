@@ -89,6 +89,8 @@ const WINDOWS_STEPS: readonly ValidationStep[] = [
         "--locked",
         "-p",
         "cclover-mon",
+        "-p",
+        "cclover-desktop",
         "--no-default-features",
         "--no-run",
         "--target",
@@ -124,6 +126,10 @@ const WINDOWS_NATIVE_STEPS: readonly ValidationStep[] = [
   {
     name: "Windows deterministic tests",
     command: ["cargo", "test", "--locked", "-p", "cclover-mon", "--no-default-features"],
+  },
+  {
+    name: "Windows desktop renderer tests",
+    command: ["cargo", "test", "--locked", "-p", "cclover-desktop"],
   },
 ];
 

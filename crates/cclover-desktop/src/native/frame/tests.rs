@@ -31,6 +31,36 @@ fn scene(primitives: Vec<Primitive>) -> Scene {
 }
 
 #[test]
+fn must_fit_text_crosses_native_abi_as_an_explicit_flag() {
+    let primitive = Primitive::Text {
+        rect: Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 42.0,
+            height: 16.0,
+        },
+        value: "42.0%".to_owned(),
+        size: 12,
+        color: color(255),
+        bold: true,
+        align: TextAlign::End,
+        clip: false,
+        must_fit: true,
+        static_content: false,
+    };
+    let mut commands = Vec::new();
+    let mut points = Vec::new();
+
+    push_command(&mut commands, &mut points, &primitive);
+
+    assert_eq!(commands.len(), 1);
+    assert_ne!(commands[0].flags & FLAG_TEXT_MUST_FIT, 0);
+    assert_ne!(commands[0].flags & FLAG_TEXT_BOLD, 0);
+    assert_ne!(commands[0].flags & FLAG_TEXT_END, 0);
+    assert_eq!(commands[0].flags & FLAG_TEXT_CLIP, 0);
+}
+
+#[test]
 fn unchanged_scene_has_no_damage_and_keeps_static_revision() {
     let previous = scene(vec![
         fill(10.0, color(1), true),

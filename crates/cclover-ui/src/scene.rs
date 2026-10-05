@@ -43,6 +43,7 @@ pub enum Primitive {
         bold: bool,
         align: TextAlign,
         clip: bool,
+        must_fit: bool,
         static_content: bool,
     },
     Polyline {

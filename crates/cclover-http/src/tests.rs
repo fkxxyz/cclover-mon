@@ -59,6 +59,9 @@ fn embedded_http_server_serves_page_and_static_assets() {
 
     let js = get(server.local_addr(), "/bootstrap.js");
     assert!(js.contains("new EventSource('/events')"));
+    assert!(js.contains("getComputedTextLength()"));
+    assert!(js.contains("root.innerHTML = previous"));
+    assert!(!js.contains("fontSize"));
     let css = get(server.local_addr(), "/style.css");
     assert!(css.contains("Content-Type: text/css; charset=utf-8"));
     assert!(css.contains(".cclover-panel"));

@@ -443,7 +443,9 @@ fn bounded_cell<'a>(value: BoundedText, size: u32, tone: Tone, slot: TextSlot) -
         "bounded value font size {size} exceeds slot budget {}",
         slot.max_font_size()
     );
-    TextCell::owned(value.into_string(), size, tone).fixed(slot.width())
+    TextCell::owned(value.into_string(), size, tone)
+        .fixed(slot.width())
+        .must_fit()
 }
 
 fn card(content: Stack<'_>) -> Block<'_> {

@@ -18,6 +18,7 @@ pub struct TextCell<'a> {
     pub width: CellWidth,
     pub align: TextAlign,
     pub clip: bool,
+    pub must_fit: bool,
     pub static_content: bool,
 }
 
@@ -31,6 +32,7 @@ impl<'a> TextCell<'a> {
             width: CellWidth::Fill,
             align: TextAlign::Start,
             clip: false,
+            must_fit: false,
             static_content: false,
         }
     }
@@ -44,6 +46,7 @@ impl<'a> TextCell<'a> {
             width: CellWidth::Fill,
             align: TextAlign::Start,
             clip: false,
+            must_fit: false,
             static_content: false,
         }
     }
@@ -72,6 +75,11 @@ impl<'a> TextCell<'a> {
 
     pub(crate) fn clip(mut self) -> Self {
         self.clip = true;
+        self
+    }
+
+    pub(crate) fn must_fit(mut self) -> Self {
+        self.must_fit = true;
         self
     }
 

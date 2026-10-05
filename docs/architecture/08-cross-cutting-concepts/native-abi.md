@@ -26,7 +26,7 @@ The Rust-to-C desktop ABI has one declarative schema authority in `cclover-deskt
 
 The scene ABI carries invalidation output already derived on the Rust side: static revision, full-redraw fallback, and merged damage rectangles. Native hosts may use those values to drive buffer/cache lifecycle and platform damage submission, but they do not independently reconstruct primitive visual identity or damage bounds.
 
-Font realization is native-host responsibility; layout policy and text-slot geometry remain in `cclover-ui`. Native font metrics stay inside the renderer and may only position glyphs within the authoritative `Scene::Text` rectangle. They do not cross the ABI or move sibling elements.
+Font realization is native-host responsibility; layout policy and text-slot geometry remain in `cclover-ui`. The Scene ABI carries whether a text primitive has the must-fit contract, but not font metrics or measured widths. Native renderers may measure the concrete realized string only as a one-way conformance check against the authoritative `Scene::Text` rectangle in final device coordinates. Those measurements stay inside the renderer: they do not cross back through the ABI, move sibling elements, resize slots, or otherwise influence shared layout. A must-fit violation rejects the candidate frame instead of being repaired through renderer-local geometry.
 
 ## TUI ABI
 

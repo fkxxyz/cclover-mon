@@ -39,7 +39,7 @@ cclover-presentation
 
 Every graphical renderer consumes the same `Scene`. Renderers may realize fonts differently and own device scaling, rasterization, clipping mechanics, native surface lifecycle, or SVG serialization, but they must not recalculate dashboard layout. Dynamic text receives a shared layout slot before rendering; glyph measurement must not move sibling elements or change card, row, graph, or panel geometry.
 
-Web rendering stays in native Rust and serializes `Scene` to SVG. SSE carries rendered SVG markup; browser JavaScript only installs updates into the DOM. Web CSS may establish page-level presentation such as margins, overflow, or a system-font fallback, but it must not use Flexbox, Grid, intrinsic text measurement, or other browser layout mechanisms to reconstruct dashboard geometry.
+Web rendering stays in native Rust and serializes `Scene` to SVG. SSE carries rendered SVG markup; browser JavaScript installs updates into the DOM and may measure marked must-fit SVG text only to assert renderer conformance. Web CSS may establish page-level presentation such as margins, overflow, or a system-font fallback, but neither CSS nor JavaScript may use Flexbox, Grid, intrinsic text measurement, or other browser layout mechanisms to reconstruct dashboard geometry.
 
 Do not rebuild a general-purpose widget framework. The dashboard tree and layout vocabulary exist only for this fixed monitor UI. Add layout capabilities only for demonstrated dashboard needs.
 
@@ -90,11 +90,13 @@ Dynamic text never controls sibling geometry. Dashboard rows allocate text throu
 - `Fixed(width)` reserves an explicit logical-pixel slot;
 - `Fill` receives remaining row width after fixed slots and gaps.
 
-Text alignment and clipping are part of the shared tree and become final `Scene::Text` rectangles. Formatting and slot budgets must be designed together. Bounded metric values must already satisfy their presentation-declared column budget before entering graphical layout; exceeding that budget is a presentation contract violation, not a renderer overflow case. Clipping is reserved for explicitly unbounded text such as identity labels. Renderers must not recover from bounded-value overflow through truncation, font shrinking, or measurement-driven relayout.
+Text alignment and clipping are part of the shared tree and become final `Scene::Text` rectangles. Formatting and slot budgets must be designed together. Bounded metric values must already satisfy their presentation-declared column budget before entering graphical layout and lower with an explicit must-fit contract. Clipping is reserved for explicitly unbounded text such as identity labels.
+
+The concrete renderer may measure the actual realized must-fit string after font selection, fallback, weight, logical size, and device scaling are known, but that measurement is only a conformance assertion against the authoritative rectangle. It may not become a layout input. Cairo and GDI compare in final device coordinates and Web compares the browser's realized SVG text width, allowing only one physical pixel for coordinate-rounding differences. If the realized string exceeds its slot, the renderer rejects the new frame and preserves the previous valid frame rather than truncating, clipping, shrinking, horizontally scaling, or re-laying out text. Repeated violations are reported without per-frame log spam.
 
 ## Web Boundary
 
-`cclover-web-ui` accepts `Scene`, not `DashboardUi`, `Card`, `Row`, `GraphSpec`, or raw `MonitorState`. It mechanically maps scene primitives to SVG elements. The browser is therefore a drawing target rather than a second layout engine.
+`cclover-web-ui` accepts `Scene`, not `DashboardUi`, `Card`, `Row`, `GraphSpec`, or raw `MonitorState`. It mechanically maps scene primitives to SVG elements and marks must-fit text with its authoritative width. After installing a candidate SVG, the browser adapter may read the realized SVG text length solely to validate that contract; a failed candidate is rolled back to the previous valid markup. The adapter never changes font size, slot width, or element placement from that measurement, so the browser remains a drawing target rather than a second layout engine.
 
 Changing an existing dashboard layout changes `cclover-ui` once. Renderer changes are required only when the shared scene primitive vocabulary itself changes or a renderer must improve realization of an existing primitive.
 
@@ -102,7 +104,7 @@ Changing an existing dashboard layout changes `cclover-ui` once. Renderer change
 
 Windows and Linux consume the shared `Scene` through the existing narrow native ABI and render with GDI and Cairo respectively. Web consumes the same `Scene`, serializes it to SVG in native Rust, and streams the SVG through the existing EventSource/DOM path. Iced, winit, wgpu, `wasm-bindgen`, and `web-sys` remain outside the renderer dependency graph.
 
-The native C ABI carries only the finalized Scene command stream and state lifecycle callbacks; renderer font measurement is not part of the shared layout contract.
+The native C ABI carries only the finalized Scene command stream and state lifecycle callbacks, including the must-fit text flag. Renderer font measurements and measured widths remain private to the renderer and never cross back into shared layout.
 
 ## Consequences
 

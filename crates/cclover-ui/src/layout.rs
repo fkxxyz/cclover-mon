@@ -62,6 +62,7 @@ fn lower_column(blocks: &[Block<'_>], x: f32, width: f32, out: &mut Vec<Primitiv
                 bold: label.weight == TextWeight::Bold,
                 align: label.align,
                 clip: label.clip,
+                must_fit: label.must_fit,
                 static_content: true,
             }),
             Block::Card(card) => lower_card(card, x, y, width, out),
@@ -174,6 +175,7 @@ fn lower_row(row: &TextRow<'_>, x: f32, y: f32, width: f32, out: &mut Vec<Primit
                 bold: cell.weight == TextWeight::Bold,
                 align: cell.align,
                 clip: cell.clip,
+                must_fit: cell.must_fit,
                 static_content: cell.static_content,
             });
         }
@@ -266,6 +268,33 @@ mod tests {
     }
 
     #[test]
+    fn bounded_values_lower_to_explicit_must_fit_text() {
+        let state = MonitorState::default();
+        let scene = build_scene(Dashboard::new(&state));
+        let bounded = scene
+            .primitives
+            .iter()
+            .filter_map(|primitive| match primitive {
+                Primitive::Text {
+                    must_fit: true,
+                    clip,
+                    rect,
+                    ..
+                } => Some((*clip, *rect)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            !bounded.is_empty(),
+            "default dashboard must contain bounded values"
+        );
+        assert!(
+            bounded.iter().all(|(clip, rect)| !clip && rect.width > 0.0),
+            "bounded values must fit their authoritative slot rather than rely on clipping"
+        );
+    }
+
+    #[test]
     fn row_geometry_does_not_depend_on_text_metrics() {
         let row = TextRow {
             cells: vec![
@@ -277,6 +306,7 @@ mod tests {
                     width: CellWidth::Fill,
                     align: crate::TextAlign::Start,
                     clip: true,
+                    must_fit: false,
                     static_content: false,
                 },
                 crate::TextCell {
@@ -287,6 +317,7 @@ mod tests {
                     width: CellWidth::Fixed(38),
                     align: crate::TextAlign::End,
                     clip: true,
+                    must_fit: false,
                     static_content: false,
                 },
             ],

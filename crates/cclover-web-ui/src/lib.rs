@@ -60,6 +60,7 @@ fn render_primitive(out: &mut String, primitive: &Primitive, index: usize) {
             bold,
             align,
             clip,
+            must_fit,
             ..
         } => {
             let x = match align {
@@ -82,6 +83,14 @@ fn render_primitive(out: &mut String, primitive: &Primitive, index: usize) {
             .unwrap();
             if *clip {
                 write!(out, " clip-path=\"url(#clip-{index})\"").unwrap();
+            }
+            if *must_fit {
+                write!(
+                    out,
+                    " data-cclover-must-fit=\"1\" data-cclover-max-width=\"{}\"",
+                    number(rect.width)
+                )
+                .unwrap();
             }
             out.push('>');
             escape_xml(out, value);
@@ -231,6 +240,41 @@ mod tests {
         };
         let svg = render(&scene);
         assert!(svg.contains("x=\"10\" y=\"11.5\" width=\"30\" height=\"20\" rx=\"4\""));
+    }
+
+    #[test]
+    fn emits_must_fit_metadata_without_changing_scene_geometry() {
+        let scene = Scene {
+            width: 100,
+            height: 50,
+            primitives: vec![Primitive::Text {
+                rect: Rect {
+                    x: 10.0,
+                    y: 10.0,
+                    width: 37.5,
+                    height: 20.0,
+                },
+                value: "99.9%".to_owned(),
+                size: 12,
+                color: Rgba {
+                    r: 255,
+                    g: 255,
+                    b: 255,
+                    a: 1.0,
+                },
+                bold: true,
+                align: TextAlign::End,
+                clip: false,
+                must_fit: true,
+                static_content: false,
+            }],
+        };
+
+        let svg = render(&scene);
+
+        assert!(svg.contains("data-cclover-must-fit=\"1\""));
+        assert!(svg.contains("data-cclover-max-width=\"37.5\""));
+        assert!(svg.contains("x=\"47.5\""));
     }
 
     #[test]

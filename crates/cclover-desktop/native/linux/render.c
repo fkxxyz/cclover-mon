@@ -1,6 +1,7 @@
 #include "render.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -111,13 +112,70 @@ static int cclover_draw_command(CcloverCairoDrawMode mode, const CcloverCommand 
            (mode == CCLOVER_CAIRO_DRAW_DYNAMIC && !is_static);
 }
 
-void cclover_cairo_draw_scene(CcloverCairoRenderer *renderer, cairo_t *cr,
-                              const CcloverScene *scene, int clear,
-                              CcloverCairoDrawMode mode) {
+static int cclover_cairo_text_fits(cairo_t *cr, const CcloverCommand *cmd) {
+    char stack[512];
+    char *text = cclover_text_copy(cmd->text, cmd->text_len, stack);
+    cairo_text_extents_t extents;
+    double measured_x, measured_y, allowed_x, allowed_y;
+    double measured, allowed;
+    int bold;
+    if (!text) return 0;
+    bold = (cmd->flags & CCLOVER_TEXT_BOLD) != 0;
+    cclover_select_font(cr, cmd->text_size, bold);
+    cairo_text_extents(cr, text, &extents);
+    measured_x = extents.x_advance;
+    measured_y = 0.0;
+    allowed_x = cmd->width;
+    allowed_y = 0.0;
+    cairo_user_to_device_distance(cr, &measured_x, &measured_y);
+    cairo_user_to_device_distance(cr, &allowed_x, &allowed_y);
+    measured = hypot(measured_x, measured_y);
+    allowed = hypot(allowed_x, allowed_y);
+    if (text != stack) free(text);
+    return measured <= allowed + 1.0;
+}
+
+static int cclover_cairo_scene_conforms(cairo_t *cr, const CcloverScene *scene,
+                                        CcloverCairoDrawMode mode) {
+    size_t i;
+    for (i = 0; i < scene->command_count; ++i) {
+        const CcloverCommand *cmd = &scene->commands[i];
+        if (!cclover_draw_command(mode, cmd) || cmd->kind != CCLOVER_CMD_TEXT ||
+            !(cmd->flags & CCLOVER_TEXT_MUST_FIT))
+            continue;
+        if (!cclover_cairo_text_fits(cr, cmd)) return 0;
+    }
+    return 1;
+}
+
+int cclover_cairo_scene_fits(CcloverCairoRenderer *renderer, cairo_t *cr,
+                             const CcloverScene *scene,
+                             CcloverCairoDrawMode mode) {
+    if (!cclover_cairo_scene_conforms(cr, scene, mode)) {
+        if (!renderer->typography_violation_reported) {
+            fprintf(stderr,
+                    "cclover-mon: Cairo text exceeded its authoritative Scene slot\n");
+            renderer->typography_violation_reported = 1;
+        }
+        return 0;
+    }
+    renderer->typography_violation_reported = 0;
+    return 1;
+}
+
+int cclover_cairo_validate_scene(cairo_t *cr, const CcloverScene *scene,
+                                 CcloverCairoDrawMode mode) {
+    return cclover_cairo_scene_conforms(cr, scene, mode);
+}
+
+int cclover_cairo_draw_scene(CcloverCairoRenderer *renderer, cairo_t *cr,
+                             const CcloverScene *scene, int clear,
+                             CcloverCairoDrawMode mode) {
     size_t i, j;
     uint32_t font_size = 0;
     uint32_t font_bold = 0;
     int font_valid = 0;
+    if (!cclover_cairo_scene_fits(renderer, cr, scene, mode)) return 1;
     cairo_save(cr);
     if (clear) {
         cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
@@ -161,4 +219,5 @@ void cclover_cairo_draw_scene(CcloverCairoRenderer *renderer, cairo_t *cr,
         }
     }
     cairo_restore(cr);
+    return 0;
 }

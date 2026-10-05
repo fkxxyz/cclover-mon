@@ -175,9 +175,11 @@ int cclover_linux_x11_run(void *context, const CcloverCallbacks *callbacks, int 
         }
         if (!lifecycle.running) break;
         if (cclover_x11_can_draw(&lifecycle)) {
-            cclover_cairo_draw_scene(&renderer, cr, &scene, 1, CCLOVER_CAIRO_DRAW_ALL);
-            cairo_surface_flush(surface);
-            XFlush(display);
+            if (cclover_cairo_draw_scene(&renderer, cr, &scene, 1,
+                                         CCLOVER_CAIRO_DRAW_ALL) == 0) {
+                cairo_surface_flush(surface);
+                XFlush(display);
+            }
             cclover_x11_draw_completed(&lifecycle);
         }
         if (poll(pfds, 3, -1) > 0) {

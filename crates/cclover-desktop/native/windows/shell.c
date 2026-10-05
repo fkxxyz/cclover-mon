@@ -140,9 +140,9 @@ static LRESULT CALLBACK cclover_wndproc(HWND hwnd, UINT message, WPARAM wparam, 
         old_bitmap = SelectObject(buffer, bitmap);
         FillRect(buffer, &client, (HBRUSH)GetStockObject(BLACK_BRUSH));
         cclover_scene(host, &scene);
-        cclover_gdi_draw_scene(&host->renderer, buffer, &scene,
-                               cclover_display_dpi(&host->display));
-        BitBlt(target, 0, 0, client.right, client.bottom, buffer, 0, 0, SRCCOPY);
+        if (cclover_gdi_draw_scene(&host->renderer, buffer, &scene,
+                                   cclover_display_dpi(&host->display)) == 0)
+            BitBlt(target, 0, 0, client.right, client.bottom, buffer, 0, 0, SRCCOPY);
         SelectObject(buffer, old_bitmap);
         DeleteObject(bitmap);
         DeleteDC(buffer);

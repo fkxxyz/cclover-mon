@@ -101,12 +101,30 @@ async function waitForRenderedDashboard(webSocketUrl: string): Promise<void> {
   try {
     const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
-      const result = await evaluate("({panel: !!document.querySelector('.cclover-panel'), svg: !!document.querySelector('svg')})");
-      const value = result?.result?.value as { panel?: boolean; svg?: boolean } | undefined;
-      if (value?.panel && value?.svg) return;
+      const result = await evaluate(`(() => {
+        const panel = document.querySelector('.cclover-panel');
+        const texts = panel ? [...panel.querySelectorAll('text[data-cclover-must-fit]')] : [];
+        const tolerance = 1 / (window.devicePixelRatio || 1);
+        return {
+          panel: !!panel,
+          svg: !!document.querySelector('svg'),
+          mustFitCount: texts.length,
+          typographyFits: texts.length > 0 && texts.every(text => {
+            const maxWidth = Number(text.dataset.ccloverMaxWidth);
+            return Number.isFinite(maxWidth) && text.getComputedTextLength() <= maxWidth + tolerance;
+          }),
+        };
+      })()`);
+      const value = result?.result?.value as {
+        panel?: boolean;
+        svg?: boolean;
+        mustFitCount?: number;
+        typographyFits?: boolean;
+      } | undefined;
+      if (value?.panel && value?.svg && value.mustFitCount && value.typographyFits) return;
       await Bun.sleep(100);
     }
-    throw new Error("browser DOM never reached rendered dashboard state");
+    throw new Error("browser DOM never reached typography-conformant rendered dashboard state");
   } finally {
     socket.close();
   }

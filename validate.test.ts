@@ -63,6 +63,7 @@ describe("validation profiles", () => {
     expect(validationSteps("windows-native").map((step) => step.command)).toEqual([
       ["bun", "prepare-windows-deps.ts"],
       ["cargo", "test", "--locked", "-p", "cclover-mon", "--no-default-features"],
+      ["cargo", "test", "--locked", "-p", "cclover-desktop"],
     ]);
     expect(validationExecution("windows-native")).toEqual({
       host: "windows",

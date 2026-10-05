@@ -10,6 +10,7 @@ define_native_abi! {
         FLAG_TEXT_END => CCLOVER_TEXT_END = 2;
         FLAG_TEXT_CLIP => CCLOVER_TEXT_CLIP = 4;
         FLAG_STATIC_CONTENT => CCLOVER_STATIC_CONTENT = 8;
+        FLAG_TEXT_MUST_FIT => CCLOVER_TEXT_MUST_FIT = 16;
     }
 
     structs {

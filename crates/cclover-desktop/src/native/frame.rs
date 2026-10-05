@@ -225,6 +225,7 @@ fn push_command(
             bold,
             align,
             clip,
+            must_fit,
             ..
         } => {
             command.kind = COMMAND_TEXT;
@@ -233,7 +234,8 @@ fn push_command(
             command.text_size = *size;
             command.flags = (u32::from(*bold) * FLAG_TEXT_BOLD)
                 | (u32::from(*align == TextAlign::End) * FLAG_TEXT_END)
-                | (u32::from(*clip) * FLAG_TEXT_CLIP);
+                | (u32::from(*clip) * FLAG_TEXT_CLIP)
+                | (u32::from(*must_fit) * FLAG_TEXT_MUST_FIT);
             command.text = value.as_ptr();
             command.text_len = value.len();
         }

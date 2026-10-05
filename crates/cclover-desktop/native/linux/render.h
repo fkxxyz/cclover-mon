@@ -15,6 +15,7 @@ typedef struct {
 
 typedef struct CcloverCairoRenderer {
     CcloverFontMetricsCacheEntry font_metrics[32];
+    int typography_violation_reported;
 } CcloverCairoRenderer;
 
 typedef enum {
@@ -24,8 +25,13 @@ typedef enum {
 } CcloverCairoDrawMode;
 
 void cclover_cairo_configure_context(cairo_t *cr);
-void cclover_cairo_draw_scene(CcloverCairoRenderer *renderer, cairo_t *cr,
-                              const CcloverScene *scene, int clear,
-                              CcloverCairoDrawMode mode);
+int cclover_cairo_scene_fits(CcloverCairoRenderer *renderer, cairo_t *cr,
+                             const CcloverScene *scene,
+                             CcloverCairoDrawMode mode);
+int cclover_cairo_validate_scene(cairo_t *cr, const CcloverScene *scene,
+                                 CcloverCairoDrawMode mode);
+int cclover_cairo_draw_scene(CcloverCairoRenderer *renderer, cairo_t *cr,
+                             const CcloverScene *scene, int clear,
+                             CcloverCairoDrawMode mode);
 
 #endif

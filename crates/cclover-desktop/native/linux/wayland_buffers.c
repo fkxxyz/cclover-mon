@@ -96,7 +96,11 @@ static int wayland_static_layer_ensure(CcloverWaylandBuffers *buffers,
     }
     cclover_cairo_configure_context(layer->cr);
     cairo_scale(layer->cr, scale, scale);
-    cclover_cairo_draw_scene(renderer, layer->cr, scene, 0, CCLOVER_CAIRO_DRAW_STATIC);
+    if (cclover_cairo_draw_scene(renderer, layer->cr, scene, 0,
+                                 CCLOVER_CAIRO_DRAW_STATIC) != 0) {
+        wayland_static_layer_destroy(layer);
+        return 1;
+    }
     cairo_surface_flush(layer->image);
     *rebuilt = 1;
     return 0;
@@ -228,7 +232,11 @@ int cclover_wayland_buffers_draw(CcloverWaylandBuffers *buffers,
     WaylandBuffer *owned;
     int acquired;
 
-    if (wayland_static_layer_ensure(buffers, renderer, scene, scale, &static_rebuilt) < 0) return -1;
+    {
+        int static_result = wayland_static_layer_ensure(buffers, renderer, scene, scale,
+                                                        &static_rebuilt);
+        if (static_result != 0) return static_result;
+    }
     draw_mode = cclover_wayland_draw_mode(
         scene->full_redraw != 0, buffers->baseline.previous_buffer != NULL,
         static_rebuilt, dirty_count);
@@ -243,6 +251,9 @@ int cclover_wayland_buffers_draw(CcloverWaylandBuffers *buffers,
 
     acquired = wayland_buffer_acquire(buffers, shm, scene, scale, &owned);
     if (acquired != 0) return acquired;
+    if (!cclover_cairo_scene_fits(renderer, owned->cr, scene,
+                                  CCLOVER_CAIRO_DRAW_DYNAMIC))
+        return 1;
     cairo_surface_flush(owned->image);
 
     if (full_redraw) {
@@ -274,7 +285,11 @@ int cclover_wayland_buffers_draw(CcloverWaylandBuffers *buffers,
                         dirty[i].x2 - dirty[i].x1, dirty[i].y2 - dirty[i].y1);
     }
     cairo_clip(owned->cr);
-    cclover_cairo_draw_scene(renderer, owned->cr, scene, 0, CCLOVER_CAIRO_DRAW_DYNAMIC);
+    if (cclover_cairo_draw_scene(renderer, owned->cr, scene, 0,
+                                 CCLOVER_CAIRO_DRAW_DYNAMIC) != 0) {
+        cairo_restore(owned->cr);
+        return 1;
+    }
     cairo_restore(owned->cr);
     cairo_surface_flush(owned->image);
     if (profiling) profile_raster = cclover_profile_cpu_ms();

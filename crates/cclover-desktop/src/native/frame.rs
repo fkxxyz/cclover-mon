@@ -10,6 +10,7 @@ pub(super) struct FrameStorage {
     static_revision: u64,
     full_redraw: bool,
     damage_rects: Vec<NativeDamageRect>,
+    redraw_mask: Vec<u8>,
     commands: Vec<NativeCommand>,
     points: Vec<NativePoint>,
 }
@@ -17,16 +18,35 @@ pub(super) struct FrameStorage {
 impl FrameStorage {
     fn from_scene(scene: Scene, previous: Option<&Scene>, previous_static_revision: u64) -> Self {
         let invalidation = scene_invalidation(previous, &scene, previous_static_revision);
+        let damage_rects = invalidation
+            .damage_rects
+            .iter()
+            .copied()
+            .map(native_damage_rect)
+            .collect();
         let mut commands = Vec::with_capacity(scene.primitives.len());
         let mut points = Vec::new();
+        let mut redraw_mask = Vec::new();
         for primitive in &scene.primitives {
+            let command_start = commands.len();
             push_command(&mut commands, &mut points, primitive);
+            if !invalidation.full_redraw {
+                let redraw = primitive.cache_class() == CacheClass::Dynamic
+                    && invalidation
+                        .damage_rects
+                        .iter()
+                        .any(|damage| rects_intersect_or_touch(primitive.damage_bounds(), *damage));
+                redraw_mask.resize(commands.len(), u8::from(redraw));
+                debug_assert!(commands.len() > command_start);
+            }
         }
+        debug_assert!(invalidation.full_redraw || redraw_mask.len() == commands.len());
         Self {
             scene,
             static_revision: invalidation.static_revision,
             full_redraw: invalidation.full_redraw,
-            damage_rects: invalidation.damage_rects,
+            damage_rects,
+            redraw_mask,
             commands,
             points,
         }
@@ -52,6 +72,12 @@ impl FrameStorage {
                 self.damage_rects.as_ptr()
             },
             damage_count: self.damage_rects.len(),
+            redraw_mask: if self.redraw_mask.is_empty() {
+                ptr::null()
+            } else {
+                self.redraw_mask.as_ptr()
+            },
+            redraw_mask_count: self.redraw_mask.len(),
             commands: self.commands.as_ptr(),
             command_count: self.commands.len(),
             points: self.points.as_ptr(),
@@ -63,7 +89,7 @@ impl FrameStorage {
 struct SceneInvalidation {
     static_revision: u64,
     full_redraw: bool,
-    damage_rects: Vec<NativeDamageRect>,
+    damage_rects: Vec<Rect>,
 }
 
 fn scene_invalidation(
@@ -118,7 +144,7 @@ fn scene_invalidation(
     SceneInvalidation {
         static_revision,
         full_redraw,
-        damage_rects: damage.into_iter().map(native_damage_rect).collect(),
+        damage_rects: damage,
     }
 }
 
@@ -145,14 +171,14 @@ fn union_rect(a: Rect, b: Rect) -> Rect {
     }
 }
 
-fn rects_touch(a: Rect, b: Rect) -> bool {
+fn rects_intersect_or_touch(a: Rect, b: Rect) -> bool {
     a.x <= b.x + b.width && a.x + a.width >= b.x && a.y <= b.y + b.height && a.y + a.height >= b.y
 }
 
 fn add_damage(rects: &mut Vec<Rect>, mut rect: Rect) {
     let mut index = 0;
     while index < rects.len() {
-        if rects_touch(rects[index], rect) {
+        if rects_intersect_or_touch(rects[index], rect) {
             rect = union_rect(rects.swap_remove(index), rect);
             index = 0;
         } else {
@@ -303,3 +329,6 @@ pub(super) fn build_frame(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, target_os = "linux"))]
+mod cairo_tests;

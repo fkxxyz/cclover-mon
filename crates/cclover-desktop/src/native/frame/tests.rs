@@ -1,4 +1,5 @@
 use super::*;
+
 fn color(r: u8) -> Rgba {
     Rgba {
         r,
@@ -93,9 +94,64 @@ fn dynamic_change_damages_union_of_old_and_new_bounds() {
     assert_eq!(invalidation.damage_rects.len(), 1);
     let damage = invalidation.damage_rects[0];
     assert_eq!(
-        (damage.x1, damage.y1, damage.x2, damage.y2),
+        (
+            damage.x,
+            damage.y,
+            damage.x + damage.width,
+            damage.y + damage.height,
+        ),
         (9.0, 9.0, 31.0, 21.0)
     );
+}
+
+#[test]
+fn incremental_redraw_mask_includes_changed_and_overlapping_dynamic_commands() {
+    let previous = scene(vec![
+        fill(0.0, color(1), true),
+        fill(10.0, color(2), false),
+        fill(32.0, color(3), false),
+        fill(70.0, color(4), false),
+    ]);
+    let current = scene(vec![
+        fill(0.0, color(1), true),
+        fill(20.0, color(2), false),
+        fill(32.0, color(3), false),
+        fill(70.0, color(4), false),
+    ]);
+
+    let frame = FrameStorage::from_scene(current, Some(&previous), 7);
+
+    assert!(!frame.full_redraw);
+    assert_eq!(frame.commands.len(), 4);
+    assert_eq!(frame.redraw_mask, vec![0, 1, 1, 0]);
+    let view = frame.view();
+    assert_eq!(view.redraw_mask_count, view.command_count);
+    assert!(!view.redraw_mask.is_null());
+}
+
+#[test]
+fn full_redraw_omits_incremental_redraw_mask() {
+    let current = scene(vec![fill(0.0, color(1), true), fill(20.0, color(2), false)]);
+
+    let frame = FrameStorage::from_scene(current, None, 0);
+
+    assert!(frame.full_redraw);
+    assert!(frame.redraw_mask.is_empty());
+    let view = frame.view();
+    assert_eq!(view.redraw_mask_count, 0);
+    assert!(view.redraw_mask.is_null());
+}
+
+#[test]
+fn unchanged_incremental_scene_keeps_a_complete_zero_mask() {
+    let previous = scene(vec![fill(0.0, color(1), true), fill(20.0, color(2), false)]);
+    let current = previous.clone();
+
+    let frame = FrameStorage::from_scene(current, Some(&previous), 7);
+
+    assert!(!frame.full_redraw);
+    assert_eq!(frame.redraw_mask, vec![0, 0]);
+    assert_eq!(frame.redraw_mask.len(), frame.commands.len());
 }
 
 #[test]

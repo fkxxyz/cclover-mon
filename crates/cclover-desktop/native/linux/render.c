@@ -105,11 +105,16 @@ static void cclover_draw_text(CcloverCairoRenderer *renderer, cairo_t *cr, const
     if (text != stack) free(text);
 }
 
-static int cclover_draw_command(CcloverCairoDrawMode mode, const CcloverCommand *cmd) {
+static int cclover_draw_command(const CcloverScene *scene,
+                                CcloverCairoDrawMode mode,
+                                size_t command_index,
+                                int cull_to_redraw_mask,
+                                int redraw_mask_valid) {
+    const CcloverCommand *cmd = &scene->commands[command_index];
     int is_static = (cmd->flags & CCLOVER_STATIC_CONTENT) != 0;
-    return mode == CCLOVER_CAIRO_DRAW_ALL ||
-           (mode == CCLOVER_CAIRO_DRAW_STATIC && is_static) ||
-           (mode == CCLOVER_CAIRO_DRAW_DYNAMIC && !is_static);
+    int mask_value = redraw_mask_valid ? scene->redraw_mask[command_index] : 1;
+    return cclover_cairo_command_selected(mode, is_static, cull_to_redraw_mask,
+                                          redraw_mask_valid, mask_value);
 }
 
 static int cclover_cairo_text_fits(cairo_t *cr, const CcloverCommand *cmd) {
@@ -140,7 +145,7 @@ static int cclover_cairo_scene_conforms(cairo_t *cr, const CcloverScene *scene,
     size_t i;
     for (i = 0; i < scene->command_count; ++i) {
         const CcloverCommand *cmd = &scene->commands[i];
-        if (!cclover_draw_command(mode, cmd) || cmd->kind != CCLOVER_CMD_TEXT ||
+        if (!cclover_draw_command(scene, mode, i, 0, 0) || cmd->kind != CCLOVER_CMD_TEXT ||
             !(cmd->flags & CCLOVER_TEXT_MUST_FIT))
             continue;
         if (!cclover_cairo_text_fits(cr, cmd)) return 0;
@@ -168,14 +173,16 @@ int cclover_cairo_validate_scene(cairo_t *cr, const CcloverScene *scene,
     return cclover_cairo_scene_conforms(cr, scene, mode);
 }
 
-int cclover_cairo_draw_scene(CcloverCairoRenderer *renderer, cairo_t *cr,
-                             const CcloverScene *scene, int clear,
-                             CcloverCairoDrawMode mode) {
+void cclover_cairo_execute_validated_scene(CcloverCairoRenderer *renderer, cairo_t *cr,
+                                           const CcloverScene *scene, int clear,
+                                           CcloverCairoDrawMode mode,
+                                           int cull_to_redraw_mask) {
     size_t i, j;
     uint32_t font_size = 0;
     uint32_t font_bold = 0;
     int font_valid = 0;
-    if (!cclover_cairo_scene_fits(renderer, cr, scene, mode)) return 1;
+    int redraw_mask_valid = cull_to_redraw_mask && scene->redraw_mask != NULL &&
+                            scene->redraw_mask_count == scene->command_count;
     cairo_save(cr);
     if (clear) {
         cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
@@ -186,7 +193,8 @@ int cclover_cairo_draw_scene(CcloverCairoRenderer *renderer, cairo_t *cr,
 
     for (i = 0; i < scene->command_count; ++i) {
         const CcloverCommand *cmd = &scene->commands[i];
-        if (!cclover_draw_command(mode, cmd)) continue;
+        if (!cclover_draw_command(scene, mode, i, cull_to_redraw_mask,
+                                  redraw_mask_valid)) continue;
         if (cmd->kind == CCLOVER_CMD_FILL_RECT) {
             cclover_round_rect(cr, cmd);
             cclover_source_argb(cr, cmd->color);
@@ -219,5 +227,12 @@ int cclover_cairo_draw_scene(CcloverCairoRenderer *renderer, cairo_t *cr,
         }
     }
     cairo_restore(cr);
+}
+
+int cclover_cairo_draw_scene(CcloverCairoRenderer *renderer, cairo_t *cr,
+                             const CcloverScene *scene, int clear,
+                             CcloverCairoDrawMode mode) {
+    if (!cclover_cairo_scene_fits(renderer, cr, scene, mode)) return 1;
+    cclover_cairo_execute_validated_scene(renderer, cr, scene, clear, mode, 0);
     return 0;
 }

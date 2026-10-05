@@ -285,11 +285,8 @@ int cclover_wayland_buffers_draw(CcloverWaylandBuffers *buffers,
                         dirty[i].x2 - dirty[i].x1, dirty[i].y2 - dirty[i].y1);
     }
     cairo_clip(owned->cr);
-    if (cclover_cairo_draw_scene(renderer, owned->cr, scene, 0,
-                                 CCLOVER_CAIRO_DRAW_DYNAMIC) != 0) {
-        cairo_restore(owned->cr);
-        return 1;
-    }
+    cclover_cairo_execute_validated_scene(renderer, owned->cr, scene, 0,
+                                         CCLOVER_CAIRO_DRAW_DYNAMIC, !full_redraw);
     cairo_restore(owned->cr);
     cairo_surface_flush(owned->image);
     if (profiling) profile_raster = cclover_profile_cpu_ms();

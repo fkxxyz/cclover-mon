@@ -50,6 +50,8 @@ define_native_abi! {
             full_redraw: u32,
             damage_rects: const_damage_rect_ptr,
             damage_count: usize,
+            redraw_mask: const_u8_ptr,
+            redraw_mask_count: usize,
             commands: const_command_ptr,
             command_count: usize,
             points: const_point_ptr,

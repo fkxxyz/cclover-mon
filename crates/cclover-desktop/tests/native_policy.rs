@@ -37,6 +37,13 @@ fn native_policies_are_deterministic_without_desktop_runtimes() {
     );
     run_c_test(
         &manifest,
+        "render-policy",
+        &[],
+        "tests/native/render_policy_test.c",
+        "native/linux",
+    );
+    run_c_test(
+        &manifest,
         "dbusmenu-policy",
         &["native/linux/dbusmenu_policy.c"],
         "tests/native/dbusmenu_policy_test.c",

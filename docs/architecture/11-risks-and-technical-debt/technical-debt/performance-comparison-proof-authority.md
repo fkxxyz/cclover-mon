@@ -37,6 +37,8 @@ During Linux process-collector optimization work, the production collector workl
 
 The useful result came from the comparison discipline, not from a repository-owned proof mechanism; the same orchestration would have to be reconstructed for future small performance changes.
 
+During later Wayland damage-aware Cairo culling work, two short baseline/candidate rounds again disagreed in isolation. The first steady-state round measured approximately 8.607 ms/frame for the baseline versus 5.844 ms/frame for the candidate, while the second measured approximately 4.470 ms/frame for the baseline versus 5.026 ms/frame for the candidate. Only after alternating runs and combining 18 steady frames per side did the aggregate indicate approximately 6.768 ms/frame versus 5.480 ms/frame, about a 19% reduction. Producing that evidence required transient profile logs plus ad hoc parsing and aggregation rather than a repository-owned comparison command, reinforcing that a single favorable run is not sufficient proof for small renderer optimizations.
+
 ## Cost mechanism
 
 The repository defines what production work to measure but not how to compare two revisions under controlled, sufficiently repeated conditions. Measurement procedure therefore lives in transient shell commands and maintainer judgment. Each performance investigation recreates parts of the same experimental protocol, and different investigations can use different run lengths, ordering, aggregation, or environmental checks, reducing comparability and confidence.

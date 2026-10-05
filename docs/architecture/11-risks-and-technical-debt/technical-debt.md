@@ -23,6 +23,7 @@ Presence is the state: every document in `technical-debt/` represents debt that 
 
 Current architecture-level technical debt:
 
+- [Performance diagnostic workload context fidelity](technical-debt/performance-diagnostic-workload-context-fidelity.md) — Medium priority; isolated collector workloads can omit production lifecycle context and therefore misstate the steady-state cost of context-dependent collectors.
 - [Graphical text font metrics contract](technical-debt/graphical-text-font-metrics-contract.md) — Low-medium priority; the bounded-text contract is implemented and validated on Linux/Web, but its GDI production-font test still needs real-Windows execution before the debt can be closed.
 - [Windows AMD Family 10h upstream authority](technical-debt/windows-amd-family10-upstream-authority.md) — Low-medium priority; Family 10h still retains a second temperature-algorithm authority because the pinned official PawnIO transport cannot execute upstream Erratum 319 validation.
 - [Windows NDU ABI fixture coverage](technical-debt/windows-ndu-abi-fixture-coverage.md) — Medium-high priority; the undocumented NDU ABI still lacks a representative multi-version raw fixture corpus.

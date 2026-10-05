@@ -62,7 +62,7 @@ impl HttpServer {
                     select! {
                         recv(state_shutdown) -> _ => break,
                         recv(state_receiver) -> state => match state {
-                            Ok(state) => state_hub.publish(&state),
+                            Ok(state) => state_hub.publish(state),
                             Err(RecvError) => break,
                         }
                     }

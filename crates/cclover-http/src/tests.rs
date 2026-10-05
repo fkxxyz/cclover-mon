@@ -34,11 +34,43 @@ fn state_hub_is_empty_until_first_real_state_then_publishes() {
 
     let mut updated = MonitorState::default();
     updated.snapshot.cpu_percent = Collection::Available(42.0);
-    hub.publish(&updated);
+    hub.publish(updated);
     let received = receiver.recv_timeout(Duration::from_millis(50)).unwrap();
     let received_html: String = serde_json::from_str(&received).unwrap();
     assert!(received_html.contains("cclover-panel"));
     assert!(hub.is_ready());
+}
+
+#[test]
+fn state_hub_defers_dashboard_render_until_first_subscriber() {
+    let hub = StateHub::new();
+    let mut state = MonitorState::default();
+    state.snapshot.cpu_percent = Collection::Available(42.0);
+
+    hub.publish(state);
+
+    assert!(hub.is_ready());
+    assert_eq!(hub.dashboard_render_count(), 0);
+
+    let (initial, receiver) = hub.subscribe();
+    let initial = initial.expect("first subscriber must receive the latest real state");
+    let initial_html: String = serde_json::from_str(&initial).unwrap();
+    assert!(initial_html.contains("cclover-panel"));
+    assert_eq!(hub.dashboard_render_count(), 1);
+
+    hub.publish(MonitorState::default());
+    assert_eq!(hub.dashboard_render_count(), 2);
+    receiver.recv_timeout(Duration::from_millis(50)).unwrap();
+
+    drop(receiver);
+    hub.publish(MonitorState::default());
+    let renders_after_disconnect_is_observed = hub.dashboard_render_count();
+    hub.publish(MonitorState::default());
+    assert_eq!(
+        hub.dashboard_render_count(),
+        renders_after_disconnect_is_observed,
+        "dashboard rendering must stop after the disconnected subscriber is retired"
+    );
 }
 
 #[test]
@@ -87,7 +119,7 @@ fn health_is_live_before_state_and_readiness_waits_for_first_state() {
             .starts_with("HTTP/1.1 503 Service Unavailable\r\n")
     );
 
-    server.state_hub().publish(&MonitorState::default());
+    server.state_hub().publish(MonitorState::default());
     assert!(get(server.local_addr(), "/readyz").starts_with("HTTP/1.1 200 OK\r\n"));
 }
 
@@ -106,7 +138,7 @@ fn state_api_serves_latest_api_v1_projection() {
         history_capacity: 42,
         ..MonitorState::default()
     };
-    server.state_hub().publish(&state);
+    server.state_hub().publish(state);
 
     let state = response_json(server.local_addr(), "/api/v1/state");
     assert_eq!(state["history_capacity"], 42);
@@ -124,7 +156,7 @@ fn split_state_apis_serve_only_requested_domains() {
         Shutdown::default(),
     )
     .unwrap();
-    server.state_hub().publish(&MonitorState {
+    server.state_hub().publish(MonitorState {
         history_capacity: 42,
         ..MonitorState::default()
     });
@@ -200,7 +232,7 @@ fn legacy_gpu_memory_routes_preserve_payload_not_only_url() {
         .history
         .gpu_memory_used
         .insert(gpu_id, std::collections::VecDeque::from([2.0, 4.0]));
-    server.state_hub().publish(&state);
+    server.state_hub().publish(state);
 
     let gpus = response_json(server.local_addr(), "/api/v1/gpus");
     let legacy = response_json(server.local_addr(), "/api/v1/gpu-memory");

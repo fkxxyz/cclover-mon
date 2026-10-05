@@ -2,29 +2,33 @@
 
 #include <string.h>
 
+static const char *const METHOD_NAMES[] = {
+#define CCLOVER_DBUSMENU_METHOD_NAME(symbol, name, xml) [CCLOVER_DBUSMENU_METHOD_##symbol] = name,
+    CCLOVER_DBUSMENU_METHODS(CCLOVER_DBUSMENU_METHOD_NAME)
+#undef CCLOVER_DBUSMENU_METHOD_NAME
+};
+
+_Static_assert(sizeof(METHOD_NAMES) / sizeof(METHOD_NAMES[0]) == CCLOVER_DBUSMENU_METHOD_COUNT,
+               "every D-BusMenu method must have a wire name");
+
 CcloverDbusMenuMethod cclover_dbusmenu_method_from_name(const char *name) {
+    int method;
     if (name == NULL) return CCLOVER_DBUSMENU_METHOD_UNKNOWN;
-    if (strcmp(name, "GetLayout") == 0) return CCLOVER_DBUSMENU_METHOD_GET_LAYOUT;
-    if (strcmp(name, "GetGroupProperties") == 0)
-        return CCLOVER_DBUSMENU_METHOD_GET_GROUP_PROPERTIES;
-    if (strcmp(name, "GetProperty") == 0) return CCLOVER_DBUSMENU_METHOD_GET_PROPERTY;
-    if (strcmp(name, "Event") == 0) return CCLOVER_DBUSMENU_METHOD_EVENT;
-    if (strcmp(name, "EventGroup") == 0) return CCLOVER_DBUSMENU_METHOD_EVENT_GROUP;
-    if (strcmp(name, "AboutToShow") == 0) return CCLOVER_DBUSMENU_METHOD_ABOUT_TO_SHOW;
-    if (strcmp(name, "AboutToShowGroup") == 0)
-        return CCLOVER_DBUSMENU_METHOD_ABOUT_TO_SHOW_GROUP;
+    for (method = 0; method < CCLOVER_DBUSMENU_METHOD_COUNT; ++method) {
+        if (strcmp(name, METHOD_NAMES[method]) == 0) return (CcloverDbusMenuMethod)method;
+    }
     return CCLOVER_DBUSMENU_METHOD_UNKNOWN;
 }
 
 int cclover_dbusmenu_item_exists(int32_t id) {
-    return id == 0 || id == 1;
+    return id == CCLOVER_DBUSMENU_ITEM_ROOT || id == CCLOVER_DBUSMENU_ITEM_QUIT;
 }
 
 CcloverDbusMenuEventResult cclover_dbusmenu_event(int32_t id, const char *event_id) {
     CcloverDbusMenuEventResult result = {0, CCLOVER_DBUSMENU_ACTION_NONE};
     if (!cclover_dbusmenu_item_exists(id)) return result;
     result.accepted = 1;
-    if (id == 1 && event_id != NULL && strcmp(event_id, "clicked") == 0)
+    if (id == CCLOVER_DBUSMENU_ITEM_QUIT && event_id != NULL && strcmp(event_id, "clicked") == 0)
         result.action = CCLOVER_DBUSMENU_ACTION_QUIT;
     return result;
 }

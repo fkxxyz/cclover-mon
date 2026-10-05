@@ -24,19 +24,19 @@ static void test_method_dispatch(void) {
 static void test_item_and_event_semantics(void) {
     CcloverDbusMenuEventResult result;
 
-    assert(cclover_dbusmenu_item_exists(0));
-    assert(cclover_dbusmenu_item_exists(1));
+    assert(cclover_dbusmenu_item_exists(CCLOVER_DBUSMENU_ITEM_ROOT));
+    assert(cclover_dbusmenu_item_exists(CCLOVER_DBUSMENU_ITEM_QUIT));
     assert(!cclover_dbusmenu_item_exists(2));
 
-    result = cclover_dbusmenu_event(1, "clicked");
+    result = cclover_dbusmenu_event(CCLOVER_DBUSMENU_ITEM_QUIT, "clicked");
     assert(result.accepted);
     assert(result.action == CCLOVER_DBUSMENU_ACTION_QUIT);
 
-    result = cclover_dbusmenu_event(1, "hovered");
+    result = cclover_dbusmenu_event(CCLOVER_DBUSMENU_ITEM_QUIT, "hovered");
     assert(result.accepted);
     assert(result.action == CCLOVER_DBUSMENU_ACTION_NONE);
 
-    result = cclover_dbusmenu_event(0, "clicked");
+    result = cclover_dbusmenu_event(CCLOVER_DBUSMENU_ITEM_ROOT, "clicked");
     assert(result.accepted);
     assert(result.action == CCLOVER_DBUSMENU_ACTION_NONE);
 

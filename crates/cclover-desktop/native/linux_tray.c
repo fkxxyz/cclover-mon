@@ -41,26 +41,9 @@ static const char ITEM_XML[] =
 static const char MENU_XML[] =
     "<node>"
     " <interface name='com.canonical.dbusmenu'>"
-    "  <method name='GetLayout'>"
-    "   <arg type='i' direction='in'/><arg type='i' direction='in'/><arg type='as' direction='in'/>"
-    "   <arg type='u' direction='out'/><arg type='(ia{sv}av)' direction='out'/>"
-    "  </method>"
-    "  <method name='GetGroupProperties'>"
-    "   <arg type='ai' direction='in'/><arg type='as' direction='in'/><arg type='a(ia{sv})' direction='out'/>"
-    "  </method>"
-    "  <method name='GetProperty'>"
-    "   <arg type='i' direction='in'/><arg type='s' direction='in'/><arg type='v' direction='out'/>"
-    "  </method>"
-    "  <method name='Event'>"
-    "   <arg type='i' direction='in'/><arg type='s' direction='in'/><arg type='v' direction='in'/><arg type='u' direction='in'/>"
-    "  </method>"
-    "  <method name='EventGroup'>"
-    "   <arg type='a(isvu)' direction='in'/><arg type='ai' direction='out'/>"
-    "  </method>"
-    "  <method name='AboutToShow'><arg type='i' direction='in'/><arg type='b' direction='out'/></method>"
-    "  <method name='AboutToShowGroup'>"
-    "   <arg type='ai' direction='in'/><arg type='ai' direction='out'/><arg type='ai' direction='out'/>"
-    "  </method>"
+#define CCLOVER_DBUSMENU_METHOD_XML(symbol, name, xml) xml
+    CCLOVER_DBUSMENU_METHODS(CCLOVER_DBUSMENU_METHOD_XML)
+#undef CCLOVER_DBUSMENU_METHOD_XML
     "  <signal name='ItemsPropertiesUpdated'>"
     "   <arg type='a(ia{sv})'/><arg type='a(ias)'/>"
     "  </signal>"
@@ -75,7 +58,7 @@ static const char MENU_XML[] =
 static GVariant *menu_properties(int id) {
     GVariantBuilder properties;
     g_variant_builder_init(&properties, G_VARIANT_TYPE("a{sv}"));
-    if (id == 1) {
+    if (id == CCLOVER_DBUSMENU_ITEM_QUIT) {
         g_variant_builder_add(&properties, "{sv}", "label", g_variant_new_string("Quit"));
         g_variant_builder_add(&properties, "{sv}", "icon-name", g_variant_new_string("application-exit"));
         g_variant_builder_add(&properties, "{sv}", "enabled", g_variant_new_boolean(TRUE));
@@ -89,12 +72,16 @@ static GVariant *menu_properties(int id) {
 static GVariant *menu_layout(void) {
     GVariantBuilder no_children;
     g_variant_builder_init(&no_children, G_VARIANT_TYPE("av"));
-    GVariant *item = g_variant_new("(i@a{sv}@av)", 1, menu_properties(1), g_variant_builder_end(&no_children));
+    GVariant *item = g_variant_new("(i@a{sv}@av)", CCLOVER_DBUSMENU_ITEM_QUIT,
+                                   menu_properties(CCLOVER_DBUSMENU_ITEM_QUIT),
+                                   g_variant_builder_end(&no_children));
 
     GVariantBuilder children;
     g_variant_builder_init(&children, G_VARIANT_TYPE("av"));
     g_variant_builder_add(&children, "v", item);
-    return g_variant_new("(i@a{sv}@av)", 0, menu_properties(0), g_variant_builder_end(&children));
+    return g_variant_new("(i@a{sv}@av)", CCLOVER_DBUSMENU_ITEM_ROOT,
+                         menu_properties(CCLOVER_DBUSMENU_ITEM_ROOT),
+                         g_variant_builder_end(&children));
 }
 
 static void item_method_call(GDBusConnection *connection, const gchar *sender, const gchar *object_path,
@@ -141,8 +128,10 @@ static void menu_method_get_group_properties(CcloverLinuxTray *tray, GVariant *p
     (void)tray;
     (void)parameters;
     g_variant_builder_init(&values, G_VARIANT_TYPE("a(ia{sv})"));
-    g_variant_builder_add(&values, "(i@a{sv})", 0, menu_properties(0));
-    g_variant_builder_add(&values, "(i@a{sv})", 1, menu_properties(1));
+    g_variant_builder_add(&values, "(i@a{sv})", CCLOVER_DBUSMENU_ITEM_ROOT,
+                          menu_properties(CCLOVER_DBUSMENU_ITEM_ROOT));
+    g_variant_builder_add(&values, "(i@a{sv})", CCLOVER_DBUSMENU_ITEM_QUIT,
+                          menu_properties(CCLOVER_DBUSMENU_ITEM_QUIT));
     g_dbus_method_invocation_return_value(
         invocation, g_variant_new("(@a(ia{sv}))", g_variant_builder_end(&values)));
 }
@@ -154,8 +143,9 @@ static void menu_method_get_property(CcloverLinuxTray *tray, GVariant *parameter
     GVariant *value = NULL;
     (void)tray;
     g_variant_get(parameters, "(i&s)", &id, &name);
-    if (id == 1 && g_str_equal(name, "label")) value = g_variant_new_string("Quit");
-    else if (id == 1 && g_str_equal(name, "icon-name"))
+    if (id == CCLOVER_DBUSMENU_ITEM_QUIT && g_str_equal(name, "label"))
+        value = g_variant_new_string("Quit");
+    else if (id == CCLOVER_DBUSMENU_ITEM_QUIT && g_str_equal(name, "icon-name"))
         value = g_variant_new_string("application-exit");
     else if (g_str_equal(name, "enabled") || g_str_equal(name, "visible"))
         value = g_variant_new_boolean(TRUE);

@@ -12,15 +12,20 @@ fn linux_tray_uses_status_notifier_name_watch_contract() {
 }
 
 #[test]
-fn linux_dbusmenu_v4_declares_grouped_methods() {
-    let source = include_str!("../crates/cclover-desktop/native/linux_tray.c");
+fn linux_dbusmenu_v4_declares_grouped_methods_from_shared_contract() {
+    let contract = include_str!("../crates/cclover-desktop/native/linux/dbusmenu_contract.h");
+    let tray = include_str!("../crates/cclover-desktop/native/linux_tray.c");
 
     for method in ["EventGroup", "AboutToShowGroup"] {
         assert!(
-            source.contains(&format!("<method name='{method}'>")),
-            "D-BusMenu version 4 declaration must expose {method}"
+            contract.contains(&format!("<method name='{method}'>")),
+            "D-BusMenu version 4 contract must expose {method}"
         );
     }
+    assert!(
+        tray.contains("CCLOVER_DBUSMENU_METHODS(CCLOVER_DBUSMENU_METHOD_XML)"),
+        "D-BusMenu XML must consume the shared method contract"
+    );
 }
 
 #[test]

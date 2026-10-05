@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, rename, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rename, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, posix, resolve, sep } from "node:path";
 
@@ -24,6 +24,13 @@ export interface SourceRetentionOptions {
   readonly cacheRoot?: string;
 }
 
+export interface SourceRetentionCacheContract {
+  readonly path: string;
+  readonly key: string;
+  readonly restoreKeyPrefix: string;
+}
+
+const CACHE_NAMESPACE = "release-sources";
 const CACHE_SCHEMA = "v1";
 const RETAINED_REF = "refs/heads/retained-source";
 
@@ -81,13 +88,52 @@ function sha256Text(value: string): string {
 
 function defaultCacheRoot(): string {
   const depsCache = process.env.CCLOVER_MON_DEPS_CACHE ?? join(homedir(), ".cache", "cclover-mon", "deps");
-  return join(depsCache, "release-sources", CACHE_SCHEMA);
+  return join(depsCache, CACHE_NAMESPACE, CACHE_SCHEMA);
+}
+
+function retainedSourceIdentity(plan: ReleaseCompanionAssetPlan): string {
+  assertCommit(plan.source.commit, `pinned source commit for ${plan.id}`);
+  return sha256Text(`${plan.source.repository}\0${plan.source.commit}`);
+}
+
+function resolveCacheRoot(cacheRoot?: string): string {
+  return resolve(cacheRoot ?? defaultCacheRoot());
+}
+
+function currentRetainedSourceIdentities(plans: readonly ReleaseCompanionAssetPlan[]): readonly string[] {
+  return [...new Set(plans.map(retainedSourceIdentity))].sort();
+}
+
+export function sourceRetentionCacheContract(
+  plans: readonly ReleaseCompanionAssetPlan[],
+  options: { readonly cacheRoot?: string } = {},
+): SourceRetentionCacheContract {
+  const restoreKeyPrefix = `${CACHE_NAMESPACE}-${CACHE_SCHEMA}-`;
+  const fingerprint = sha256Text(currentRetainedSourceIdentities(plans).join("\n"));
+  return {
+    path: resolveCacheRoot(options.cacheRoot),
+    key: `${restoreKeyPrefix}${fingerprint}`,
+    restoreKeyPrefix,
+  };
+}
+
+export async function pruneSourceRetentionCache(
+  plans: readonly ReleaseCompanionAssetPlan[],
+  options: { readonly cacheRoot?: string } = {},
+): Promise<void> {
+  const root = resolveCacheRoot(options.cacheRoot);
+  const retained = new Set(currentRetainedSourceIdentities(plans));
+  const entries = await readdir(root, { withFileTypes: true }).catch((error) => {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  });
+  for (const entry of entries) {
+    if (!retained.has(entry.name)) await rm(join(root, entry.name), { recursive: true, force: true });
+  }
 }
 
 function cacheEntry(plan: ReleaseCompanionAssetPlan, options: SourceRetentionOptions): string {
-  const cacheRoot = resolve(options.cacheRoot ?? defaultCacheRoot());
-  const identity = sha256Text(`${plan.source.repository}\0${plan.source.commit}`);
-  return join(cacheRoot, identity);
+  return join(resolveCacheRoot(options.cacheRoot), retainedSourceIdentity(plan));
 }
 
 function retainedRepositoryPath(entry: string, displayPath: string): string {
@@ -343,7 +389,7 @@ async function populateEntry(
   entry: string,
   options: SourceRetentionOptions,
 ): Promise<void> {
-  const cacheRoot = resolve(options.cacheRoot ?? defaultCacheRoot());
+  const cacheRoot = resolveCacheRoot(options.cacheRoot);
   await mkdir(cacheRoot, { recursive: true });
   const stagingEntry = await mkdtemp(join(cacheRoot, `.${plan.id}-`));
   const acquisitionRoot = await mkdtemp(join(tmpdir(), `cclover-${plan.id}-acquire-`));
@@ -407,7 +453,6 @@ export async function materializeRetainedSource(
   destination: string,
   options: SourceRetentionOptions,
 ): Promise<MaterializedRetainedSource> {
-  assertCommit(plan.source.commit, `pinned source commit for ${plan.id}`);
   const policy = options.policy ?? "allow-network";
   const entry = cacheEntry(plan, options);
   const state = await directoryState(entry);

@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import {
   RELEASE_COMPANION_ASSETS,
   buildRedistributionSourceAsset,
+  pruneSourceRetentionCache,
   releaseArtifact,
   sourceManifestFileName,
   validateRedistributionPlan,
@@ -300,6 +301,45 @@ describe("redistribution fulfillment", () => {
           sourceCacheRoot: cacheRoot,
         }),
       ).rejects.toThrow("retained source cache corrupt");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("prunes obsolete retained entries without discarding current source entries", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cclover-redistribution-source-test-"));
+    try {
+      const repository = await fixtureRepository(root);
+      const expectedCommit = run(["git", "rev-parse", "HEAD"], repository);
+      const cacheRoot = join(root, "cache");
+      const plan: ReleaseCompanionAssetPlan = {
+        id: "fixture-source",
+        role: "redistribution-source",
+        name: "fixture-source.tar.gz",
+        sourceRoot: "fixture",
+        fulfillsPayloads: ["pawnio-modules"],
+        source: {
+          dependency: "Fixture",
+          version: "1.0",
+          repository,
+          ref: "fixture-v1",
+          commit: expectedCommit,
+        },
+      };
+
+      await buildRedistributionSourceAsset(plan, {
+        outDir: join(root, "out"),
+        gitCommit: COMMIT,
+        repoRoot: root,
+        sourceCacheRoot: cacheRoot,
+      });
+      const [currentEntry] = await readdir(cacheRoot);
+      expect(currentEntry).toBeDefined();
+      await mkdir(join(cacheRoot, "obsolete-entry"));
+
+      await pruneSourceRetentionCache([plan], { cacheRoot });
+
+      expect(await readdir(cacheRoot)).toEqual([currentEntry!]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

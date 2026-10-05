@@ -15,6 +15,7 @@ import {
   parseXwinSysrootManifest,
   releaseArtifact,
   releaseMatrix,
+  sourceRetentionCacheContract,
   validateBuildProvenance,
   validateHostedRunnerIdentity,
   validateReleaseTag,
@@ -69,6 +70,44 @@ describe("release authority", () => {
       ["pawnio-driver"],
       ["pawnio-modules"],
     ]);
+  });
+
+  test("source retention cache identity follows immutable source entries rather than plan representation", () => {
+    const baseline = sourceRetentionCacheContract(RELEASE_COMPANION_ASSETS);
+    const reordered = sourceRetentionCacheContract([...RELEASE_COMPANION_ASSETS].reverse());
+    const duplicated = sourceRetentionCacheContract([
+      ...RELEASE_COMPANION_ASSETS,
+      RELEASE_COMPANION_ASSETS[0]!,
+    ]);
+    const metadataChanged = sourceRetentionCacheContract([
+      {
+        ...RELEASE_COMPANION_ASSETS[0]!,
+        name: "renamed-source-asset.tar.gz",
+        sourceRoot: "renamed-source-root",
+        source: {
+          ...RELEASE_COMPANION_ASSETS[0]!.source,
+          dependency: "Renamed dependency",
+          version: "display-version-only",
+          ref: "display-ref-only",
+        },
+      },
+      RELEASE_COMPANION_ASSETS[1]!,
+    ]);
+    const sourceChanged = sourceRetentionCacheContract([
+      {
+        ...RELEASE_COMPANION_ASSETS[0]!,
+        source: { ...RELEASE_COMPANION_ASSETS[0]!.source, commit: "a".repeat(40) },
+      },
+      RELEASE_COMPANION_ASSETS[1]!,
+    ]);
+
+    expect(reordered.key).toBe(baseline.key);
+    expect(duplicated.key).toBe(baseline.key);
+    expect(metadataChanged.key).toBe(baseline.key);
+    expect(sourceChanged.key).not.toBe(baseline.key);
+    expect(baseline.restoreKeyPrefix).toBe("release-sources-v1-");
+    expect(baseline.key.startsWith(baseline.restoreKeyPrefix)).toBe(true);
+    expect(baseline.path.endsWith("/release-sources/v1")).toBe(true);
   });
 
   test("all declared static package inputs exist", async () => {

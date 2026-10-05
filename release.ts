@@ -10,7 +10,12 @@ export {
   validateRedistributionPlan,
   verifyRedistributionSourceAssets,
 } from "./tools/release/redistribution";
-export { type SourceAcquisitionPolicy } from "./tools/release/source-retention";
+export {
+  pruneSourceRetentionCache,
+  sourceRetentionCacheContract,
+  type SourceAcquisitionPolicy,
+  type SourceRetentionCacheContract,
+} from "./tools/release/source-retention";
 export {
   assertStaticPackageInputs,
   buildReleaseArtifact,
@@ -29,6 +34,7 @@ export {
 
 import {
   RELEASE_ARTIFACTS,
+  RELEASE_COMPANION_ASSETS,
   releaseArtifact,
   releaseMatrix,
   validateReleaseTag,
@@ -44,6 +50,10 @@ import {
   buildRedistributionSourceAssets,
   validateRedistributionPlan,
 } from "./tools/release/redistribution";
+import {
+  pruneSourceRetentionCache,
+  sourceRetentionCacheContract,
+} from "./tools/release/source-retention";
 import {
   publishGitHubRelease,
   type GitHubPublicationGateway,
@@ -64,6 +74,8 @@ function usage(): void {
   bun release.ts plan [--json] [--tag vVERSION]
   bun release.ts build <artifact-id> [--out-dir DIR] [--tag vVERSION]
   bun release.ts sources [--out-dir DIR] [--tag vVERSION] [--offline]
+  bun release.ts source-cache contract
+  bun release.ts source-cache prune
   bun release.ts verify <artifact-directory> [--tag vVERSION]
   bun release.ts publish <artifact-directory> --tag vVERSION`);
 }
@@ -126,6 +138,18 @@ async function main(args: readonly string[]): Promise<number> {
     });
     for (const manifest of manifests) console.log(`${manifest.name}\t${manifest.sha256}`);
     return 0;
+  }
+  if (command === "source-cache") {
+    const [operation] = positional(rest);
+    if (operation === "contract") {
+      console.log(JSON.stringify(sourceRetentionCacheContract(RELEASE_COMPANION_ASSETS)));
+      return 0;
+    }
+    if (operation === "prune") {
+      await pruneSourceRetentionCache(RELEASE_COMPANION_ASSETS);
+      return 0;
+    }
+    throw new Error("source-cache requires contract or prune");
   }
   if (command === "verify") {
     const [directory] = positional(rest);

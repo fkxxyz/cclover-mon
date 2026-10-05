@@ -27,7 +27,17 @@ export interface NativeTextualIncludeViolation {
   includePath: string;
 }
 
-export type ArchitectureViolation = Violation | NativeTextualIncludeViolation;
+export interface WorkflowReleaseSourceCacheAuthorityViolation {
+  file: string;
+  line: number;
+  rule: "workflow-release-source-cache-authority";
+  authority: "schema-key" | "cache-path" | "source-plan-hash";
+}
+
+export type ArchitectureViolation =
+  | Violation
+  | NativeTextualIncludeViolation
+  | WorkflowReleaseSourceCacheAuthorityViolation;
 
 interface DomainRule {
   workspaceCrates: readonly string[];
@@ -210,6 +220,39 @@ export function findNativeTextualIncludeViolationsInSource(
   return violations;
 }
 
+export function findWorkflowReleaseSourceCacheAuthorityViolationsInSource(
+  source: string,
+  file: string,
+): WorkflowReleaseSourceCacheAuthorityViolation[] {
+  const rules: ReadonlyArray<{
+    pattern: RegExp;
+    authority: WorkflowReleaseSourceCacheAuthorityViolation["authority"];
+  }> = [
+    { pattern: /release-sources-v\d+(?:-|\/)/g, authority: "schema-key" },
+    {
+      pattern: /(?:~\/)?\.cache\/cclover-mon\/deps\/release-sources(?:\/|\b)/g,
+      authority: "cache-path",
+    },
+    {
+      pattern: /hashFiles\(\s*["']deps\/pawnio\.ts["']\s*\)/g,
+      authority: "source-plan-hash",
+    },
+  ];
+  const violations: WorkflowReleaseSourceCacheAuthorityViolation[] = [];
+  for (const { pattern, authority } of rules) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(source))) {
+      violations.push({
+        file,
+        line: lineAt(source, match.index),
+        rule: "workflow-release-source-cache-authority",
+        authority,
+      });
+    }
+  }
+  return violations.sort((left, right) => left.line - right.line);
+}
+
 function topLevelUseRoots(body: string): string[] {
   const roots: string[] = [];
   let depth = 0;
@@ -350,6 +393,14 @@ function nativeHostFiles(root: string): string[] {
   return files;
 }
 
+function workflowFiles(root: string): string[] {
+  const workflowsRoot = join(root, ".github", "workflows");
+  if (!existsSync(workflowsRoot)) return [];
+  return readdirSync(workflowsRoot)
+    .filter((entry) => entry.endsWith(".yml") || entry.endsWith(".yaml"))
+    .map((entry) => join(workflowsRoot, entry));
+}
+
 export function scanArchitecture(root = resolve(import.meta.dir)): ArchitectureViolation[] {
   const roots = root.endsWith(`${sep}src`)
     ? [root]
@@ -369,13 +420,21 @@ export function scanArchitecture(root = resolve(import.meta.dir)): ArchitectureV
     : nativeHostFiles(root).flatMap((file) =>
         findNativeTextualIncludeViolationsInSource(readFileSync(file, "utf8"), file),
       );
-  return [...rustViolations, ...nativeViolations];
+  const workflowViolations = root.endsWith(`${sep}src`)
+    ? []
+    : workflowFiles(root).flatMap((file) =>
+        findWorkflowReleaseSourceCacheAuthorityViolationsInSource(readFileSync(file, "utf8"), file),
+      );
+  return [...rustViolations, ...nativeViolations, ...workflowViolations];
 }
 
 export function formatViolation(violation: ArchitectureViolation, cwd = import.meta.dir): string {
   const file = relative(cwd, violation.file) || basename(violation.file);
-  if ("rule" in violation) {
+  if ("rule" in violation && violation.rule === "native-textual-implementation-include") {
     return `${file}:${violation.line}: native host implementation must not textually include ${violation.includePath}`;
+  }
+  if ("rule" in violation && violation.rule === "workflow-release-source-cache-authority") {
+    return `${file}:${violation.line}: workflow must consume release source-cache contract instead of defining ${violation.authority}`;
   }
   return `${file}:${violation.line}: forbidden architecture dependency ${violation.from} -> ${violation.to}`;
 }

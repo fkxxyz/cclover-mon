@@ -9,6 +9,7 @@ import {
   domainForWorkspaceCrate,
   findNativeTextualIncludeViolationsInSource,
   findViolationsInSource,
+  findWorkflowReleaseSourceCacheAuthorityViolationsInSource,
   scanArchitecture,
   stripRustNonCode,
 } from "./archgate";
@@ -123,6 +124,29 @@ describe("native host implementation boundaries", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("release source cache authority", () => {
+  test("workflows cannot redefine retention schema, path, or source-plan identity", () => {
+    const source = [
+      "path: ~/.cache/cclover-mon/deps/release-sources",
+      "key: release-sources-v2-${{ hashFiles('deps/pawnio.ts') }}",
+    ].join("\n");
+    expect(findWorkflowReleaseSourceCacheAuthorityViolationsInSource(source, "release.yml")).toEqual([
+      expect.objectContaining({ line: 1, authority: "cache-path" }),
+      expect.objectContaining({ line: 2, authority: "schema-key" }),
+      expect.objectContaining({ line: 2, authority: "source-plan-hash" }),
+    ]);
+  });
+
+  test("workflow cache transport may consume the release tooling contract", () => {
+    const source = [
+      "path: ${{ fromJSON(steps.source-cache.outputs.contract).path }}",
+      "key: ${{ fromJSON(steps.source-cache.outputs.contract).key }}",
+      "restore-keys: ${{ fromJSON(steps.source-cache.outputs.contract).restoreKeyPrefix }}",
+    ].join("\n");
+    expect(findWorkflowReleaseSourceCacheAuthorityViolationsInSource(source, "release.yml")).toEqual([]);
   });
 });
 

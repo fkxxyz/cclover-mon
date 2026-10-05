@@ -1,0 +1,32 @@
+name: source-retention-cache
+
+on:
+  push:
+    branches:
+      - "**"
+
+permissions:
+  contents: read
+
+jobs:
+  warm:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - id: source-cache
+        shell: bash
+        run: echo "contract=$(bun release.ts source-cache contract)" >> "$GITHUB_OUTPUT"
+      - id: retained-source-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ fromJSON(steps.source-cache.outputs.contract).path }}
+          key: ${{ fromJSON(steps.source-cache.outputs.contract).key }}
+          restore-keys: |
+            ${{ fromJSON(steps.source-cache.outputs.contract).restoreKeyPrefix }}
+      - name: Prune obsolete retained source entries
+        run: bun release.ts source-cache prune
+      - name: Warm current retained source entries
+        if: steps.retained-source-cache.outputs.cache-hit != 'true'
+        run: bun release.ts sources --out-dir "$RUNNER_TEMP/source-cache-warm"

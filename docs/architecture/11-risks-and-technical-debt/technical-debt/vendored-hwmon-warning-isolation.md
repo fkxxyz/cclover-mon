@@ -16,7 +16,7 @@ facets:
 
 # Vendored Hwmon Warning Isolation
 
-**Priority:** Low
+**Priority:** Low-medium
 
 ## Root cause
 
@@ -28,11 +28,11 @@ Build and verification signal quality.
 
 ## Current cost
 
-Every affected Windows cross-build prints a repeated block of known warnings. Maintainers and agents must visually distinguish accepted vendor noise from actionable project warnings, increasing output-scanning cost and making a newly introduced native warning easier to miss. The cost recurs across both supported Windows architectures and across test-compile and release-build validation.
+Every affected Windows cross-build prints a repeated block of known warnings. Maintainers and agents must visually distinguish accepted vendor noise from actionable project warnings, increasing output-scanning cost and making a newly introduced native warning easier to miss. The cost recurs across both supported Windows architectures and across test-compile and release-build validation. In the latest composition-authority validation, the warning volume was large enough that the useful end-of-profile result was easier to inspect only after redirecting the complete Windows validation stream to a file and tailing the final section.
 
 ## Evidence
 
-Current x86_64 and i686 Windows validation emits repeated warnings from pinned `vendor/linux/hwmon/coretemp.c`, `k10temp.c`, and `k8temp.c`, including sign-comparison, unused-parameter, unused-variable, and unused-function diagnostics. `docs/maintenance/linux-hwmon-coverage.md` explicitly classifies warnings from unchanged vendored Linux C as accepted upstream-source warnings rather than project-owned source warnings, so the noise is known and recurring rather than an unresolved correctness signal.
+Current x86_64 and i686 Windows validation emits repeated warnings from pinned `vendor/linux/hwmon/coretemp.c`, `k10temp.c`, and `k8temp.c`, including sign-comparison, unused-parameter, unused-variable, and unused-function diagnostics. The same known block repeated during both direct cargo-xwin checks and the full Windows validation profile in the latest work, materially inflating output and obscuring the final validation signal. `docs/maintenance/linux-hwmon-coverage.md` explicitly classifies warnings from unchanged vendored Linux C as accepted upstream-source warnings rather than project-owned source warnings, so the noise is known and recurring rather than an unresolved correctness signal.
 
 ## Cost mechanism
 

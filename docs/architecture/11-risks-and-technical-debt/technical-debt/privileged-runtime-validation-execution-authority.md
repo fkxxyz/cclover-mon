@@ -16,7 +16,7 @@ facets:
 
 # Privileged Runtime Validation Execution Authority
 
-**Priority:** Low-medium
+**Priority:** Medium
 
 ## Root cause
 
@@ -32,7 +32,7 @@ Maintainers must know which privileged profiles require manual credentials or a 
 
 ## Evidence
 
-The Linux `linux-ebpf-runtime` profile declares elevated privilege in `validate.ts`, but its runtime smoke obtains elevation by invoking `sudo` when the process is not already root. During the production-context lifecycle validation work, non-interactive execution reached this boundary, `sudo` required a password, and the automated flow had to stop for a maintainer to run the runtime proof manually. Windows elevated runtime validation uses a repository-owned Windows host bridge. These mechanisms are valid locally, but they demonstrate that privilege execution policy is distributed across profile metadata, host adapters, and individual validation scripts rather than converging at one execution boundary.
+The Linux `linux-ebpf-runtime` profile declares elevated privilege in `validate.ts`, but its runtime smoke obtains elevation by invoking `sudo` when the process is not already root. Non-interactive execution has now hit this boundary in multiple independent performance/collector lifecycle changes: `sudo` required a password, so otherwise-complete automated validation had to stop and hand the final runtime proof to a maintainer. The latest occurrence happened while closing production/performance composition authority after fast, Linux, architecture, and Windows-cross validation had already passed. Windows elevated runtime validation uses a repository-owned Windows host bridge. These mechanisms are valid locally, but the recurrence demonstrates that privilege execution policy is distributed across profile metadata, host adapters, and individual validation scripts rather than converging at one execution boundary.
 
 ## Cost mechanism
 

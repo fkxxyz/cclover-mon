@@ -25,7 +25,10 @@ use crate::probe::ProbeSample;
 use crate::{ProbeKind, ProbeReport};
 use cclover_core::Collector as CoreCollector;
 use cclover_core::devlog;
-use cclover_core::model::RawSnapshot;
+use cclover_core::model::{
+    Collection, ProcessCounter, ProcessDiskIoCounter, ProcessNetworkIoCounter, RawSnapshot,
+    TemperatureSnapshot,
+};
 
 pub fn early_command_exit_code() -> Option<i32> {
     provision::early_command_exit_code()
@@ -80,32 +83,67 @@ impl Backend {
         let sample = match kind {
             ProbeKind::Cpu => ProbeSample::Cpu(cpu::collect(None)),
             ProbeKind::Memory => ProbeSample::Memory(memory::collect(None)),
-            ProbeKind::Processes => ProbeSample::Processes(process::collect(None)),
+            ProbeKind::Processes => ProbeSample::Processes(Self::collect_product_processes()),
             ProbeKind::Network => ProbeSample::Network(self.network.collect(None)),
             ProbeKind::NetworkAttribution => {
-                let processes = process::collect(None);
-                ProbeSample::NetworkAttribution(self.network_attribution.collect(&processes, None))
+                let processes = Self::collect_product_processes();
+                ProbeSample::NetworkAttribution(
+                    self.collect_product_network_attribution(&processes),
+                )
             }
-            ProbeKind::Disk => ProbeSample::Disk(disk::collect_batch(None).counters),
+            ProbeKind::Disk => ProbeSample::Disk(Self::collect_product_disks().counters),
             ProbeKind::DiskAttribution => {
-                let processes = process::collect(None);
-                let disks = disk::collect_batch(None);
+                let processes = Self::collect_product_processes();
+                let disks = Self::collect_product_disks();
                 ProbeSample::DiskAttribution(
-                    self.disk_attribution.collect(&processes, &disks, None),
+                    self.collect_product_disk_attribution(&processes, &disks),
                 )
             }
             ProbeKind::Temperatures => {
-                let hardware = self.hardware.collect(None);
-                let native = self.temperatures.collect(None);
-                ProbeSample::Temperatures(hardware::merge_temperature_sources([
-                    hardware.temperatures,
-                    native,
-                ]))
+                let hardware = self.collect_product_hardware();
+                ProbeSample::Temperatures(self.collect_product_temperatures(hardware.temperatures))
             }
-            ProbeKind::Fans => ProbeSample::Fans(self.hardware.collect(None).fans),
+            ProbeKind::Fans => ProbeSample::Fans(self.collect_product_hardware().fans),
             ProbeKind::Gpu => ProbeSample::Gpu(self.gpus.collect(None)),
         };
         std::hint::black_box(sample);
+    }
+
+    fn collect_product_processes() -> Collection<Vec<ProcessCounter>> {
+        process::collect(None)
+    }
+
+    fn collect_product_disks() -> disk::Batch {
+        disk::collect_batch(None)
+    }
+
+    fn collect_product_hardware(&mut self) -> hardware::Batch {
+        self.hardware.collect(None)
+    }
+
+    fn collect_product_temperatures(
+        &self,
+        hardware_temperatures: Collection<Vec<TemperatureSnapshot>>,
+    ) -> Collection<Vec<TemperatureSnapshot>> {
+        let native_temperatures = devlog::timed("collector.temperature.native", || {
+            self.temperatures.collect(None)
+        });
+        hardware::merge_temperature_sources([hardware_temperatures, native_temperatures])
+    }
+
+    fn collect_product_network_attribution(
+        &mut self,
+        processes: &Collection<Vec<ProcessCounter>>,
+    ) -> Collection<Vec<ProcessNetworkIoCounter>> {
+        self.network_attribution.collect(processes, None)
+    }
+
+    fn collect_product_disk_attribution(
+        &mut self,
+        processes: &Collection<Vec<ProcessCounter>>,
+        disks: &disk::Batch,
+    ) -> Collection<Vec<ProcessDiskIoCounter>> {
+        self.disk_attribution.collect(processes, disks, None)
     }
 
     fn collect_probe_once(
@@ -151,18 +189,16 @@ impl CoreCollector for Backend {
     fn collect(&mut self) -> RawSnapshot {
         let collected_at = Instant::now();
         let networks = devlog::timed("collector.network", || self.network.collect(None));
-        let processes = devlog::timed("collector.processes", || process::collect(None));
-        let disks = devlog::timed("collector.disk", || disk::collect_batch(None));
+        let processes = devlog::timed("collector.processes", Self::collect_product_processes);
+        let disks = devlog::timed("collector.disk", Self::collect_product_disks);
         let process_disk_io = devlog::timed("collector.disk-attribution", || {
-            self.disk_attribution.collect(&processes, &disks, None)
+            self.collect_product_disk_attribution(&processes, &disks)
         });
         let process_network_io = devlog::timed("collector.network-attribution", || {
-            self.network_attribution.collect(&processes, None)
+            self.collect_product_network_attribution(&processes)
         });
-        let hardware = devlog::timed("collector.hardware", || self.hardware.collect(None));
-        let native_temperatures = devlog::timed("collector.temperature.native", || {
-            self.temperatures.collect(None)
-        });
+        let hardware = devlog::timed("collector.hardware", || self.collect_product_hardware());
+        let temperatures = self.collect_product_temperatures(hardware.temperatures);
         RawSnapshot {
             collected_at,
             cpu: devlog::timed("collector.cpu", || cpu::collect(None)),
@@ -172,10 +208,7 @@ impl CoreCollector for Backend {
             disks: disks.counters,
             process_disk_io,
             process_network_io,
-            temperatures: hardware::merge_temperature_sources([
-                hardware.temperatures,
-                native_temperatures,
-            ]),
+            temperatures,
             fans: hardware.fans,
             gpus: devlog::timed("collector.gpu", || self.gpus.collect(None)),
         }

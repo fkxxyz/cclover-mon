@@ -22,7 +22,8 @@ use crate::{ProbeKind, ProbeReport};
 use cclover_core::Collector as CoreCollector;
 use cclover_core::devlog;
 use cclover_core::model::{
-    Collection, GpuSnapshot, ProcessCounter, ProcessInstanceId, RawSnapshot, TemperatureSnapshot,
+    Collection, GpuSnapshot, ProcessCounter, ProcessDiskIoCounter, ProcessInstanceId,
+    ProcessNetworkIoCounter, RawSnapshot, TemperatureSnapshot,
 };
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -38,6 +39,10 @@ impl PhysicalDeviceId {
 struct ActiveProcessContext {
     processes: HashSet<ProcessInstanceId>,
     complete: bool,
+}
+
+struct PreparedProcesses {
+    snapshot: Collection<Vec<ProcessCounter>>,
 }
 
 impl ActiveProcessContext {
@@ -90,35 +95,59 @@ impl Backend {
     }
 
     pub fn collect_for_perf(&mut self, kind: ProbeKind) {
-        // Keep this match exhaustive. Every new collector must explicitly choose whether
-        // direct isolation preserves its production lifecycle context.
+        // Keep this match exhaustive. Perf uses production composition; probe orchestration is
+        // intentionally separate because its diagnostic projections may differ.
         let sample = match kind {
+            ProbeKind::Cpu => ProbeSample::Cpu(cpu::collect(None)),
+            ProbeKind::Memory => ProbeSample::Memory(memory::collect(None)),
+            ProbeKind::Processes => ProbeSample::Processes(self.collect_processes(None)),
+            ProbeKind::Network => ProbeSample::Network(network::collect(None)),
             ProbeKind::NetworkAttribution => {
-                let _ = self.collect_processes(None);
+                let processes = self.prepare_product_processes();
                 ProbeSample::NetworkAttribution(
-                    self.ebpf_io
-                        .collect_network(self.active_processes.current(), None)
-                        .map(|result| result.rows),
+                    self.collect_product_network_attribution(&processes),
                 )
             }
+            ProbeKind::Disk => ProbeSample::Disk(disk::collect(None)),
             ProbeKind::DiskAttribution => {
-                let _ = self.collect_processes(None);
-                ProbeSample::DiskAttribution(
-                    self.ebpf_io
-                        .collect_disk(self.active_processes.current(), None)
-                        .map(|result| result.rows),
-                )
+                let processes = self.prepare_product_processes();
+                ProbeSample::DiskAttribution(self.collect_product_disk_attribution(&processes))
             }
-            ProbeKind::Cpu
-            | ProbeKind::Memory
-            | ProbeKind::Processes
-            | ProbeKind::Network
-            | ProbeKind::Disk
-            | ProbeKind::Temperatures
-            | ProbeKind::Fans
-            | ProbeKind::Gpu => self.collect_probe_once(kind, None),
+            ProbeKind::Temperatures => {
+                let (_, temperatures) = self.collect_gpu_temperatures(None);
+                ProbeSample::Temperatures(temperatures)
+            }
+            ProbeKind::Fans => ProbeSample::Fans(self.fans.collect(Instant::now(), None)),
+            ProbeKind::Gpu => {
+                let (gpus, _) = self.collect_gpu_temperatures(None);
+                ProbeSample::Gpu(gpus)
+            }
         };
         std::hint::black_box(sample);
+    }
+
+    fn prepare_product_processes(&mut self) -> PreparedProcesses {
+        PreparedProcesses {
+            snapshot: self.collect_processes(None),
+        }
+    }
+
+    fn collect_product_disk_attribution(
+        &mut self,
+        _processes: &PreparedProcesses,
+    ) -> Collection<Vec<ProcessDiskIoCounter>> {
+        self.ebpf_io
+            .collect_disk(self.active_processes.current(), None)
+            .map(|result| result.rows)
+    }
+
+    fn collect_product_network_attribution(
+        &mut self,
+        _processes: &PreparedProcesses,
+    ) -> Collection<Vec<ProcessNetworkIoCounter>> {
+        self.ebpf_io
+            .collect_network(self.active_processes.current(), None)
+            .map(|result| result.rows)
     }
 
     fn collect_processes(
@@ -257,19 +286,14 @@ impl CoreCollector for Backend {
         let collected_at = Instant::now();
         let cpu = devlog::timed("collector.cpu", || cpu::collect(None));
         let memory = devlog::timed("collector.memory", || memory::collect(None));
-        let processes = devlog::timed("collector.processes", || self.collect_processes(None));
-        let active_processes = self.active_processes.current();
+        let processes = devlog::timed("collector.processes", || self.prepare_product_processes());
         let networks = devlog::timed("collector.network", || network::collect(None));
         let disks = devlog::timed("collector.disk", || disk::collect(None));
         let process_disk_io = devlog::timed("collector.disk-attribution", || {
-            self.ebpf_io
-                .collect_disk(active_processes, None)
-                .map(|result| result.rows)
+            self.collect_product_disk_attribution(&processes)
         });
         let process_network_io = devlog::timed("collector.network-attribution", || {
-            self.ebpf_io
-                .collect_network(active_processes, None)
-                .map(|result| result.rows)
+            self.collect_product_network_attribution(&processes)
         });
         let (gpus, temperatures) = self.collect_gpu_temperatures(None);
         let fans = devlog::timed("collector.fans", || self.fans.collect(Instant::now(), None));
@@ -278,7 +302,7 @@ impl CoreCollector for Backend {
             collected_at,
             cpu,
             memory,
-            processes,
+            processes: processes.snapshot,
             networks,
             disks,
             process_disk_io,

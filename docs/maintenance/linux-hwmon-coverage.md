@@ -47,13 +47,13 @@ Examples:
 
 ## Validation baseline
 
-Current deterministic baseline after the latest compatibility work:
+Validation contract for this compatibility path:
 
-- `bun validate.ts fast`: 51 tests passed, 0 failed.
-- `bun validate.ts windows`: x86_64 and i686 release builds passed.
-- Vendored Linux hwmon files are digest-checked against the pinned Linux v6.11 commit.
+- `bun validate.ts fast` must pass, including the vendored-source digest and warning-isolation guards.
+- `bun validate.ts windows` must pass for both x86_64 and i686 Windows targets.
+- Vendored Linux hwmon files must remain digest-checked against the pinned Linux v6.11 commit.
 
-Warnings emitted while compiling unchanged vendored Linux C are accepted upstream-source warnings, not project-owned source warnings.
+Known warnings from unchanged, digest-pinned vendored Linux hwmon C are suppressed only around the vendor source include. Project-owned Windows bridge code before and after that include remains under the normal compiler warning policy, and newly introduced vendor warning classes remain visible until explicitly reviewed.
 
 ## When to extend coverage
 
@@ -69,3 +69,5 @@ Avoid expanding the compatibility facade solely to increase nominal driver count
 ## Maintenance invariant
 
 Any change to Windows runtime use of vendored Linux hwmon sources must update this page in the same change. `sync-linux-hwmon.test.ts` provides a minimal guard that active upstream driver names remain represented here; this page is still descriptive maintenance state rather than generated architecture authority.
+
+Whenever the vendored Linux hwmon snapshot or its pinned digests change, rerun Windows cross-validation and review the warning-suppression allowlist against the new compiler output. Remove suppressions that are no longer required and add a new warning class only after confirming it originates in unchanged vendored source rather than project-owned bridge or compatibility code.

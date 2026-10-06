@@ -40,4 +40,34 @@ describe("vendored Linux hwmon snapshot", () => {
       expect(coverage).toContain(driver);
     }
   });
+
+  test("vendor warning isolation cannot weaken project-owned bridge diagnostics", async () => {
+    const platformRoot = join(import.meta.dir, "crates", "cclover-platform");
+    const buildSource = await readFile(join(platformRoot, "build.rs"), "utf8");
+    const hwmonBuild = buildSource
+      .split("fn build_windows_hwmon_compat() {")[1]
+      ?.split("\n}\n\nfn configure_windows_resources")[0];
+
+    expect(hwmonBuild).toBeDefined();
+    expect(hwmonBuild).toContain(".warnings(true)");
+    expect(hwmonBuild).not.toMatch(/-Wno-|\.warnings\(false\)|(?:^|[\s\"'])-w(?:[\s\"']|$)/);
+
+    const diagnosticScope = await readFile(
+      join(platformRoot, "native", "windows", "hwmon", "vendor_diagnostics.h"),
+      "utf8",
+    );
+    expect(diagnosticScope).toContain('_Pragma("clang diagnostic push")');
+    expect(diagnosticScope).toContain('_Pragma("clang diagnostic pop")');
+
+    for (const [bridge, vendor] of [
+      ["coretemp_bridge.c", "coretemp.c"],
+      ["k8temp_bridge.c", "k8temp.c"],
+      ["k10temp_bridge.c", "k10temp.c"],
+    ] as const) {
+      const source = await readFile(join(platformRoot, "native", "windows", "hwmon", bridge), "utf8");
+      expect(source).toContain(
+        `CCLOVER_HWMON_VENDOR_WARNINGS_BEGIN\n#include "${vendor}"\nCCLOVER_HWMON_VENDOR_WARNINGS_END`,
+      );
+    }
+  });
 });

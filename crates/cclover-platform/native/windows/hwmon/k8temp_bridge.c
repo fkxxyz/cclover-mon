@@ -1,4 +1,5 @@
 #include "k8temp_bridge.h"
+#include "vendor_diagnostics.h"
 #define boot_cpu_data cclover_k8_boot_cpu_data
 #define cpuid_ebx cclover_k8_cpuid_ebx
 #define pci_read_config_byte cclover_k8_pci_read_config_byte
@@ -66,7 +67,9 @@ struct device *devm_hwmon_device_register_with_info(struct device *dev, const ch
     return dev;
 }
 
+CCLOVER_HWMON_VENDOR_WARNINGS_BEGIN
 #include "k8temp.c"
+CCLOVER_HWMON_VENDOR_WARNINGS_END
 
 int cclover_k8_create(uint32_t family, uint32_t model, uint32_t stepping,
                       uint32_t cpuid_80000001_ebx, CcloverK8Transport transport,

@@ -1,4 +1,5 @@
 #include "k10temp_bridge.h"
+#include "vendor_diagnostics.h"
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
@@ -71,7 +72,9 @@ struct device *devm_hwmon_device_register_with_info(struct device *dev, const ch
     return dev;
 }
 
+CCLOVER_HWMON_VENDOR_WARNINGS_BEGIN
 #include "k10temp.c"
+CCLOVER_HWMON_VENDOR_WARNINGS_END
 
 static void activate(CcloverK10State *state) {
     active_state = state;

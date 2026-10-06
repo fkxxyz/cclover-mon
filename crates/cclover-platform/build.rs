@@ -21,6 +21,7 @@ fn build_windows_hwmon_compat() {
     for path in [
         "native/windows/hwmon/coretemp_bridge.c",
         "native/windows/hwmon/coretemp_bridge.h",
+        "native/windows/hwmon/vendor_diagnostics.h",
         "vendor/linux/hwmon/coretemp.c",
     ] {
         println!("cargo:rerun-if-changed={path}");
@@ -50,10 +51,6 @@ fn build_windows_hwmon_compat() {
         build
             .file("native/windows/hwmon/k10temp_bridge.c")
             .file("native/windows/hwmon/k8temp_bridge.c");
-    }
-    if build.get_compiler().is_like_clang() {
-        build.flag_if_supported("-Wno-unused-variable");
-        build.flag_if_supported("-Wno-unused-function");
     }
     build.compile("cclover_linux_hwmon_compat");
 }

@@ -1,4 +1,5 @@
 #include "coretemp_bridge.h"
+#include "vendor_diagnostics.h"
 #define boot_cpu_data cclover_coretemp_boot_cpu_data
 #include <errno.h>
 #include <stdlib.h>
@@ -57,7 +58,9 @@ struct device *hwmon_device_register_with_groups(struct device *dev, const char 
 
 void hwmon_device_unregister(struct device *dev) { (void)dev; }
 
+CCLOVER_HWMON_VENDOR_WARNINGS_BEGIN
 #include "coretemp.c"
+CCLOVER_HWMON_VENDOR_WARNINGS_END
 
 static int read_temperature(CcloverCoretempState *state, uint32_t cpu, int package, long *value) {
     if (!state || !value)

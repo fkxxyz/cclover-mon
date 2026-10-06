@@ -31,7 +31,27 @@ describe("performance comparison", () => {
       baseline: resolve("./old"),
       candidate: resolve("./new"),
       workload: { kind: "collector", collector: "processes" },
-      samples: 30,
+      count: 30,
+      pairs: 6,
+    });
+  });
+
+  test("parses an explicit fixed-work Web comparison", () => {
+    expect(
+      parseComparisonArgs([
+        "--baseline",
+        "./old",
+        "--candidate",
+        "./new",
+        "web",
+        "--updates",
+        "30",
+      ]),
+    ).toEqual({
+      baseline: resolve("./old"),
+      candidate: resolve("./new"),
+      workload: { kind: "web" },
+      count: 30,
       pairs: 6,
     });
   });
@@ -48,6 +68,31 @@ describe("performance comparison", () => {
         "30",
       ]),
     ).toThrow("unexpected argument: --duration");
+  });
+
+  test("keeps workload-specific fixed-work units explicit", () => {
+    expect(() =>
+      parseComparisonArgs([
+        "--baseline",
+        "./old",
+        "--candidate",
+        "./new",
+        "web",
+        "--samples",
+        "5",
+      ]),
+    ).toThrow("--samples is not valid for web workload; use --updates");
+    expect(() =>
+      parseComparisonArgs([
+        "--baseline",
+        "./old",
+        "--candidate",
+        "./new",
+        "headless",
+        "--updates",
+        "5",
+      ]),
+    ).toThrow("--updates is only valid for web workload");
   });
 
   test("requires enough even pairs for balanced order", () => {
@@ -97,6 +142,9 @@ describe("performance comparison", () => {
       "--samples",
       "10",
     ]);
+    expect(() => workloadCommand("/tmp/cclover-mon", { kind: "web" }, 10)).toThrow(
+      "web workload is executed by the active-Web workload launcher",
+    );
   });
 
   test("classifies consistent paired reductions and regressions", () => {

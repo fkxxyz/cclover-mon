@@ -1,17 +1,20 @@
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 
+import { runActiveWebWorkload } from "./perf-web";
+
 export type ComparisonSide = "baseline" | "candidate";
 
 export type PerfWorkload =
   | { kind: "headless" }
-  | { kind: "collector"; collector: string };
+  | { kind: "collector"; collector: string }
+  | { kind: "web" };
 
 export interface ComparisonConfig {
   baseline: string;
   candidate: string;
   workload: PerfWorkload;
-  samples: number;
+  count: number;
   pairs: number;
 }
 
@@ -82,6 +85,7 @@ export function parseComparisonArgs(args: readonly string[]): ComparisonConfig {
   let baseline: string | undefined;
   let candidate: string | undefined;
   let samples: number | undefined;
+  let updates: number | undefined;
   let pairs = DEFAULT_PAIRS;
   const positional: string[] = [];
 
@@ -99,6 +103,9 @@ export function parseComparisonArgs(args: readonly string[]): ComparisonConfig {
       case "--samples":
         samples = positiveInteger("--samples", args[++index]);
         break;
+      case "--updates":
+        updates = positiveInteger("--updates", args[++index]);
+        break;
       case "--pairs":
         pairs = positiveInteger("--pairs", args[++index]);
         break;
@@ -113,7 +120,6 @@ export function parseComparisonArgs(args: readonly string[]): ComparisonConfig {
 
   if (!baseline) throw new Error("--baseline is required");
   if (!candidate) throw new Error("--candidate is required");
-  if (samples === undefined) throw new Error("--samples is required for comparable fixed work");
   if (pairs < MIN_PAIRS || pairs % 2 !== 0) {
     throw new Error(`--pairs must be an even integer of at least ${MIN_PAIRS}`);
   }
@@ -123,15 +129,36 @@ export function parseComparisonArgs(args: readonly string[]): ComparisonConfig {
     workload = { kind: "headless" };
   } else if (positional.length === 2 && positional[0] === "collector" && positional[1]) {
     workload = { kind: "collector", collector: positional[1] };
+  } else if (positional.length === 1 && positional[0] === "web") {
+    workload = { kind: "web" };
   } else {
-    throw new Error("workload must be `headless` or `collector <name>`");
+    throw new Error("workload must be `headless`, `collector <name>`, or `web`");
+  }
+
+  let count: number;
+  if (workload.kind === "web") {
+    if (samples !== undefined) {
+      throw new Error("--samples is not valid for web workload; use --updates");
+    }
+    if (updates === undefined) {
+      throw new Error("--updates is required for comparable fixed Web work");
+    }
+    count = updates;
+  } else {
+    if (updates !== undefined) {
+      throw new Error("--updates is only valid for web workload");
+    }
+    if (samples === undefined) {
+      throw new Error("--samples is required for comparable fixed work");
+    }
+    count = samples;
   }
 
   return {
     baseline: resolve(baseline),
     candidate: resolve(candidate),
     workload,
-    samples,
+    count,
     pairs,
   };
 }
@@ -148,13 +175,16 @@ export function comparisonSchedule(pairs: number): readonly (readonly [Compariso
 export function workloadCommand(
   executable: string,
   workload: PerfWorkload,
-  samples: number,
+  count: number,
 ): readonly string[] {
+  if (workload.kind === "web") {
+    throw new Error("web workload is executed by the active-Web workload launcher");
+  }
   const workloadArgs =
     workload.kind === "headless"
       ? ["headless"]
       : ["collector", workload.collector];
-  return [executable, "perf", ...workloadArgs, "--samples", String(samples)];
+  return [executable, "perf", ...workloadArgs, "--samples", String(count)];
 }
 
 export async function executableIdentity(path: string): Promise<ExecutableIdentity> {
@@ -293,7 +323,10 @@ export async function compare(
         side,
       });
       const executable = side === "baseline" ? config.baseline : config.candidate;
-      measured[side] = await measureCommand(workloadCommand(executable, config.workload, config.samples));
+      measured[side] =
+        config.workload.kind === "web"
+          ? (await runActiveWebWorkload({ executable, updates: config.count })).cpuTime
+          : await measureCommand(workloadCommand(executable, config.workload, config.count));
     }
     pairResults.push({
       baseline: measured.baseline!,
@@ -324,11 +357,14 @@ function formatDelta(value: number | null): string {
 }
 
 function workloadLabel(config: ComparisonConfig): string {
+  if (config.workload.kind === "web") {
+    return `web --updates ${config.count}`;
+  }
   const workload =
     config.workload.kind === "headless"
       ? "headless"
       : `collector ${config.workload.collector}`;
-  return `${workload} --samples ${config.samples}`;
+  return `${workload} --samples ${config.count}`;
 }
 
 export function formatReport(result: ComparisonResult): string {
@@ -372,6 +408,7 @@ function usage(): string {
     "usage:",
     "  bun perf-compare.ts --baseline <executable> --candidate <executable> headless --samples <count> [--pairs <even-count>]",
     "  bun perf-compare.ts --baseline <executable> --candidate <executable> collector <name> --samples <count> [--pairs <even-count>]",
+    "  bun perf-compare.ts --baseline <executable> --candidate <executable> web --updates <count> [--pairs <even-count>]",
   ].join("\n");
 }
 

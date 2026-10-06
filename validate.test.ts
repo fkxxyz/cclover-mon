@@ -21,6 +21,7 @@ describe("validation profiles", () => {
         "release-publication.test.ts",
         "libbpf-compat.test.ts",
         "perf-compare.test.ts",
+        "perf-web.test.ts",
         "validate.test.ts",
         "windows-validate.test.ts",
         "sync-linux-hwmon.test.ts",
@@ -143,6 +144,17 @@ describe("validation profiles", () => {
       "bun",
       "libbpf-compat.ts",
       "target/release/cclover-mon",
+    ]);
+  });
+
+  test("Linux validation executes the active Web performance workload", () => {
+    expect(validationSteps("linux").map((step) => step.command)).toContainEqual([
+      "bun",
+      "perf-web.ts",
+      "--executable",
+      "target/release/cclover-mon",
+      "--updates",
+      "2",
     ]);
   });
 

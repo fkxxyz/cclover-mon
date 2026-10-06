@@ -32,6 +32,7 @@ const FAST_STEPS: readonly ValidationStep[] = [
       "release-publication.test.ts",
       "libbpf-compat.test.ts",
       "perf-compare.test.ts",
+      "perf-web.test.ts",
       "validate.test.ts",
       "windows-validate.test.ts",
       "sync-linux-hwmon.test.ts",
@@ -61,6 +62,17 @@ const LINUX_STEPS: readonly ValidationStep[] = [
   {
     name: "Linux libbpf ABI compatibility",
     command: ["bun", "libbpf-compat.ts", "target/release/cclover-mon"],
+  },
+  {
+    name: "active Web performance workload smoke",
+    command: [
+      "bun",
+      "perf-web.ts",
+      "--executable",
+      "target/release/cclover-mon",
+      "--updates",
+      "2",
+    ],
   },
   {
     name: "minimal-feature tests",

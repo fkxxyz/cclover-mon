@@ -22,6 +22,8 @@ A lightweight native system monitor for Linux and Windows, with interactive desk
 
 Requires a Rust toolchain with Cargo. Default Linux builds also require clang and libbpf development files; the resulting `ebpf-io` artifact requires libbpf 1.0.0 or newer within the `libbpf.so.1` ABI generation. `--no-default-features` omits the eBPF integration and its libbpf dependency.
 
+Official x86_64 Linux release artifacts target an Ubuntu 22.04-class userspace baseline. Release validation requires the GNU x86_64 loader `/lib64/ld-linux-x86-64.so.2`, rejects direct GLIBC imports newer than 2.35 and GCC runtime imports newer than 4.2.0, preserves the separate `libbpf.so.1` / `LIBBPF_1.0.0` contract, and requires every mandatory `DT_NEEDED` runtime library to be explicitly approved for the product. Optional NVML remains dynamically loaded and is not an approved mandatory dependency. This is a userspace compatibility baseline, not a per-distribution support matrix; the desktop artifact still relies on the system Cairo, X11, Wayland, and GLib ABI generations supplied by that baseline.
+
 ```bash
 cargo build --release
 ```

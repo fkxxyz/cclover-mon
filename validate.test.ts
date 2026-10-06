@@ -20,6 +20,7 @@ describe("validation profiles", () => {
         "release-redistribution.test.ts",
         "release-publication.test.ts",
         "libbpf-compat.test.ts",
+        "linux-runtime-abi.test.ts",
         "linux-elevation.test.ts",
         "perf-compare.test.ts",
         "perf-web.test.ts",
@@ -66,7 +67,13 @@ describe("validation profiles", () => {
   test("Linux eBPF runtime validation is isolated and requires elevated execution", () => {
     expect(validationSteps("linux-ebpf-runtime").map((step) => step.command)).toEqual([
       ["cargo", "build", "--locked", "--release"],
-      ["bun", "libbpf-compat.ts", "target/release/cclover-mon"],
+      [
+        "bun",
+        "release.ts",
+        "linux-abi",
+        "cclover-mon-x86_64-unknown-linux-gnu",
+        "target/release/cclover-mon",
+      ],
       ["bun", "linux-ebpf-runtime-smoke.ts"],
     ]);
     expect(validationExecution("linux-ebpf-runtime")).toEqual({
@@ -140,10 +147,12 @@ describe("validation profiles", () => {
     expect(validationSteps("linux").some((step) => step.command.includes("web-browser-smoke.ts"))).toBe(false);
   });
 
-  test("Linux validation checks the built executable against the libbpf ABI baseline", () => {
+  test("Linux validation checks the built executable against the product runtime ABI baseline", () => {
     expect(validationSteps("linux").map((step) => step.command)).toContainEqual([
       "bun",
-      "libbpf-compat.ts",
+      "release.ts",
+      "linux-abi",
+      "cclover-mon-x86_64-unknown-linux-gnu",
       "target/release/cclover-mon",
     ]);
   });
@@ -159,11 +168,17 @@ describe("validation profiles", () => {
     ]);
   });
 
-  test("server validation owns the headless product smoke and libbpf ABI check", () => {
+  test("server validation owns the headless product smoke and runtime ABI check", () => {
     expect(validationSteps("server").map((step) => step.command)).toEqual([
       ["cargo", "test", "--locked", "-p", "cclover-server"],
       ["cargo", "build", "--locked", "--release", "-p", "cclover-server"],
-      ["bun", "libbpf-compat.ts", "target/release/cclover-mon-server"],
+      [
+        "bun",
+        "release.ts",
+        "linux-abi",
+        "cclover-mon-server-x86_64-unknown-linux-gnu",
+        "target/release/cclover-mon-server",
+      ],
       ["bun", "server-smoke.ts"],
     ]);
   });

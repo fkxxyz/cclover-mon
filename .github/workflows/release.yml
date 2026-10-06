@@ -28,7 +28,7 @@ jobs:
 
   build:
     needs: [preflight, validate]
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.platform == 'linux' && 'ubuntu-22.04' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.preflight.outputs.matrix) }}

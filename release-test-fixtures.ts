@@ -4,13 +4,13 @@ import { join } from "node:path";
 import {
   RELEASE_ARTIFACTS,
   RELEASE_COMPANION_ASSETS,
-  packageBuiltReleaseArtifact,
   sourceManifestFileName,
   type BuildProvenance,
   type NativeToolRole,
   type ReleaseArtifact,
   type ReleaseCompanionAssetManifest,
 } from "./release";
+import { packageBuiltReleaseArtifact } from "./tools/release/pipeline";
 
 export const VERSION = "0.1.0";
 export const COMMIT = "0123456789abcdef0123456789abcdef01234567";

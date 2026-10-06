@@ -14,6 +14,10 @@ import { dirname, join, resolve } from "node:path";
 import { createArchive, verifyArchiveContents } from "./archive";
 import { resolveBuildContext, validateBuildProvenance, type BuildInvocation } from "./build-context";
 import {
+  checkLinuxRuntimeAbi,
+  validateLinuxReleaseBuildHost,
+} from "./linux-runtime-abi";
+import {
   RELEASE_ARTIFACTS,
   archiveName,
   binaryFileName,
@@ -192,6 +196,7 @@ export async function buildReleaseArtifact(
     run({ command: ["bun", "prepare-windows-deps.ts"] }, repoRoot);
   }
   const context = await resolveBuildContext(artifact, repoRoot);
+  validateLinuxReleaseBuildHost(artifact, context.provenance);
   run(context.invocation, repoRoot);
 
   const binary = join(
@@ -201,6 +206,7 @@ export async function buildReleaseArtifact(
     "dist",
     binaryFileName(artifact),
   );
+  if (artifact.platform === "linux") checkLinuxRuntimeAbi(artifact, binary);
   return packageBuiltReleaseArtifact(artifact, {
     repoRoot,
     outDir,

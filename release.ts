@@ -1,5 +1,6 @@
 export * from "./tools/release/plan";
 export * from "./tools/release/build-context";
+export * from "./tools/release/linux-runtime-abi";
 export { archiveFiles, expectedArchiveFiles, verifyArchiveContents } from "./tools/release/archive";
 export {
   buildRedistributionSourceAsset,
@@ -19,7 +20,6 @@ export {
 export {
   assertStaticPackageInputs,
   buildReleaseArtifact,
-  packageBuiltReleaseArtifact,
   verifyReleaseArtifacts,
   workspaceCommit,
   workspaceVersion,
@@ -47,6 +47,10 @@ import {
   workspaceVersion,
 } from "./tools/release/pipeline";
 import {
+  LINUX_RUNTIME_ABI_POLICY,
+  checkLinuxRuntimeAbi,
+} from "./tools/release/linux-runtime-abi";
+import {
   buildRedistributionSourceAssets,
   validateRedistributionPlan,
 } from "./tools/release/redistribution";
@@ -72,6 +76,7 @@ export async function publishVerifiedReleaseArtifacts(
 function usage(): void {
   console.log(`usage:
   bun release.ts plan [--json] [--tag vVERSION]
+  bun release.ts linux-abi <artifact-id> <ELF>
   bun release.ts build <artifact-id> [--out-dir DIR] [--tag vVERSION]
   bun release.ts sources [--out-dir DIR] [--tag vVERSION] [--offline]
   bun release.ts source-cache contract
@@ -117,6 +122,17 @@ async function main(args: readonly string[]): Promise<number> {
       console.log(`release v${version}`);
       for (const item of RELEASE_ARTIFACTS) console.log(`${item.id}\t${item.platform}\t${item.target}`);
     }
+    return 0;
+  }
+  if (command === "linux-abi") {
+    const [id, path] = positional(rest);
+    if (!id || !path) throw new Error("linux-abi requires an artifact id and ELF path");
+    const artifact = releaseArtifact(id);
+    const report = checkLinuxRuntimeAbi(artifact, path);
+    console.log(
+      `${path}: GLIBC_${report.highestGlibc} (baseline ${LINUX_RUNTIME_ABI_POLICY.glibcMax}), ` +
+        `${report.needed.length} direct runtime libraries, ${LINUX_RUNTIME_ABI_POLICY.interpreter}`,
+    );
     return 0;
   }
   if (command === "build") {

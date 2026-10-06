@@ -31,6 +31,7 @@ const FAST_STEPS: readonly ValidationStep[] = [
       "release-redistribution.test.ts",
       "release-publication.test.ts",
       "libbpf-compat.test.ts",
+      "linux-runtime-abi.test.ts",
       "linux-elevation.test.ts",
       "perf-compare.test.ts",
       "perf-web.test.ts",
@@ -61,8 +62,14 @@ const LINUX_STEPS: readonly ValidationStep[] = [
   },
   { name: "release build", command: ["cargo", "build", "--locked", "--release"] },
   {
-    name: "Linux libbpf ABI compatibility",
-    command: ["bun", "libbpf-compat.ts", "target/release/cclover-mon"],
+    name: "Linux runtime ABI compatibility",
+    command: [
+      "bun",
+      "release.ts",
+      "linux-abi",
+      "cclover-mon-x86_64-unknown-linux-gnu",
+      "target/release/cclover-mon",
+    ],
   },
   {
     name: "active Web performance workload smoke",
@@ -178,8 +185,14 @@ const WINDOWS_ETW_RUNTIME_STEPS: readonly ValidationStep[] = [
 const LINUX_EBPF_RUNTIME_STEPS: readonly ValidationStep[] = [
   { name: "Linux eBPF release build", command: ["cargo", "build", "--locked", "--release"] },
   {
-    name: "Linux libbpf ABI compatibility",
-    command: ["bun", "libbpf-compat.ts", "target/release/cclover-mon"],
+    name: "Linux runtime ABI compatibility",
+    command: [
+      "bun",
+      "release.ts",
+      "linux-abi",
+      "cclover-mon-x86_64-unknown-linux-gnu",
+      "target/release/cclover-mon",
+    ],
   },
   { name: "Linux eBPF runtime smoke", command: ["bun", "linux-ebpf-runtime-smoke.ts"] },
 ];
@@ -196,8 +209,14 @@ const SERVER_STEPS: readonly ValidationStep[] = [
     command: ["cargo", "build", "--locked", "--release", "-p", "cclover-server"],
   },
   {
-    name: "Linux server libbpf ABI compatibility",
-    command: ["bun", "libbpf-compat.ts", "target/release/cclover-mon-server"],
+    name: "Linux server runtime ABI compatibility",
+    command: [
+      "bun",
+      "release.ts",
+      "linux-abi",
+      "cclover-mon-server-x86_64-unknown-linux-gnu",
+      "target/release/cclover-mon-server",
+    ],
   },
   { name: "server headless runtime smoke", command: ["bun", "server-smoke.ts"] },
 ];

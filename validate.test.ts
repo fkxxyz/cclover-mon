@@ -20,6 +20,7 @@ describe("validation profiles", () => {
         "release-redistribution.test.ts",
         "release-publication.test.ts",
         "libbpf-compat.test.ts",
+        "perf-compare.test.ts",
         "validate.test.ts",
         "windows-validate.test.ts",
         "sync-linux-hwmon.test.ts",

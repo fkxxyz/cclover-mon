@@ -29,7 +29,7 @@ function/source attribution
   ↓
 minimal optimization
   ↓
-same-workload remeasurement
+same-workload paired comparison
 ```
 
 Detailed Views:
@@ -38,4 +38,4 @@ Detailed Views:
 - [Diagnostic Workloads](diagnostic-workloads.md) — production-path `perf` CLI workloads for external profilers.
 - [eBPF Performance Validation](ebpf-performance-validation.md) — separate event-path and userspace-sampling measurements for Linux attribution.
 
-Performance claims require comparable before/after evidence. Correctness diagnostics and architecture constraints are inputs to performance work, not substitutes for measurement.
+Performance claims require comparable before/after evidence. Repository-owned `perf-compare.ts` standardizes fixed-work baseline/candidate CPU comparisons while the production `perf` CLI remains the workload authority. Correctness diagnostics and architecture constraints are inputs to performance work, not substitutes for measurement.

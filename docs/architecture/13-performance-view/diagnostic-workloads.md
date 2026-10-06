@@ -30,3 +30,5 @@ Collector names are the same controlled set accepted by `probe`: `cpu`, `memory`
 The default run is unbounded for profiler attachment. `--duration` and `--samples` only terminate the run; they do not alter cadence. Diagnostic formatting, terminal output, or synthetic replacement work is excluded unless that work is the subject being measured.
 
 Additional isolation points are justified only when they reuse the corresponding production implementation rather than creating a parallel implementation that measures different work. Isolation may remove unrelated production work, but it must not remove context that materially changes the selected collector's steady-state behavior.
+
+Comparative experiments do not add another workload implementation. `perf-compare.ts` launches two explicit `cclover-mon` executables with the same fixed-sample `perf` workload, so this CLI remains the sole authority for what work is measured. The comparison layer owns only balanced execution order, child CPU-time measurement, and noise-aware summarization.

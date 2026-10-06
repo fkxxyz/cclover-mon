@@ -187,7 +187,18 @@ fn build_linux_bpf(out: &Path, target_arch: &str) {
         &clang,
     );
     write_bpf_abi_layouts(out, bpf_arch, &clang, disk_source, network_source);
+    build_linux_libbpf_diagnostics();
     println!("cargo:rustc-link-lib=bpf");
+}
+
+#[cfg(feature = "ebpf-io")]
+fn build_linux_libbpf_diagnostics() {
+    let source = "native/linux/libbpf_diagnostics.c";
+    println!("cargo:rerun-if-changed={source}");
+    cc::Build::new()
+        .file(source)
+        .warnings(true)
+        .compile("cclover_libbpf_diagnostics");
 }
 
 #[cfg(feature = "ebpf-io")]

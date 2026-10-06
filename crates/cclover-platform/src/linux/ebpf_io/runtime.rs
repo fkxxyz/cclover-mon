@@ -4,6 +4,9 @@ use std::ffi::{CStr, c_int, c_long, c_void};
 use std::mem::MaybeUninit;
 use std::path::Path;
 use std::ptr;
+use std::sync::Once;
+
+use cclover_core::devlog;
 
 use super::{AttributionFailure, FailureKind};
 
@@ -17,6 +20,7 @@ struct BpfMap(c_void);
 struct BpfLink(c_void);
 
 unsafe extern "C" {
+    fn cclover_libbpf_configure_print(debug_enabled: c_int, trace_enabled: c_int);
     fn bpf_object__open_mem(
         data: *const c_void,
         size: usize,
@@ -44,8 +48,25 @@ unsafe extern "C" {
     fn libbpf_get_error(ptr: *const c_void) -> c_long;
 }
 
+static LIBBPF_DIAGNOSTICS: Once = Once::new();
+
 // Conservative syscall-amortization choice for map reads; not a libbpf or kernel ABI limit.
 const MAP_BATCH_SIZE: usize = 64;
+
+pub(super) fn configure_diagnostics_once() {
+    LIBBPF_DIAGNOSTICS.call_once(|| {
+        let trace_enabled =
+            std::env::var_os("LIBBPF_LOG_LEVEL").is_some_and(|value| value == "debug");
+        // SAFETY: the native adapter accepts only a boolean-like integer and installs a
+        // process-wide libbpf print policy. It retains no Rust pointers or callbacks.
+        unsafe {
+            cclover_libbpf_configure_print(
+                c_int::from(devlog::enabled()),
+                c_int::from(trace_enabled),
+            )
+        };
+    });
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct BatchFallback {

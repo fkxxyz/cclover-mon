@@ -19,6 +19,7 @@ const validationSources = join(root, "tools", "linux-validation");
 const outputDirectory = join(root, "target", "validation");
 const batchShim = join(outputDirectory, "libbpf-batch-unsupported.so");
 const lifecycleObserver = join(outputDirectory, "libbpf-attribution-lifecycle-observer.so");
+const printPolicyObserver = join(outputDirectory, "libbpf-print-policy-observer.so");
 mkdirSync(outputDirectory, { recursive: true });
 
 function compileSharedObject(sourceName: string, output: string, extraArgs: string[] = []): void {
@@ -47,6 +48,7 @@ function compileSharedObject(sourceName: string, output: string, extraArgs: stri
 
 compileSharedObject("libbpf-batch-unsupported.c", batchShim);
 compileSharedObject("libbpf-attribution-lifecycle-observer.c", lifecycleObserver, ["-ldl"]);
+compileSharedObject("libbpf-print-policy-observer.c", printPolicyObserver, ["-ldl"]);
 
 function readTrace(path: string): string {
   try {
@@ -140,6 +142,53 @@ async function generateNetworkTraffic(): Promise<number> {
   }
 }
 
+function runDiagnosticOwnershipProof(): void {
+  const marker = "libbpf-policy-validation:";
+  const run = (debug: string, libbpfLogLevel: string) => {
+    const result = Bun.spawnSync({
+      cmd: [executable, "probe", "disk-attribution", "--raw"],
+      env: {
+        ...process.env,
+        CCLOVER_MON_DEBUG: debug,
+        CCLOVER_MON_DISABLE_EBPF_IO: "1",
+        LIBBPF_LOG_LEVEL: libbpfLogLevel,
+        LD_PRELOAD: printPolicyObserver,
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const stdout = new TextDecoder().decode(result.stdout);
+    const stderr = new TextDecoder().decode(result.stderr);
+    if (result.exitCode !== 0) {
+      throw new Error(`diagnostic policy probe exited ${result.exitCode}\n${stderr || stdout}`);
+    }
+    if (/^status: unavailable$/m.test(stdout) && !/^diagnostic: .+/m.test(stdout)) {
+      throw new Error(`diagnostic policy probe lost its typed diagnostic while unavailable\n${stdout}`);
+    }
+    return stderr;
+  };
+
+  const ordinary = run("0", "info");
+  if (ordinary.includes(marker)) {
+    throw new Error(`ordinary runtime exposed libbpf callback output\n${ordinary}`);
+  }
+
+  const development = run("1", "info");
+  if (!development.includes(`${marker} warn`) || !development.includes(`${marker} info`)) {
+    throw new Error(`development logging did not expose actionable libbpf detail\n${development}`);
+  }
+  if (development.includes(`${marker} debug`)) {
+    throw new Error(`development logging exposed deep libbpf tracing without explicit opt-in\n${development}`);
+  }
+
+  const deepDebug = run("1", "debug");
+  if (!deepDebug.includes(`${marker} debug`)) {
+    throw new Error(`explicit deep libbpf debugging did not expose debug-level detail\n${deepDebug}`);
+  }
+
+  console.log("linux-ebpf-runtime-smoke: libbpf diagnostics policy preserves quiet, development, and deep-debug modes");
+}
+
 async function runLifecycleProof(
   collector: "disk-attribution" | "network-attribution",
   mapName: "disk_bytes" | "network_bytes",
@@ -228,6 +277,7 @@ async function runLifecycleProof(
 }
 
 async function main(): Promise<void> {
+  runDiagnosticOwnershipProof();
   await runLifecycleProof("disk-attribution", "disk_bytes", generateDiskTraffic);
   await runLifecycleProof("network-attribution", "network_bytes", generateNetworkTraffic);
 

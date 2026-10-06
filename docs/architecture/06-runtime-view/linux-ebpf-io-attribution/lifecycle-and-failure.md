@@ -25,4 +25,6 @@ Userspace normalizes the kernel start time into the same Linux birth-marker doma
 
 Failure to load, verify, attach, allocate, access, or resolve native identity is capability failure, not a zero measurement. Disk and network attribution fail independently. At minimum diagnostics distinguish unsupported kernel/BTF facilities, insufficient authority, attach incompatibility, map allocation/access failure, and transient identity-resolution failure.
 
+The Linux platform installs one process-wide libbpf print policy before attribution work begins. Normal operation keeps expected libbpf chatter off stderr and reports failure through the same typed attribution diagnostics used by `probe`; `CCLOVER_MON_DEBUG=1` additionally exposes libbpf warning/information detail, while `LIBBPF_LOG_LEVEL=debug` opts that development mode into deeper libbpf debug tracing. Libbpf text is observability only and never changes failure classification or availability semantics.
+
 Loading and attaching eBPF is privileged Linux work. Request only authority required by the selected mechanism; a stronger compatibility fallback must be explicit in deployment documentation and diagnosable. eBPF objects, kernel pointers, BPF handles, `dev_t`, `ifindex`, and libbpf types stay below the platform boundary.

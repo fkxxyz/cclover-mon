@@ -113,6 +113,7 @@ pub(super) struct Collector {
 #[cfg(feature = "ebpf-io")]
 impl Collector {
     pub(super) fn new() -> Self {
+        runtime::configure_diagnostics_once();
         let disabled = std::env::var_os("CCLOVER_MON_DISABLE_EBPF_IO").is_some();
         Self {
             disk: disk::Collector::new(disabled),

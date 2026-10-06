@@ -23,7 +23,7 @@ Presence is the state: every document in `technical-debt/` represents debt that 
 
 Current architecture-level technical debt:
 
-- [Web SVG number formatting allocation](technical-debt/web-svg-number-formatting-allocation.md) — Low-medium priority; active browser-dashboard rendering formats floating-point Scene coordinates through temporary owned strings before appending them to the final SVG output buffer.
+- [Active Web performance workload authority](technical-debt/active-web-performance-workload-authority.md) — Low-medium priority; active browser rendering has no repository-owned production-faithful performance workload, so maintainers must manually reconstruct HTTP readiness, SSE subscription, lifecycle, and profiler orchestration for each Web performance investigation.
 - [Performance diagnostic composition authority](technical-debt/performance-diagnostic-composition-authority.md) — Low-medium priority; production and performance orchestration still maintain production-equivalence decisions separately enough that future context or projection changes can drift without compilation failure.
 - [Scene positional invalidation damage amplification](technical-debt/scene-positional-invalidation-damage-amplification.md) — Low-medium priority; dynamic insertion or removal is conservatively matched by ordinal position, so a local collection change can damage much of the following Scene even when most primitives are unchanged.
 - [Vendored hwmon warning isolation](technical-debt/vendored-hwmon-warning-isolation.md) — Low priority; accepted upstream hwmon warnings are emitted in the same Windows cross-build output as project-owned native diagnostics, reducing validation signal-to-noise.

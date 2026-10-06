@@ -17,15 +17,15 @@ pub fn render(scene: &Scene) -> String {
             rect, clip: true, ..
         } = primitive
         {
-            write!(
-                out,
-                "<clipPath id=\"clip-{index}\"><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"/></clipPath>",
-                number(rect.x),
-                number(rect.y),
-                number(rect.width),
-                number(rect.height)
-            )
-            .unwrap();
+            write!(out, "<clipPath id=\"clip-{index}\"><rect x=\"").unwrap();
+            write_number(&mut out, rect.x);
+            out.push_str("\" y=\"");
+            write_number(&mut out, rect.y);
+            out.push_str("\" width=\"");
+            write_number(&mut out, rect.width);
+            out.push_str("\" height=\"");
+            write_number(&mut out, rect.height);
+            out.push_str("\"/></clipPath>");
         }
     }
     out.push_str("</defs>");
@@ -67,11 +67,13 @@ fn render_primitive(out: &mut String, primitive: &Primitive, index: usize) {
                 TextAlign::Start => rect.x,
                 TextAlign::End => rect.x + rect.width,
             };
+            out.push_str("<text x=\"");
+            write_number(out, x);
+            out.push_str("\" y=\"");
+            write_number(out, rect.y + rect.height / 2.0);
             write!(
                 out,
-                "<text x=\"{}\" y=\"{}\" font-size=\"{}\" font-weight=\"{}\" fill=\"{}\" text-anchor=\"{}\" dominant-baseline=\"middle\"",
-                number(x),
-                number(rect.y + rect.height / 2.0),
+                "\" font-size=\"{}\" font-weight=\"{}\" fill=\"{}\" text-anchor=\"{}\" dominant-baseline=\"middle\"",
                 size,
                 if *bold { 700 } else { 400 },
                 css_color(*color),
@@ -85,12 +87,9 @@ fn render_primitive(out: &mut String, primitive: &Primitive, index: usize) {
                 write!(out, " clip-path=\"url(#clip-{index})\"").unwrap();
             }
             if *must_fit {
-                write!(
-                    out,
-                    " data-cclover-must-fit=\"1\" data-cclover-max-width=\"{}\"",
-                    number(rect.width)
-                )
-                .unwrap();
+                out.push_str(" data-cclover-must-fit=\"1\" data-cclover-max-width=\"");
+                write_number(out, rect.width);
+                out.push('"');
             }
             out.push('>');
             escape_xml(out, value);
@@ -106,11 +105,12 @@ fn render_primitive(out: &mut String, primitive: &Primitive, index: usize) {
             render_points(out, points);
             write!(
                 out,
-                "\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\" vector-effect=\"non-scaling-stroke\"/>",
-                css_color(*color),
-                number(*width)
+                "\" fill=\"none\" stroke=\"{}\" stroke-width=\"",
+                css_color(*color)
             )
             .unwrap();
+            write_number(out, *width);
+            out.push_str("\" vector-effect=\"non-scaling-stroke\"/>");
         }
         Primitive::Polygon { points, color } => {
             out.push_str("<polygon points=\"");
@@ -128,28 +128,25 @@ fn render_rect(
     stroke_width: f32,
     radius: f32,
 ) {
-    write!(
-        out,
-        "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" rx=\"{}\"",
-        number(rect.x),
-        number(rect.y),
-        number(rect.width),
-        number(rect.height),
-        number(radius)
-    )
-    .unwrap();
+    out.push_str("<rect x=\"");
+    write_number(out, rect.x);
+    out.push_str("\" y=\"");
+    write_number(out, rect.y);
+    out.push_str("\" width=\"");
+    write_number(out, rect.width);
+    out.push_str("\" height=\"");
+    write_number(out, rect.height);
+    out.push_str("\" rx=\"");
+    write_number(out, radius);
+    out.push('"');
     match fill {
         Some(color) => write!(out, " fill=\"{}\"", css_color(color)).unwrap(),
         None => out.push_str(" fill=\"none\""),
     }
     if let Some(color) = stroke {
-        write!(
-            out,
-            " stroke=\"{}\" stroke-width=\"{}\" vector-effect=\"non-scaling-stroke\"",
-            css_color(color),
-            number(stroke_width)
-        )
-        .unwrap();
+        write!(out, " stroke=\"{}\" stroke-width=\"", css_color(color)).unwrap();
+        write_number(out, stroke_width);
+        out.push_str("\" vector-effect=\"non-scaling-stroke\"");
     }
     out.push_str("/>");
 }
@@ -159,7 +156,9 @@ fn render_points(out: &mut String, points: &[cclover_ui::Point]) {
         if index != 0 {
             out.push(' ');
         }
-        write!(out, "{},{}", number(point.x), number(point.y)).unwrap();
+        write_number(out, point.x);
+        out.push(',');
+        write_number(out, point.y);
     }
 }
 
@@ -173,15 +172,20 @@ fn css_color(color: Rgba) -> String {
     format!("rgba({},{},{},{:.3})", color.r, color.g, color.b, color.a)
 }
 
-fn number(value: f32) -> String {
-    let mut value = format!("{value:.3}");
-    while value.contains('.') && value.ends_with('0') {
-        value.pop();
+fn write_number(out: &mut String, value: f32) {
+    let start = out.len();
+    write!(out, "{value:.3}").unwrap();
+    let has_fraction = out.as_bytes()[start..].contains(&b'.');
+    if !has_fraction {
+        return;
     }
-    if value.ends_with('.') {
-        value.pop();
+
+    while out.len() > start && out.as_bytes().last() == Some(&b'0') {
+        out.pop();
     }
-    value
+    if out.len() > start && out.as_bytes().last() == Some(&b'.') {
+        out.pop();
+    }
 }
 
 fn escape_xml(out: &mut String, text: &str) {
@@ -282,5 +286,23 @@ mod tests {
         let mut out = String::new();
         escape_xml(&mut out, "<x & \"y\">");
         assert_eq!(out, "&lt;x &amp; &quot;y&quot;&gt;");
+    }
+
+    #[test]
+    fn writes_scene_numbers_with_existing_svg_formatting() {
+        for (value, expected) in [
+            (0.0, "0"),
+            (-0.0, "-0"),
+            (1.0, "1"),
+            (1.2, "1.2"),
+            (1.23, "1.23"),
+            (1.234, "1.234"),
+            (1.2346, "1.235"),
+            (-1.5, "-1.5"),
+        ] {
+            let mut out = String::from("prefix=");
+            write_number(&mut out, value);
+            assert_eq!(out, format!("prefix={expected}"), "value={value:?}");
+        }
     }
 }

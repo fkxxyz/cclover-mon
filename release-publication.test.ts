@@ -261,6 +261,44 @@ describe("release publication transaction", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  test("publication entry point rejects uncontrolled Linux userspace before any GitHub mutation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cclover-release-publication-test-"));
+    try {
+      await completeFixture(root, COMMIT, { controlledLinuxUserspace: false });
+      const summary = await verifyReleaseArtifacts(root, { version: VERSION, commit: COMMIT });
+      const gateway = new FakeGitHubPublicationGateway();
+
+      await expect(
+        publishGitHubRelease(summary, root, `v${VERSION}`, gateway),
+      ).rejects.toThrow(
+        "was built from uncontrolled userspace and is not eligible for official publication",
+      );
+      expect(gateway.mutations).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("facade publishes a release with controlled Linux userspace provenance", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cclover-release-publication-test-"));
+    try {
+      const git = Bun.spawnSync({ cmd: ["git", "rev-parse", "HEAD"], stdout: "pipe" });
+      expect(git.exitCode).toBe(0);
+      const currentCommit = git.stdout.toString().trim();
+      await completeFixture(root, currentCommit);
+      const gateway = new FakeGitHubPublicationGateway();
+      gateway.tagCommit = currentCommit;
+
+      const summary = await publishVerifiedReleaseArtifacts(root, `v${VERSION}`, gateway);
+
+      expect(summary.artifacts).toHaveLength(RELEASE_ARTIFACTS.length);
+      expect(gateway.mutations).toEqual(["create-draft", "upload", "publish"]);
+      expect(gateway.release?.draft).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("GitHub publication adapter contract", () => {

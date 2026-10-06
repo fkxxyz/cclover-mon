@@ -16,11 +16,13 @@ import { resolveBuildContext, validateBuildProvenance, type BuildInvocation } fr
 import {
   checkLinuxRuntimeAbi,
   validateLinuxReleaseBuildHost,
+  validateLinuxReleasePublicationEligibility,
 } from "./linux-runtime-abi";
 import {
   RELEASE_ARTIFACTS,
   archiveName,
   binaryFileName,
+  releaseArtifact,
   stagingDirectoryName,
   validateReleaseTag,
   type BuildProvenance,
@@ -297,4 +299,13 @@ export async function verifyReleaseArtifacts(
   };
   await writeFile(join(root, "release-manifest.json"), `${JSON.stringify(summary, null, 2)}\n`);
   return summary;
+}
+
+export function validateReleasePublicationEligibility(summary: ReleaseSummary): void {
+  for (const manifest of summary.artifacts) {
+    validateLinuxReleasePublicationEligibility(
+      releaseArtifact(manifest.artifactId),
+      manifest.buildProvenance,
+    );
+  }
 }

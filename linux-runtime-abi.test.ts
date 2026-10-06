@@ -3,9 +3,11 @@ import { readFileSync } from "node:fs";
 
 import {
   LINUX_RUNTIME_ABI_POLICY,
+  isAuthoritativeLinuxReleaseUserspace,
   parseLinuxInterpreter,
   parseLinuxVersionedImports,
   validateLinuxReleaseBuildHost,
+  validateLinuxReleasePublicationEligibility,
   validateLinuxRuntimeAbi,
 } from "./tools/release/linux-runtime-abi";
 import { releaseArtifact } from "./tools/release/plan";
@@ -145,6 +147,7 @@ describe("Linux release runtime ABI authority", () => {
           arch: "x64",
           runnerEnvironment: "github-hosted",
           runnerImage: "ubuntu22",
+          runnerImageVersion: "20261001.1",
         },
       }),
     ).not.toThrow();
@@ -155,9 +158,65 @@ describe("Linux release runtime ABI authority", () => {
           arch: "x64",
           runnerEnvironment: "github-hosted",
           runnerImage: "ubuntu24",
+          runnerImageVersion: "20261001.1",
         },
       }),
-    ).toThrow("Linux GitHub release build requires ubuntu22; observed ubuntu24");
+    ).toThrow("Linux GitHub release build requires authoritative ubuntu22 runner provenance");
+  });
+
+  test("derives publication userspace authority only from controlled runner provenance", () => {
+    const authoritative = {
+      host: {
+        os: "linux",
+        arch: "x64",
+        osRelease: "Ubuntu 22.04 fixture",
+        runnerEnvironment: "github-hosted",
+        runnerImage: "ubuntu22",
+        runnerImageVersion: "20261001.1",
+      },
+    };
+    expect(isAuthoritativeLinuxReleaseUserspace(authoritative)).toBe(true);
+    expect(() => validateLinuxReleasePublicationEligibility(ARTIFACT, authoritative)).not.toThrow();
+
+    for (const uncontrolled of [
+      {
+        host: {
+          os: "linux",
+          arch: "x64",
+          osRelease: "Arch Linux",
+        },
+      },
+      {
+        host: {
+          os: "linux",
+          arch: "x64",
+          osRelease: "Ubuntu 22.04 fixture",
+        },
+      },
+      {
+        host: {
+          os: "linux",
+          arch: "x64",
+          osRelease: "Ubuntu 22.04 fixture",
+          runnerEnvironment: "self-hosted",
+          runnerImage: "ubuntu22",
+          runnerImageVersion: "20261001.1",
+        },
+      },
+      {
+        host: {
+          os: "linux",
+          arch: "x64",
+          runnerEnvironment: "github-hosted",
+          runnerImage: "ubuntu22",
+        },
+      },
+    ]) {
+      expect(isAuthoritativeLinuxReleaseUserspace(uncontrolled)).toBe(false);
+      expect(() => validateLinuxReleasePublicationEligibility(ARTIFACT, uncontrolled)).toThrow(
+        "was built from uncontrolled userspace and is not eligible for official publication",
+      );
+    }
   });
 
   test("release workflow consumes the declared Linux runner label", () => {

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
+import { validateReleasePublicationEligibility } from "./pipeline";
 import type { ReleaseSummary } from "./plan";
 
 interface ExpectedAsset {
@@ -313,6 +314,7 @@ export async function publishGitHubRelease(
   tag: string,
   gateway: GitHubPublicationGateway = new GhGitHubPublicationGateway(),
 ): Promise<void> {
+  validateReleasePublicationEligibility(summary);
   const expected = await expectedPublication(summary, directory, tag);
   await assertTagCommit(expected, gateway);
 

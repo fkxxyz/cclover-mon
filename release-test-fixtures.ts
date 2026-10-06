@@ -15,16 +15,30 @@ import { packageBuiltReleaseArtifact } from "./tools/release/pipeline";
 export const VERSION = "0.1.0";
 export const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 
-export function fixtureProvenance(artifact: ReleaseArtifact): BuildProvenance {
+export function fixtureProvenance(
+  artifact: ReleaseArtifact,
+  options: { controlledLinuxUserspace?: boolean } = {},
+): BuildProvenance {
   const roles: NativeToolRole[] =
     artifact.platform === "windows"
       ? ["c-compiler", "archiver", "linker"]
       : artifact.product === "cclover-mon"
         ? ["c-compiler", "archiver", "bpf-compiler", "linker-driver", "linker"]
         : ["bpf-compiler", "linker-driver", "linker"];
+  const controlledLinuxUserspace =
+    artifact.platform === "linux" && options.controlledLinuxUserspace !== false;
   return {
     schemaVersion: 1,
-    host: { os: "linux", arch: "x64", osRelease: "fixture Linux" },
+    host: controlledLinuxUserspace
+      ? {
+          os: "linux",
+          arch: "x64",
+          osRelease: "Ubuntu 22.04 fixture",
+          runnerEnvironment: "github-hosted",
+          runnerImage: "ubuntu22",
+          runnerImageVersion: "20261001.1",
+        }
+      : { os: "linux", arch: "x64", osRelease: "fixture Linux" },
     rustc: { command: "rustc", version: "rustc fixture" },
     cargo: { command: "cargo", version: "cargo fixture" },
     nativeTools: roles.map((role) =>
@@ -59,7 +73,11 @@ export async function sha256(path: string): Promise<string> {
   return hasher.digest("hex");
 }
 
-export async function completeFixture(root: string, commit = COMMIT): Promise<void> {
+export async function completeFixture(
+  root: string,
+  commit = COMMIT,
+  options: { controlledLinuxUserspace?: boolean } = {},
+): Promise<void> {
   const binary = join(root, "fake-release-binary");
   await writeFile(binary, "fake executable bytes");
   for (const artifact of RELEASE_ARTIFACTS) {
@@ -68,7 +86,7 @@ export async function completeFixture(root: string, commit = COMMIT): Promise<vo
       binary,
       version: VERSION,
       commit,
-      provenance: fixtureProvenance(artifact),
+      provenance: fixtureProvenance(artifact, options),
     });
   }
   await rm(binary);

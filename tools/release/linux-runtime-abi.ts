@@ -55,6 +55,18 @@ export interface LinuxRuntimeAbiReport {
   libbpf: LibbpfElfCompatibility;
 }
 
+export function isAuthoritativeLinuxReleaseUserspace(
+  provenance: Pick<BuildProvenance, "host">,
+): boolean {
+  return (
+    provenance.host.os === "linux" &&
+    provenance.host.runnerEnvironment === "github-hosted" &&
+    provenance.host.runnerImage === LINUX_RUNTIME_ABI_POLICY.githubRunnerImage &&
+    typeof provenance.host.runnerImageVersion === "string" &&
+    provenance.host.runnerImageVersion.length > 0
+  );
+}
+
 function parseNumericVersion(version: string): readonly number[] {
   const parts = version.split(".").map(Number);
   if (parts.length < 2 || parts.some((part) => !Number.isInteger(part) || part < 0)) {
@@ -204,12 +216,23 @@ export function validateLinuxReleaseBuildHost(
   if (artifact.platform !== "linux") return;
   if (
     provenance.host.runnerEnvironment === "github-hosted" &&
-    provenance.host.runnerImage !== LINUX_RUNTIME_ABI_POLICY.githubRunnerImage
+    !isAuthoritativeLinuxReleaseUserspace(provenance)
   ) {
     throw new Error(
-      `Linux GitHub release build requires ${LINUX_RUNTIME_ABI_POLICY.githubRunnerImage}; observed ${provenance.host.runnerImage ?? "unknown"}`,
+      `Linux GitHub release build requires authoritative ${LINUX_RUNTIME_ABI_POLICY.githubRunnerImage} runner provenance with an image version; observed ${provenance.host.runnerImage ?? "unknown"} ${provenance.host.runnerImageVersion ?? "unknown-version"}`,
     );
   }
+}
+
+export function validateLinuxReleasePublicationEligibility(
+  artifact: ReleaseArtifact,
+  provenance: Pick<BuildProvenance, "host">,
+): void {
+  if (artifact.platform !== "linux") return;
+  if (isAuthoritativeLinuxReleaseUserspace(provenance)) return;
+  throw new Error(
+    `Linux artifact ${artifact.id} was built from uncontrolled userspace and is not eligible for official publication; artifact integrity may still be valid, but controlled ${LINUX_RUNTIME_ABI_POLICY.githubRunnerLabel} userspace evidence is missing`,
+  );
 }
 
 function runReadelf(readelf: string, args: readonly string[]): string {

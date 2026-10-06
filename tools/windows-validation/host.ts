@@ -4,7 +4,6 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
   type ValidationProfile,
-  type ValidationPrivilege,
   validationExecution,
 } from "../../validate";
 
@@ -128,12 +127,16 @@ export function discoverPowerShell(
   );
 }
 
-export function windowsProfilePrivilege(profile: ValidationProfile): ValidationPrivilege {
+export type WindowsExecutionPrivilege = "ordinary" | "elevated";
+
+export function windowsProfileExecutionPrivilege(
+  profile: ValidationProfile,
+): WindowsExecutionPrivilege {
   const execution = validationExecution(profile);
   if (execution.host !== "windows") {
     throw new Error(`${profile} is not a Windows-host validation profile`);
   }
-  return execution.privilege;
+  return execution.privilegeRequirement === "elevation-required" ? "elevated" : "ordinary";
 }
 
 export function repositoryRoot(cwd = process.cwd()): string {
@@ -166,7 +169,7 @@ export function runWindowsValidation(
     config: loadConfig(),
   },
 ): number {
-  const privilege = windowsProfilePrivilege(profile);
+  const privilege = windowsProfileExecutionPrivilege(profile);
   const repository = repositoryRoot(cwd);
 
   if (environment.platform === "win32") {

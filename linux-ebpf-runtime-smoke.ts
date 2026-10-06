@@ -2,6 +2,8 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 
+import { localElevatedCommand } from "./tools/validation/linux-elevation";
+
 function fail(message: string): never {
   console.error(`linux-ebpf-runtime-smoke: ${message}`);
   process.exit(1);
@@ -45,12 +47,6 @@ function compileSharedObject(sourceName: string, output: string, extraArgs: stri
 
 compileSharedObject("libbpf-batch-unsupported.c", batchShim);
 compileSharedObject("libbpf-attribution-lifecycle-observer.c", lifecycleObserver, ["-ldl"]);
-
-const elevatedPrefix = (() => {
-  if (typeof process.getuid === "function" && process.getuid() === 0) return [];
-  if (!Bun.which("sudo")) fail("sudo is required when linux-ebpf-runtime is not run as root");
-  return ["sudo"];
-})();
 
 function readTrace(path: string): string {
   try {
@@ -153,18 +149,21 @@ async function runLifecycleProof(
   writeFileSync(tracePath, "");
 
   const perf = Bun.spawn({
-    cmd: [
-      ...elevatedPrefix,
-      "env",
-      `LD_PRELOAD=${lifecycleObserver}`,
-      `CCLOVER_MON_EBPF_VALIDATION_TRACE=${tracePath}`,
-      executable,
-      "perf",
-      "collector",
-      collector,
-      "--samples",
-      "4",
-    ],
+    cmd: localElevatedCommand(
+      "linux-ebpf-runtime",
+      [
+        executable,
+        "perf",
+        "collector",
+        collector,
+        "--samples",
+        "4",
+      ],
+      {
+        LD_PRELOAD: lifecycleObserver,
+        CCLOVER_MON_EBPF_VALIDATION_TRACE: tracePath,
+      },
+    ),
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -235,15 +234,16 @@ async function main(): Promise<void> {
   const expectedDiagnostic = "BPF batch map lookup unsupported by kernel/map";
   for (const collector of ["disk-attribution", "network-attribution"] as const) {
     const result = Bun.spawnSync({
-      cmd: [
-        ...elevatedPrefix,
-        "env",
-        `LD_PRELOAD=${batchShim}`,
-        executable,
-        "probe",
-        collector,
-        "--raw",
-      ],
+      cmd: localElevatedCommand(
+        "linux-ebpf-runtime",
+        [
+          executable,
+          "probe",
+          collector,
+          "--raw",
+        ],
+        { LD_PRELOAD: batchShim },
+      ),
       stdout: "pipe",
       stderr: "pipe",
     });

@@ -7,11 +7,11 @@ export interface ValidationStep {
 }
 
 export type ValidationHost = "local" | "windows";
-export type ValidationPrivilege = "ordinary" | "elevated";
+export type ValidationPrivilegeRequirement = "ordinary" | "elevation-required";
 
 export interface ValidationExecution {
   host: ValidationHost;
-  privilege: ValidationPrivilege;
+  privilegeRequirement: ValidationPrivilegeRequirement;
 }
 
 interface ValidationProfileDefinition {
@@ -31,6 +31,7 @@ const FAST_STEPS: readonly ValidationStep[] = [
       "release-redistribution.test.ts",
       "release-publication.test.ts",
       "libbpf-compat.test.ts",
+      "linux-elevation.test.ts",
       "perf-compare.test.ts",
       "perf-web.test.ts",
       "validate.test.ts",
@@ -204,39 +205,39 @@ const SERVER_STEPS: readonly ValidationStep[] = [
 export const VALIDATION_PROFILES = {
   fast: {
     steps: FAST_STEPS,
-    execution: { host: "local", privilege: "ordinary" },
+    execution: { host: "local", privilegeRequirement: "ordinary" },
   },
   linux: {
     steps: LINUX_STEPS,
-    execution: { host: "local", privilege: "ordinary" },
+    execution: { host: "local", privilegeRequirement: "ordinary" },
   },
   windows: {
     steps: WINDOWS_STEPS,
-    execution: { host: "local", privilege: "ordinary" },
+    execution: { host: "local", privilegeRequirement: "ordinary" },
   },
   "linux-ebpf-runtime": {
     steps: LINUX_EBPF_RUNTIME_STEPS,
-    execution: { host: "local", privilege: "elevated" },
+    execution: { host: "local", privilegeRequirement: "elevation-required" },
   },
   "windows-native": {
     steps: WINDOWS_NATIVE_STEPS,
-    execution: { host: "windows", privilege: "ordinary" },
+    execution: { host: "windows", privilegeRequirement: "ordinary" },
   },
   "windows-etw-runtime": {
     steps: WINDOWS_ETW_RUNTIME_STEPS,
-    execution: { host: "windows", privilege: "elevated" },
+    execution: { host: "windows", privilegeRequirement: "elevation-required" },
   },
   "web-browser": {
     steps: WEB_BROWSER_STEPS,
-    execution: { host: "local", privilege: "ordinary" },
+    execution: { host: "local", privilegeRequirement: "ordinary" },
   },
   server: {
     steps: SERVER_STEPS,
-    execution: { host: "local", privilege: "ordinary" },
+    execution: { host: "local", privilegeRequirement: "ordinary" },
   },
   portable: {
     steps: [...FAST_STEPS, ...LINUX_STEPS, ...WINDOWS_STEPS],
-    execution: { host: "local", privilege: "ordinary" },
+    execution: { host: "local", privilegeRequirement: "ordinary" },
   },
 } as const satisfies Record<string, ValidationProfileDefinition>;
 

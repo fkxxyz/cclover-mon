@@ -20,6 +20,7 @@ describe("validation profiles", () => {
         "release-redistribution.test.ts",
         "release-publication.test.ts",
         "libbpf-compat.test.ts",
+        "linux-elevation.test.ts",
         "perf-compare.test.ts",
         "perf-web.test.ts",
         "validate.test.ts",
@@ -70,7 +71,7 @@ describe("validation profiles", () => {
     ]);
     expect(validationExecution("linux-ebpf-runtime")).toEqual({
       host: "local",
-      privilege: "elevated",
+      privilegeRequirement: "elevation-required",
     });
     expect(
       validationSteps("portable").some((step) => step.command.includes("linux-ebpf-runtime-smoke.ts")),
@@ -85,7 +86,7 @@ describe("validation profiles", () => {
     ]);
     expect(validationExecution("windows-native")).toEqual({
       host: "windows",
-      privilege: "ordinary",
+      privilegeRequirement: "ordinary",
     });
   });
 
@@ -126,7 +127,7 @@ describe("validation profiles", () => {
     ).toBe(false);
     expect(validationExecution("windows-etw-runtime")).toEqual({
       host: "windows",
-      privilege: "elevated",
+      privilegeRequirement: "elevation-required",
     });
   });
 

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   mapRepositoryPath,
-  windowsProfilePrivilege,
+  windowsProfileExecutionPrivilege,
   type WindowsValidationConfig,
 } from "./tools/windows-validation/host";
 
@@ -14,10 +14,10 @@ function environment(
 }
 
 describe("Windows validation host execution", () => {
-  test("profile metadata is the privilege authority", () => {
-    expect(windowsProfilePrivilege("windows-native")).toBe("ordinary");
-    expect(windowsProfilePrivilege("windows-etw-runtime")).toBe("elevated");
-    expect(() => windowsProfilePrivilege("windows")).toThrow(
+  test("profile privilege requirement maps to Windows execution privilege", () => {
+    expect(windowsProfileExecutionPrivilege("windows-native")).toBe("ordinary");
+    expect(windowsProfileExecutionPrivilege("windows-etw-runtime")).toBe("elevated");
+    expect(() => windowsProfileExecutionPrivilege("windows")).toThrow(
       "windows is not a Windows-host validation profile",
     );
   });

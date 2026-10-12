@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=cclover-mon
+Comment=Native system monitor
+Exec=cclover-mon
+Icon=cclover-mon
+Terminal=false
+Categories=System;Utility;

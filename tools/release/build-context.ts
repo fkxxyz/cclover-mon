@@ -280,16 +280,38 @@ async function windowsBuildData(
   const done = await readFile(join(sysroot, "DONE"), "utf8");
   const sysrootIdentity = parseXwinSysrootManifest(done);
 
+  const nativeTools: NativeToolIdentity[] = [
+    nativeTool(
+      "c-compiler",
+      executable(compiler, compiler, "Windows C compiler"),
+      ["--version"],
+      repoRoot,
+      resolvedEnv,
+    ),
+    {
+      role: "archiver",
+      command: executable(archiver, archiver, "Windows archiver"),
+      executableSha256: await executableSha256(archiver, resolvedEnv),
+    },
+    nativeTool("linker", executable(linker, linker, "Windows linker"), ["--version"], repoRoot, resolvedEnv),
+  ];
+  if (artifact.product === "cclover-mon") {
+    const resourceCompiler = executable(
+      resolvedEnv[`RC_${artifact.target}`] ??
+        resolvedEnv[`RC_${suffix}`] ??
+        resolvedEnv.RC,
+      "llvm-rc",
+      "Windows resource compiler",
+    );
+    nativeTools.push({
+      role: "resource-compiler",
+      command: resourceCompiler,
+      executableSha256: await executableSha256(resourceCompiler, resolvedEnv),
+    });
+  }
+
   return {
-    nativeTools: [
-      nativeTool("c-compiler", executable(compiler, compiler, "Windows C compiler"), ["--version"], repoRoot, resolvedEnv),
-      {
-        role: "archiver",
-        command: executable(archiver, archiver, "Windows archiver"),
-        executableSha256: await executableSha256(archiver, resolvedEnv),
-      },
-      nativeTool("linker", executable(linker, linker, "Windows linker"), ["--version"], repoRoot, resolvedEnv),
-    ],
+    nativeTools,
     windows: {
       cargoXwin: {
         command: "cargo xwin",
@@ -372,14 +394,23 @@ export function validateBuildProvenance(provenance: unknown, artifact: ReleaseAr
   const roles = tools.map((tool) => tool.role);
   if (new Set(roles).size !== roles.length) throw new Error(`duplicate native tool role for ${artifact.id}`);
   for (const tool of tools) {
-    if (!["c-compiler", "archiver", "bpf-compiler", "linker-driver", "linker"].includes(tool.role)) {
+    if (![
+      "c-compiler",
+      "archiver",
+      "bpf-compiler",
+      "linker-driver",
+      "linker",
+      "resource-compiler",
+    ].includes(tool.role)) {
       throw new Error(`unknown native tool role for ${artifact.id}: ${String(tool.role)}`);
     }
     validateTool(tool, `${tool.role} identity for ${artifact.id}`);
   }
   const requiredRoles: NativeToolRole[] =
     artifact.platform === "windows"
-      ? ["c-compiler", "archiver", "linker"]
+      ? artifact.product === "cclover-mon"
+        ? ["c-compiler", "archiver", "linker", "resource-compiler"]
+        : ["c-compiler", "archiver", "linker"]
       : artifact.product === "cclover-mon"
         ? ["c-compiler", "archiver", "bpf-compiler", "linker-driver", "linker"]
         : ["bpf-compiler", "linker-driver", "linker"];

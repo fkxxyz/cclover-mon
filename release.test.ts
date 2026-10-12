@@ -33,7 +33,7 @@ describe("release authority", () => {
     });
   });
 
-  test("server packages own platform service assets while interactive packages do not", () => {
+  test("release plan assigns service and desktop assets to the correct products", () => {
     const linuxServer = releaseArtifact("cclover-mon-server-x86_64-unknown-linux-gnu");
     expect(linuxServer.staticFiles.map((file) => file.destination)).toContain(
       "systemd/cclover-mon-server.service",
@@ -42,6 +42,17 @@ describe("release authority", () => {
 
     const windowsServer = releaseArtifact("cclover-mon-server-x86_64-pc-windows-msvc");
     expect(windowsServer.staticFiles.map((file) => file.destination)).toContain("install-service.ps1");
+
+    const linuxDesktop = releaseArtifact("cclover-mon-x86_64-unknown-linux-gnu");
+    const linuxDesktopFiles = linuxDesktop.staticFiles.map((file) => file.destination);
+    expect(linuxDesktopFiles).toContain("share/applications/cclover-mon.desktop");
+    expect(linuxDesktopFiles).toContain("share/icons/hicolor/128x128/apps/cclover-mon.png");
+    expect(linuxDesktopFiles).toContain("share/icons/hicolor/256x256/apps/cclover-mon.png");
+    expect(
+      releaseArtifact("cclover-mon-server-x86_64-unknown-linux-gnu").staticFiles.some((file) =>
+        file.destination.startsWith("share/"),
+      ),
+    ).toBe(false);
 
     for (const artifact of RELEASE_ARTIFACTS.filter((item) => item.product === "cclover-mon")) {
       expect(artifact.staticFiles.some((file) => file.destination.includes("systemd"))).toBe(false);
@@ -157,6 +168,19 @@ describe("release authority", () => {
         windows,
       ),
     ).toThrow(`Windows provenance XWIN_ARCH mismatch for ${windows.id}`);
+
+    const windowsDesktop = releaseArtifact("cclover-mon-x86_64-pc-windows-msvc");
+    expect(() =>
+      validateBuildProvenance(
+        {
+          ...fixtureProvenance(windowsDesktop),
+          nativeTools: fixtureProvenance(windowsDesktop).nativeTools.filter(
+            (tool) => tool.role !== "resource-compiler",
+          ),
+        },
+        windowsDesktop,
+      ),
+    ).toThrow(`missing resource-compiler provenance for ${windowsDesktop.id}`);
   });
 
   test("cargo-xwin sysroot identity parses stable SDK and CRT facts", () => {

@@ -2,7 +2,13 @@ import { PAWNIO, type PawnioPayloadId } from "../../deps/pawnio";
 
 export type ReleasePlatform = "linux" | "windows";
 export type ArchiveFormat = "tar.gz" | "zip";
-export type NativeToolRole = "c-compiler" | "archiver" | "bpf-compiler" | "linker-driver" | "linker";
+export type NativeToolRole =
+  | "c-compiler"
+  | "archiver"
+  | "bpf-compiler"
+  | "linker-driver"
+  | "linker"
+  | "resource-compiler";
 export type ArchiveToolRole = "archiver" | "compressor";
 
 export interface ReleaseArtifact {
@@ -148,6 +154,20 @@ const WINDOWS_SERVER_FILES: readonly PackageFile[] = [
     destination: "install-service.ps1",
   },
 ];
+const LINUX_DESKTOP_FILES: readonly PackageFile[] = [
+  {
+    source: "packaging/linux/cclover-mon.desktop",
+    destination: "share/applications/cclover-mon.desktop",
+  },
+  {
+    source: "packaging/linux/icons/hicolor/128x128/apps/cclover-mon.png",
+    destination: "share/icons/hicolor/128x128/apps/cclover-mon.png",
+  },
+  {
+    source: "packaging/linux/icons/hicolor/256x256/apps/cclover-mon.png",
+    destination: "share/icons/hicolor/256x256/apps/cclover-mon.png",
+  },
+];
 
 function artifact(
   product: ReleaseArtifact["product"],
@@ -219,7 +239,7 @@ export const RELEASE_ARTIFACTS: readonly ReleaseArtifact[] = [
     LINUX_TARGET,
     "linux",
     "tar.gz",
-    [PROJECT_LICENSE],
+    [PROJECT_LICENSE, ...LINUX_DESKTOP_FILES],
   ),
   artifact(
     "cclover-mon-server",

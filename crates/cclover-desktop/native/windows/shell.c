@@ -14,6 +14,7 @@
 #define CCLOVER_WM_TRAY (WM_APP + 7)
 #define CCLOVER_WM_STATE (WM_APP + 8)
 #define CCLOVER_MENU_QUIT 1001
+#define IDI_CCLOVER_MON 101
 #define CCLOVER_MARGIN 16
 #ifndef WM_DPICHANGED
 #define WM_DPICHANGED 0x02E0
@@ -23,6 +24,8 @@ typedef struct {
     void *context;
     const CcloverCallbacks *callbacks;
     NOTIFYICONDATAW tray;
+    HICON icon_large;
+    HICON icon_small;
     UINT taskbar_created;
     CcloverDisplay display;
     CcloverGdiRenderer renderer;
@@ -66,7 +69,7 @@ static void cclover_add_tray(HWND hwnd, CcloverHost *host) {
     tray->uID = 1;
     tray->uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     tray->uCallbackMessage = CCLOVER_WM_TRAY;
-    tray->hIcon = LoadIconW(NULL, IDI_APPLICATION);
+    tray->hIcon = host->icon_small;
     lstrcpynW(tray->szTip, L"cclover-mon", (int)(sizeof(tray->szTip) / sizeof(tray->szTip[0])));
     Shell_NotifyIconW(NIM_ADD, tray);
 }
@@ -162,6 +165,8 @@ static LRESULT CALLBACK cclover_wndproc(HWND hwnd, UINT message, WPARAM wparam, 
         return 0;
     case WM_DESTROY: {
         Shell_NotifyIconW(NIM_DELETE, &host->tray);
+        if (host->icon_large) DestroyIcon(host->icon_large);
+        if (host->icon_small) DestroyIcon(host->icon_small);
         cclover_gdi_renderer_destroy(&host->renderer);
         cclover_display_destroy(&host->display);
         PostQuitMessage(0);
@@ -207,9 +212,27 @@ int cclover_win32_run(void *context, const CcloverCallbacks *callbacks) {
     window_class.lpfnWndProc = cclover_wndproc;
     window_class.hInstance = instance;
     window_class.hCursor = LoadCursorW(NULL, IDC_ARROW);
+    host.icon_large = (HICON)LoadImageW(instance, MAKEINTRESOURCEW(IDI_CCLOVER_MON), IMAGE_ICON,
+                                        GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON),
+                                        LR_DEFAULTCOLOR);
+    host.icon_small = (HICON)LoadImageW(instance, MAKEINTRESOURCEW(IDI_CCLOVER_MON), IMAGE_ICON,
+                                        GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
+                                        LR_DEFAULTCOLOR);
+    if (!host.icon_large || !host.icon_small) {
+        int error = (int)GetLastError();
+        if (host.icon_large) DestroyIcon(host.icon_large);
+        if (host.icon_small) DestroyIcon(host.icon_small);
+        cclover_gdi_renderer_destroy(&host.renderer);
+        cclover_display_destroy(&host.display);
+        return error;
+    }
+    window_class.hIcon = host.icon_large;
+    window_class.hIconSm = host.icon_small;
     window_class.lpszClassName = CLASS_NAME;
     if (!RegisterClassExW(&window_class) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
         int error = (int)GetLastError();
+        DestroyIcon(host.icon_large);
+        DestroyIcon(host.icon_small);
         cclover_gdi_renderer_destroy(&host.renderer);
         cclover_display_destroy(&host.display);
         return error;
@@ -223,6 +246,8 @@ int cclover_win32_run(void *context, const CcloverCallbacks *callbacks) {
         shell, NULL, instance, &host);
     if (!hwnd) {
         int error = (int)GetLastError();
+        DestroyIcon(host.icon_large);
+        DestroyIcon(host.icon_small);
         cclover_gdi_renderer_destroy(&host.renderer);
         cclover_display_destroy(&host.display);
         return error;

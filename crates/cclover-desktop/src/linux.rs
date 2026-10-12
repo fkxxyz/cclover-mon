@@ -16,6 +16,8 @@ enum DisplayServer {
     X11,
 }
 
+const ICON_PNG: &[u8] = include_bytes!("../../../assets/icons/cclover-mon.png");
+
 unsafe extern "C" {
     fn cclover_linux_host_error_message(code: i32) -> *const c_char;
     fn cclover_linux_wayland_run(
@@ -31,6 +33,8 @@ unsafe extern "C" {
         quit_wake_fd: i32,
     ) -> i32;
     fn cclover_linux_tray_start(
+        icon_png: *const u8,
+        icon_png_len: usize,
         quit_context: *mut c_void,
         quit_fn: unsafe extern "C" fn(*mut c_void),
         out: *mut *mut c_void,
@@ -54,6 +58,8 @@ impl NativeTray {
         // SAFETY: `quit_context` remains owned by this wrapper until the native tray thread is stopped.
         let result = unsafe {
             cclover_linux_tray_start(
+                ICON_PNG.as_ptr(),
+                ICON_PNG.len(),
                 quit_context.cast::<c_void>(),
                 tray_quit_callback,
                 &mut handle,

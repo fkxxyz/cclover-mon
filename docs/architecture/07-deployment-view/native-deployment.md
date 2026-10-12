@@ -30,6 +30,8 @@ The workspace owns one shared package version in `[workspace.package]`; publisha
 
 Linux and Windows builds include only their selected platform backend. Both native desktop paths consume the same `cclover-ui::Scene` contract. Windows uses Win32/GDI. Linux uses native Wayland layer-shell or X11 hosting with shared Cairo drawing. Neither native desktop path depends on Iced, winit, or wgpu. The same Linux process registers its system tray item through StatusNotifierItem on the desktop session D-Bus; no tray helper daemon or secondary executable is introduced. External native runtime libraries depend on the selected renderer and optional metric integrations.
 
+The interactive Linux release archive includes a desktop entry and hicolor PNG icons; the Linux tray embeds and publishes the same product artwork through StatusNotifierItem pixmaps. The Windows interactive executable embeds its ICO as a PE application resource, reused by the native tray and window class. Its resource compiler is captured in build provenance. Headless server artifacts do not carry desktop icon assets.
+
 Windows deployment supports both `x86_64-pc-windows-msvc` and `i686-pc-windows-msvc`. Platform integration code must therefore remain pointer-width correct rather than assuming 64-bit Win32 handle or style types.
 
 The Windows distribution remains a single published `cclover-mon.exe` when PawnIO-backed sensors are enabled. Build preparation embeds only the verified production driver package required by the target plus signed Pawn modules used by implemented collectors; upstream installers, debug/test payloads, unrelated architectures, and `PawnIOLib.dll` are not runtime artifacts.

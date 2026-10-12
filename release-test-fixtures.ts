@@ -21,7 +21,9 @@ export function fixtureProvenance(
 ): BuildProvenance {
   const roles: NativeToolRole[] =
     artifact.platform === "windows"
-      ? ["c-compiler", "archiver", "linker"]
+      ? artifact.product === "cclover-mon"
+        ? ["c-compiler", "archiver", "linker", "resource-compiler"]
+        : ["c-compiler", "archiver", "linker"]
       : artifact.product === "cclover-mon"
         ? ["c-compiler", "archiver", "bpf-compiler", "linker-driver", "linker"]
         : ["bpf-compiler", "linker-driver", "linker"];

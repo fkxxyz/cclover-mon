@@ -1,7 +1,9 @@
 #include <gio/gio.h>
+#include <cairo.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "linux/dbusmenu_policy.h"
 
@@ -19,7 +21,77 @@ typedef struct {
     GThread *thread;
     void *quit_context;
     CcloverTrayQuitFn quit_fn;
+    GVariant *icon_pixmap;
 } CcloverLinuxTray;
+
+typedef struct {
+    const uint8_t *data;
+    size_t length;
+    size_t offset;
+} CcloverPngReader;
+
+#define CCLOVER_TRAY_ICON_SIZE 64
+
+static cairo_status_t read_png_bytes(void *closure, unsigned char *data, unsigned int length) {
+    CcloverPngReader *reader = closure;
+    if (length > reader->length - reader->offset) return CAIRO_STATUS_READ_ERROR;
+    memcpy(data, reader->data + reader->offset, length);
+    reader->offset += length;
+    return CAIRO_STATUS_SUCCESS;
+}
+
+static GVariant *tray_icon_pixmap(const uint8_t *png, size_t png_length) {
+    CcloverPngReader reader = { png, png_length, 0 };
+    cairo_surface_t *source = cairo_image_surface_create_from_png_stream(read_png_bytes, &reader);
+    cairo_surface_t *scaled = NULL;
+    cairo_t *cr = NULL;
+    GVariantBuilder pixmaps;
+    GVariant *result = NULL;
+    uint8_t *argb = NULL;
+
+    if (cairo_surface_status(source) != CAIRO_STATUS_SUCCESS) goto done;
+    scaled = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
+                                        CCLOVER_TRAY_ICON_SIZE, CCLOVER_TRAY_ICON_SIZE);
+    if (cairo_surface_status(scaled) != CAIRO_STATUS_SUCCESS) goto done;
+    cr = cairo_create(scaled);
+    cairo_scale(cr,
+                (double)CCLOVER_TRAY_ICON_SIZE / cairo_image_surface_get_width(source),
+                (double)CCLOVER_TRAY_ICON_SIZE / cairo_image_surface_get_height(source));
+    cairo_set_source_surface(cr, source, 0, 0);
+    cairo_paint(cr);
+    cairo_surface_flush(scaled);
+
+    int stride = cairo_image_surface_get_stride(scaled);
+    const uint8_t *pixels = cairo_image_surface_get_data(scaled);
+    argb = g_malloc(CCLOVER_TRAY_ICON_SIZE * CCLOVER_TRAY_ICON_SIZE * 4);
+    for (int y = 0; y < CCLOVER_TRAY_ICON_SIZE; ++y) {
+        for (int x = 0; x < CCLOVER_TRAY_ICON_SIZE; ++x) {
+            uint32_t pixel;
+            memcpy(&pixel, pixels + y * stride + x * 4, sizeof(pixel));
+            uint8_t alpha = (uint8_t)(pixel >> 24);
+            uint8_t *out = argb + (y * CCLOVER_TRAY_ICON_SIZE + x) * 4;
+            out[0] = alpha;
+            out[1] = alpha ? (uint8_t)MIN(255, (((pixel >> 16) & 0xff) * 255 + alpha / 2) / alpha) : 0;
+            out[2] = alpha ? (uint8_t)MIN(255, (((pixel >> 8) & 0xff) * 255 + alpha / 2) / alpha) : 0;
+            out[3] = alpha ? (uint8_t)MIN(255, ((pixel & 0xff) * 255 + alpha / 2) / alpha) : 0;
+        }
+    }
+
+    g_variant_builder_init(&pixmaps, G_VARIANT_TYPE("a(iiay)"));
+    g_variant_builder_add(
+        &pixmaps, "(ii@ay)", CCLOVER_TRAY_ICON_SIZE, CCLOVER_TRAY_ICON_SIZE,
+        g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE, argb,
+                                  CCLOVER_TRAY_ICON_SIZE * CCLOVER_TRAY_ICON_SIZE * 4,
+                                  sizeof(uint8_t)));
+    result = g_variant_builder_end(&pixmaps);
+
+done:
+    g_free(argb);
+    if (cr) cairo_destroy(cr);
+    if (scaled) cairo_surface_destroy(scaled);
+    cairo_surface_destroy(source);
+    return result;
+}
 
 static const char ITEM_XML[] =
     "<node>"
@@ -33,6 +105,7 @@ static const char ITEM_XML[] =
     "  <property name='Title' type='s' access='read'/>"
     "  <property name='Status' type='s' access='read'/>"
     "  <property name='IconName' type='s' access='read'/>"
+    "  <property name='IconPixmap' type='a(iiay)' access='read'/>"
     "  <property name='ItemIsMenu' type='b' access='read'/>"
     "  <property name='Menu' type='o' access='read'/>"
     " </interface>"
@@ -94,12 +167,14 @@ static void item_method_call(GDBusConnection *connection, const gchar *sender, c
 static GVariant *item_get_property(GDBusConnection *connection, const gchar *sender, const gchar *object_path,
                                    const gchar *interface_name, const gchar *property_name, GError **error,
                                    gpointer user_data) {
-    (void)connection; (void)sender; (void)object_path; (void)interface_name; (void)error; (void)user_data;
+    (void)connection; (void)sender; (void)object_path; (void)interface_name; (void)error;
     if (g_str_equal(property_name, "Category")) return g_variant_new_string("SystemServices");
     if (g_str_equal(property_name, "Id")) return g_variant_new_string("cclover-mon");
     if (g_str_equal(property_name, "Title")) return g_variant_new_string("cclover-mon");
     if (g_str_equal(property_name, "Status")) return g_variant_new_string("Active");
-    if (g_str_equal(property_name, "IconName")) return g_variant_new_string("utilities-system-monitor");
+    if (g_str_equal(property_name, "IconName")) return g_variant_new_string("cclover-mon");
+    if (g_str_equal(property_name, "IconPixmap"))
+        return g_variant_ref(((CcloverLinuxTray *)user_data)->icon_pixmap);
     if (g_str_equal(property_name, "ItemIsMenu")) return g_variant_new_boolean(FALSE);
     if (g_str_equal(property_name, "Menu")) return g_variant_new_object_path("/Menu");
     return NULL;
@@ -293,12 +368,20 @@ static gboolean quit_main_loop(gpointer data) {
     return G_SOURCE_REMOVE;
 }
 
-int cclover_linux_tray_start(void *quit_context, CcloverTrayQuitFn quit_fn, CcloverLinuxTray **out) {
+int cclover_linux_tray_start(const uint8_t *icon_png, size_t icon_png_len,
+                             void *quit_context, CcloverTrayQuitFn quit_fn, CcloverLinuxTray **out) {
     if (out == NULL || quit_fn == NULL) return 1;
     *out = NULL;
     CcloverLinuxTray *tray = g_new0(CcloverLinuxTray, 1);
     tray->quit_context = quit_context;
     tray->quit_fn = quit_fn;
+    GVariant *icon_pixmap = tray_icon_pixmap(icon_png, icon_png_len);
+    tray->icon_pixmap = icon_pixmap ? g_variant_ref_sink(icon_pixmap) : NULL;
+    if (!tray->icon_pixmap) {
+        fprintf(stderr, "cclover-mon: failed to decode embedded tray icon\n");
+        tray->icon_pixmap = g_variant_ref_sink(
+            g_variant_new_array(G_VARIANT_TYPE("(iiay)"), NULL, 0));
+    }
     tray->main_context = g_main_context_new();
     g_main_context_push_thread_default(tray->main_context);
 
@@ -309,6 +392,7 @@ int cclover_linux_tray_start(void *quit_context, CcloverTrayQuitFn quit_fn, Cclo
         g_clear_error(&error);
         g_main_context_pop_thread_default(tray->main_context);
         g_main_context_unref(tray->main_context);
+        g_variant_unref(tray->icon_pixmap);
         g_free(tray);
         return 2;
     }
@@ -340,6 +424,7 @@ fail:
     if (tray->item_registration) g_dbus_connection_unregister_object(tray->connection, tray->item_registration);
     if (tray->menu_info) g_dbus_node_info_unref(tray->menu_info);
     if (tray->item_info) g_dbus_node_info_unref(tray->item_info);
+    if (tray->icon_pixmap) g_variant_unref(tray->icon_pixmap);
     g_object_unref(tray->connection);
     g_main_context_pop_thread_default(tray->main_context);
     g_main_context_unref(tray->main_context);
@@ -357,6 +442,7 @@ void cclover_linux_tray_stop(CcloverLinuxTray *tray) {
     g_main_loop_unref(tray->main_loop);
     g_dbus_node_info_unref(tray->menu_info);
     g_dbus_node_info_unref(tray->item_info);
+    g_variant_unref(tray->icon_pixmap);
     g_object_unref(tray->connection);
     g_main_context_unref(tray->main_context);
     g_free(tray);

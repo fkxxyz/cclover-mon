@@ -38,6 +38,9 @@ signal-hook = "0.3"
 ctrlc = "3"
 windows-sys = { version = "0.61.2", features = ["Win32_System_Console"] }
 
+[build-dependencies]
+embed-resource = "3.0.12"
+
 [profile.dist]
 inherits = "release"
 panic = "abort"

@@ -19,7 +19,7 @@ facets:
 
 `cclover-desktop` owns native monitor-surface hosting and shell integration. It bridges the latest-state receiver to `Scene`, exposes the narrow scene/state-consumption ABI to platform-native code, and translates native shell intent into platform-neutral lifecycle signals.
 
-Linux selects Wayland layer-shell or X11 at runtime while sharing Cairo primitive execution; both display protocols share one StatusNotifierItem tray backend. Windows owns Win32 window/message/tray integration and GDI drawing. Shared presentation and UI code do not select display protocols, manipulate native windows, or own shell handles.
+Linux selects Wayland layer-shell or X11 at runtime while sharing Cairo primitive execution; both display protocols share one StatusNotifierItem tray backend. The tray sends the embedded product icon as an SNI pixmap, independent of the installed icon theme. Windows owns Win32 window/message/tray integration and GDI drawing; the executable's embedded application icon is also the tray and window-class icon. Shared presentation and UI code do not select display protocols, manipulate native windows, or own shell handles.
 
 Project-owned native host responsibilities compile as separate C translation units and communicate through narrow private headers; implementation files are never composed by textual inclusion. Composition modules may own the platform host aggregate, but rendering, display, buffer, and lifecycle modules receive only their responsibility-specific state or explicit dependencies rather than arbitrary access to that aggregate. `archgate.ts` enforces the no-`.c`/`.inc` textual-include invariant for project-owned desktop native-host sources.
 

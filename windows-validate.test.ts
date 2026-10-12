@@ -17,6 +17,7 @@ describe("Windows validation host execution", () => {
   test("profile privilege requirement maps to Windows execution privilege", () => {
     expect(windowsProfileExecutionPrivilege("windows-native")).toBe("ordinary");
     expect(windowsProfileExecutionPrivilege("windows-etw-runtime")).toBe("elevated");
+    expect(windowsProfileExecutionPrivilege("windows-server-scm-runtime")).toBe("elevated");
     expect(() => windowsProfileExecutionPrivilege("windows")).toThrow(
       "windows is not a Windows-host validation profile",
     );

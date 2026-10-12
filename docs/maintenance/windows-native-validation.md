@@ -10,9 +10,10 @@ From Linux/WSL, use:
 bun windows-validate.ts doctor
 bun windows-validate.ts windows-native
 bun windows-validate.ts windows-etw-runtime
+bun windows-validate.ts windows-server-scm-runtime
 ```
 
-`windows-validate.ts` resolves the current repository/worktree, maps it to a Windows-visible path, and routes the profile according to `validate.ts` metadata. `windows-native` uses ordinary Windows authority. `windows-etw-runtime` uses the provisioned elevated bridge automatically; callers do not select elevation themselves.
+`windows-validate.ts` resolves the current repository/worktree, maps it to a Windows-visible path, and routes the profile according to `validate.ts` metadata. `windows-native` uses ordinary Windows authority. `windows-etw-runtime` and `windows-server-scm-runtime` use the provisioned elevated bridge automatically; callers do not select elevation themselves.
 
 On Windows itself, the same command executes the selected profile directly in the current repository.
 
@@ -81,5 +82,7 @@ It reports the resolved repository, Windows path mapping, PowerShell transport, 
 `windows-native` runs deterministic Windows-host tests. ETW runtime semantics are owned by the elevated `windows-etw-runtime` profile.
 
 `windows-etw-runtime` builds the production executable, runs `windows-etw-disk-smoke.ts`, and then runs the validation-only `windows-etw-semantic` harness. The smoke proves the production CLI path, pre-opened-file rundown, PID correlation, physical-disk canonicalization, and nonzero attribution. The semantic harness drives the production collector directly with synchronized exact workloads and asserts successful-byte semantics for buffered write/read, partial EOF, zero-byte EOF, failed read, and a pre-warmed cache-hit read.
+
+`windows-server-scm-runtime` prepares pinned dependencies, builds the production `cclover-mon-server`, then registers it temporarily with SCM, verifies `RUNNING` and `/readyz`, requests cooperative STOP, verifies `STOPPED` and process exit, and removes the service and staged executable. It refuses to replace an existing service and requires an already-running PawnIO driver at the pinned minimum version; it does not install or update drivers.
 
 Do not report Windows runtime validation from cross-build success alone. Record which native profile ran and which Windows environment supplied the evidence.

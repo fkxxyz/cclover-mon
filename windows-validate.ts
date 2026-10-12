@@ -6,7 +6,9 @@ import {
 } from "./tools/windows-validation/host";
 
 function usage(): void {
-  console.log("usage: bun windows-validate.ts <doctor|install|windows-native|windows-etw-runtime>");
+  console.log(
+    "usage: bun windows-validate.ts <doctor|install|windows-native|windows-etw-runtime|windows-server-scm-runtime>",
+  );
 }
 
 function run(argv: readonly string[]): number {

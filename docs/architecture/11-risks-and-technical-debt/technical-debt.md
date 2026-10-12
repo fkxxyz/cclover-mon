@@ -24,8 +24,6 @@ Presence is the state: every document in `technical-debt/` represents debt that 
 Current architecture-level technical debt:
 
 - [Scene positional invalidation damage amplification](technical-debt/scene-positional-invalidation-damage-amplification.md) — Low-medium priority; dynamic insertion or removal is conservatively matched by ordinal position, so a local collection change can damage much of the following Scene even when most primitives are unchanged.
-- [Graphical text font metrics contract](technical-debt/graphical-text-font-metrics-contract.md) — Low-medium priority; the bounded-text contract is implemented and validated on Linux/Web, but its GDI production-font test still needs real-Windows execution before the debt can be closed.
 - [Windows AMD Family 10h upstream authority](technical-debt/windows-amd-family10-upstream-authority.md) — Low-medium priority; Family 10h still retains a second temperature-algorithm authority because the pinned official PawnIO transport cannot execute upstream Erratum 319 validation.
 - [Windows NDU ABI fixture coverage](technical-debt/windows-ndu-abi-fixture-coverage.md) — Medium-high priority; the undocumented NDU ABI still lacks a representative multi-version raw fixture corpus.
 - [Windows NDU end-to-end acceptance](technical-debt/windows-ndu-end-to-end-acceptance.md) — High priority; real process-to-interface NDU attribution still lacks a repeatable end-to-end acceptance harness.
-- [Windows server SCM lifecycle validation](technical-debt/windows-server-scm-lifecycle-validation.md) — Medium-high priority; the server service adapter cross-builds on both Windows architectures but lacks real-SCM start/readiness/stop acceptance coverage.

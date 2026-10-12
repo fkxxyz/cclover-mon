@@ -138,6 +138,18 @@ describe("validation profiles", () => {
     });
   });
 
+  test("Windows server SCM runtime builds and exercises the production service", () => {
+    expect(validationSteps("windows-server-scm-runtime").map((step) => step.command)).toEqual([
+      ["bun", "prepare-windows-deps.ts"],
+      ["cargo", "build", "--locked", "--release", "-p", "cclover-server"],
+      ["bun", "windows-server-scm-smoke.ts"],
+    ]);
+    expect(validationExecution("windows-server-scm-runtime")).toEqual({
+      host: "windows",
+      privilegeRequirement: "elevation-required",
+    });
+  });
+
   test("web browser validation is isolated from normal development profiles", () => {
     expect(validationSteps("web-browser").map((step) => step.command)).toEqual([
       ["cargo", "build", "--locked", "--release"],

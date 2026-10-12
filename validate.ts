@@ -182,6 +182,15 @@ const WINDOWS_ETW_RUNTIME_STEPS: readonly ValidationStep[] = [
   },
 ];
 
+const WINDOWS_SERVER_SCM_RUNTIME_STEPS: readonly ValidationStep[] = [
+  { name: "Windows dependency preparation", command: ["bun", "prepare-windows-deps.ts"] },
+  {
+    name: "Windows server release build for SCM lifecycle validation",
+    command: ["cargo", "build", "--locked", "--release", "-p", "cclover-server"],
+  },
+  { name: "Windows server SCM lifecycle smoke", command: ["bun", "windows-server-scm-smoke.ts"] },
+];
+
 const LINUX_EBPF_RUNTIME_STEPS: readonly ValidationStep[] = [
   { name: "Linux eBPF release build", command: ["cargo", "build", "--locked", "--release"] },
   {
@@ -246,6 +255,10 @@ export const VALIDATION_PROFILES = {
     steps: WINDOWS_ETW_RUNTIME_STEPS,
     execution: { host: "windows", privilegeRequirement: "elevation-required" },
   },
+  "windows-server-scm-runtime": {
+    steps: WINDOWS_SERVER_SCM_RUNTIME_STEPS,
+    execution: { host: "windows", privilegeRequirement: "elevation-required" },
+  },
   "web-browser": {
     steps: WEB_BROWSER_STEPS,
     execution: { host: "local", privilegeRequirement: "ordinary" },
@@ -284,7 +297,7 @@ export function formatValidationStep(step: ValidationStep): string {
 
 function usage(): void {
   console.log(
-    "usage: bun validate.ts <fast|linux|linux-ebpf-runtime|windows|windows-native|windows-etw-runtime|web-browser|server|portable>",
+    "usage: bun validate.ts <fast|linux|linux-ebpf-runtime|windows|windows-native|windows-etw-runtime|windows-server-scm-runtime|web-browser|server|portable>",
   );
 }
 

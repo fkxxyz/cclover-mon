@@ -51,6 +51,14 @@ fn collect_from(
             });
             continue;
         }
+        // A DSA conduit carries every switch-port frame. Counting it beside the ports would
+        // duplicate that traffic, so each port is the accounting unit instead.
+        if path.join("dsa").exists() {
+            probe_note(&mut notes, || {
+                format!("{name} skipped: DSA conduit, switch ports are counted individually")
+            });
+            continue;
+        }
         let Some(ifindex) = read_u64(path.join("ifindex")) else {
             degraded = true;
             probe_note(&mut notes, || {
@@ -186,6 +194,29 @@ mod tests {
 
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].name, "eth0");
+    }
+
+    #[test]
+    fn excludes_dsa_conduit_so_switch_ports_are_counted_once() {
+        let fixture = Fixture::new("network-dsa-conduit");
+        fixture.dir("net");
+        add_physical_interface(&fixture, "eth0", 2, "up", "1000\n", Some("2000\n"));
+        fixture.write("net/eth0/dsa/tagging", "dsa\n");
+        add_physical_interface(&fixture, "lan3", 5, "up", "100\n", Some("200\n"));
+
+        let mut notes = Vec::new();
+        let outcome = collect_from(&fixture.path().join("net"), Some(&mut notes));
+        let Collection::Available(rows) = outcome else {
+            panic!("expected available network collection");
+        };
+
+        let names: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
+        assert_eq!(names, ["lan3"]);
+        assert!(
+            notes
+                .iter()
+                .any(|note| note.starts_with("eth0 skipped: DSA conduit"))
+        );
     }
 
     #[test]

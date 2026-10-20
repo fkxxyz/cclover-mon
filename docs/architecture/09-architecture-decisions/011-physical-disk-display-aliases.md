@@ -43,6 +43,10 @@ Drive-letter discovery is auxiliary metadata. Failure to obtain a drive binding 
 
 Linux keeps the existing physical-block-device semantic. The kernel block-device name is used as `system_label`, while `associated_labels` is currently empty. Mount points and partitions are not introduced as disk metric identities merely to mirror the Windows presentation mechanism.
 
+A Linux block device is a physical disk only when it has a physical device link and passes two structural exclusions. It is excluded when its sysfs node is nested under another block device, such as an eMMC boot partition that shares the parent medium. It is also excluded when its device is bound to the `mtd`, `ubi`, or `platform` bus, which are firmware or flash views rather than independent media. Devices on any other bus are kept, so unfamiliar real disks are not hidden. Exclusions are reported as probe notes with their reason.
+
+Evidence limit: the rule was derived from one device class (an aarch64 OpenWrt router: eMMC with boot partitions, NVMe, raw flash, FIT, and UBI block devices) and verified live on it. The bus set is deliberately a deny set of known non-medium views rather than an allow set, so an unseen real bus fails visible. Reassess it when another embedded or virtualized device class shows a block device that is wrongly kept or dropped; the deterministic fixtures encode this model, not captured kernel output.
+
 ## Rationale
 
 Users on Windows commonly recognize storage by `C:`, `D:`, and similar drive letters, while raw hardware product strings are often long and operationally meaningless to non-expert users. Replacing physical-device accounting with logical-volume accounting would solve the naming problem by changing the metric itself, breaking cross-platform semantic consistency and introducing different behavior for spanning or composite storage.

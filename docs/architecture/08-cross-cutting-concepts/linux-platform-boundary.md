@@ -36,6 +36,12 @@ The same shared adapter owns libbpf's process-wide print policy. Ordinary operat
 
 Compatibility-path choice stays Linux-private. Scalar fallback preserves metric quality and therefore does not mark a collection degraded; probe diagnostics may report the fallback for investigation without adding normal-path logging or exposing libbpf mechanics through core/UI contracts.
 
+## Physical device selection
+
+Linux metrics that count physical hardware select devices structurally, never by name. Disk selection is defined by [ADR 011](../09-architecture-decisions/011-physical-disk-display-aliases.md). Network throughput excludes a DSA conduit, the CPU-side interface that carries every switch-port frame (it has a `dsa` directory in sysfs). Each switch port is counted individually, so the conduit is not added beside its ports. Excluded entries are reported as probe notes with their reason. Unknown buses and interfaces are kept.
+
+The network rule is a counting boundary, not a host-throughput figure. Bridged or routed traffic appears on each member interface, and interfaces without a device link, such as PPPoE, are not represented. Per-process attribution resolves identities through separate entry points that do not apply these exclusions; see [Linux counted-device selection](../11-risks-and-technical-debt/technical-debt/linux-counted-device-selection.md).
+
 ## Desktop integration
 
 `cclover-desktop` is the sole authority for Linux monitor-surface hosting. It selects Wayland layer-shell or X11 at runtime and passes the shared `Scene` to native hosting/drawing code. Cairo executes shared scene primitives for both display protocols.

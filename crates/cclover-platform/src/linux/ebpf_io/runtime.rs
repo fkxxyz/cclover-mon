@@ -1,6 +1,6 @@
 #![allow(unsafe_code)]
 
-use std::ffi::{CStr, c_int, c_long, c_void};
+use std::ffi::{CStr, c_char, c_int, c_long, c_void};
 use std::mem::MaybeUninit;
 use std::path::Path;
 use std::ptr;
@@ -31,7 +31,7 @@ unsafe extern "C" {
     fn bpf_object__next_program(obj: *const BpfObject, prev: *mut BpfProgram) -> *mut BpfProgram;
     fn bpf_program__attach(prog: *const BpfProgram) -> *mut BpfLink;
     fn bpf_link__destroy(link: *mut BpfLink) -> c_int;
-    fn bpf_object__find_map_by_name(obj: *const BpfObject, name: *const i8) -> *mut BpfMap;
+    fn bpf_object__find_map_by_name(obj: *const BpfObject, name: *const c_char) -> *mut BpfMap;
     fn bpf_map__fd(map: *const BpfMap) -> c_int;
     fn bpf_map_get_next_key(fd: c_int, key: *const c_void, next_key: *mut c_void) -> c_int;
     fn bpf_map_lookup_elem(fd: c_int, key: *const c_void, value: *mut c_void) -> c_int;

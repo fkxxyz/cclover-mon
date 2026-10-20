@@ -73,7 +73,7 @@ pub(super) fn clock_ticks_per_second() -> Option<u64> {
 
 #[cfg(feature = "ebpf-io")]
 pub(super) fn interface_name(ifindex: u32) -> Option<String> {
-    let mut name = [0_i8; libc::IF_NAMESIZE];
+    let mut name = [0 as libc::c_char; libc::IF_NAMESIZE];
     // SAFETY: name points to IF_NAMESIZE writable bytes for the duration of the call.
     // if_indextoname either returns that same buffer pointer or null on failure.
     let ptr = unsafe { libc::if_indextoname(ifindex, name.as_mut_ptr()) };

@@ -365,7 +365,7 @@ fn read_string<const N: usize>(
     function: unsafe extern "C" fn(*mut c_void, *mut c_char, c_uint) -> c_uint,
     handle: *mut c_void,
 ) -> Option<String> {
-    let mut buffer = [0_i8; N];
+    let mut buffer = [0 as c_char; N];
     // SAFETY: function was resolved with the exact NVML ABI signature, handle belongs to the live
     // session, and buffer provides N writable c_char elements.
     let status = unsafe { function(handle, buffer.as_mut_ptr(), N as c_uint) };

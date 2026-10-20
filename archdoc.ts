@@ -107,7 +107,7 @@ PARAMETER DISTINCTIONS
 
   Concern = what property or problem matters
     A system property or problem you want to understand or evaluate.
-    Examples: correctness, operability, security, operability.
+    Examples: correctness, operability, security, maintainability.
 
   Activity = what you are doing now
     The kind of work you are performing.
@@ -115,7 +115,7 @@ PARAMETER DISTINCTIONS
 
   Facet = an orthogonal filter dimension
     Each Facet is defined by the architecture index. The current Facet is
-    domain, which identifies the mcp-shell responsibility area involved. Future Facets may
+    area, which identifies the responsibility area involved. Future Facets may
     describe other independent dimensions without changing this tool.
       Example Facet values might identify responsibility areas, environments,
     capabilities, or other project-specific dimensions. Run choices to see
@@ -216,12 +216,12 @@ HOW TO USE choices
   Example final query group:
     operability:
       diagnose | orient:
-        domain=mcp-runtime | host-tools [dynamic, static]
+        area=core | platform [dynamic, static]
 
   This means:
     --concern operability
     --activity diagnose or orient
-    --facet domain=mcp-runtime or host-tools
+    --facet area=core or platform
     --viewpoint dynamic or static
 
   Every combination represented by one group is reachable. Choose one value
@@ -255,7 +255,7 @@ STANDARD WORKFLOW
     bun archdoc.ts choices --stakeholder developer
 
   3. Retrieve documents:
-    bun archdoc.ts views --stakeholder developer --concern operability --activity change --facet domain=<responsibility-area> --viewpoint dynamic
+    bun archdoc.ts views --stakeholder developer --concern operability --activity change --facet area=<responsibility-area> --viewpoint dynamic
 
     Replace <responsibility-area> with a value from choices.
 
@@ -269,7 +269,7 @@ WHEN TO OMIT Stakeholder
     - your work crosses multiple reader roles.
 
   Example:
-    bun archdoc.ts views --concern operability --activity diagnose --facet domain=<responsibility-area> --viewpoint dynamic
+    bun archdoc.ts views --concern operability --activity diagnose --facet area=<responsibility-area> --viewpoint dynamic
 
     Replace <responsibility-area> with a value from choices.
 
@@ -281,14 +281,14 @@ WHEN TO PROVIDE Stakeholder
 
   Example:
     bun archdoc.ts choices --stakeholder operator
-    bun archdoc.ts views --stakeholder operator --concern operability --activity operate --facet domain=<responsibility-area> --viewpoint dynamic
+    bun archdoc.ts views --stakeholder operator --concern operability --activity operate --facet area=<responsibility-area> --viewpoint dynamic
 
     Replace <responsibility-area> with a value from choices.
 
 WHEN TO OMIT Viewpoint
 
   Omit it to retrieve every matching observation angle:
-    bun archdoc.ts views --concern operability --activity diagnose --facet domain=<responsibility-area>
+    bun archdoc.ts views --concern operability --activity diagnose --facet area=<responsibility-area>
 
     Replace <responsibility-area> with a value from choices.
 
@@ -302,24 +302,24 @@ WHEN TO OMIT Viewpoint
 COMMON SCENARIOS
 
   Understand the system structure:
-    bun archdoc.ts views --concern architecture-coherence --activity orient --facet domain=<system-area> --viewpoint overview
+    bun archdoc.ts views --concern architecture-coherence --activity orient --facet area=<system-area> --viewpoint overview
 
   Change an application component:
-    bun archdoc.ts views --stakeholder developer --concern maintainability --activity change --facet domain=<system-area> --viewpoint static
+    bun archdoc.ts views --stakeholder developer --concern maintainability --activity change --facet area=<system-area> --viewpoint static
 
   Diagnose a production failure:
-    bun archdoc.ts views --concern correctness --activity diagnose --facet domain=<system-area> --viewpoint dynamic
+    bun archdoc.ts views --concern correctness --activity diagnose --facet area=<system-area> --viewpoint dynamic
 
   Operate a deployment:
-    bun archdoc.ts views --stakeholder operator --concern operability --activity operate --facet domain=<system-area> --viewpoint dynamic
+    bun archdoc.ts views --stakeholder operator --concern operability --activity operate --facet area=<system-area> --viewpoint dynamic
 
   Review security controls:
-    bun archdoc.ts views --concern security --activity assess --facet domain=<system-area> --viewpoint assurance
+    bun archdoc.ts views --concern security --activity assess --facet area=<system-area> --viewpoint assurance
 
   Understand an architecture decision:
-    bun archdoc.ts views --concern rationale --activity decide --facet domain=<system-area> --viewpoint decision
+    bun archdoc.ts views --concern rationale --activity decide --facet area=<system-area> --viewpoint decision
 
-  Replace <system-area> with a domain value printed by choices.
+  Replace <system-area> with an area value printed by choices.
 
 ERRORS AND NEXT STEPS
 
@@ -1425,8 +1425,14 @@ async function runViews(options: Map<string, string[]>): Promise<void> {
         "framed_concerns",
       ).includes(concern)
     ) {
+      const framing = [...model.viewpoints.entries()]
+        .filter(([, definition]) =>
+          definitionStringList(definition, "framed_concerns").includes(concern),
+        )
+        .map(([name]) => name)
+        .sort();
       throw new CliError(
-        `Viewpoint ${viewpoint} does not frame Concern ${concern}.`,
+        `Viewpoint ${viewpoint} does not frame Concern ${concern}. Viewpoints that frame it: ${framing.join(", ")}.`,
       );
     }
   }

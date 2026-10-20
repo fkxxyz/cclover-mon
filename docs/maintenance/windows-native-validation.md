@@ -77,6 +77,19 @@ bun windows-validate.ts doctor
 
 It reports the resolved repository, Windows path mapping, PowerShell transport, Windows Bun/Cargo availability, repository runner visibility, and elevated scheduled-task provisioning. A fresh session should pass `doctor` before native Windows validation is treated as available.
 
+## Host without Bun or Cargo
+
+When `doctor` reports `Windows Bun: missing` or `Windows Cargo: missing`, `windows-native` cannot run. The `cclover-desktop` tests, including the GDI font conformance test and the layered-surface pixel test, can still execute on the Windows host from the cross-built test executable:
+
+```bash
+XWIN_ARCH=x86,x86_64 cargo xwin test --locked -p cclover-desktop --no-default-features --no-run --target x86_64-pc-windows-msvc
+powershell.exe -NoProfile -Command '$dst = Join-Path $env:TEMP "cclover-desktop-test.exe"; Copy-Item "<Windows path of the printed cclover_desktop-*.exe>" $dst -Force; & $dst'
+```
+
+Use the `i686-pc-windows-msvc` target the same way for the 32-bit executable. The executable is copied to a local directory because running directly from the `\\wsl.localhost` path is not reliable. The overflow-rejection test intentionally prints `GDI text exceeded its authoritative Scene slot` to stderr, which PowerShell renders as an error record; judge the run by the test summary and exit code.
+
+This covers only the `cclover-desktop` unit tests. It is not the `windows-native` profile and must be reported as such.
+
 ## Profiles
 
 `windows-native` runs deterministic Windows-host tests. ETW runtime semantics are owned by the elevated `windows-etw-runtime` profile.

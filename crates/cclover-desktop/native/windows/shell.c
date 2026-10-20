@@ -4,10 +4,12 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #include "native_scene.h"
 #include "display.h"
 #include "drawing.h"
+#include "layered.h"
 #include "message_policy.h"
 #include "windows_geometry.h"
 
@@ -29,6 +31,8 @@ typedef struct {
     UINT taskbar_created;
     CcloverDisplay display;
     CcloverGdiRenderer renderer;
+    CcloverLayeredSurface surface;
+    int present_failure_reported;
 } CcloverHost;
 
 static void cclover_scene(CcloverHost *host, CcloverScene *scene) {
@@ -47,14 +51,44 @@ static void cclover_place(CcloverHost *host, HWND hwnd, uint32_t width, uint32_t
     };
     CcloverWindowGeometry geometry = cclover_top_right_geometry(
         width, height, work, cclover_display_dpi(&host->display), (float)CCLOVER_MARGIN);
-    int radius = cclover_display_px(&host->display, 32.0f);
     if (shell && GetWindow(hwnd, GW_OWNER) != shell) {
         SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, (LONG_PTR)shell);
     }
     SetWindowPos(hwnd, HWND_BOTTOM, geometry.x, geometry.y, geometry.width, geometry.height,
                  SWP_NOACTIVATE | SWP_SHOWWINDOW);
-    SetWindowRgn(hwnd, CreateRoundRectRgn(0, 0, geometry.width + 1, geometry.height + 1,
-                                         radius, radius), TRUE);
+}
+
+/*
+ * Realizes the current Scene on the layered window with per-pixel alpha and returns a
+ * CCLOVER_LAYERED_* status. A rejected or failed frame leaves the previously published
+ * frame on screen; a publication failure is reported once until the next success.
+ */
+static int cclover_present(CcloverHost *host, HWND hwnd) {
+    CcloverScene scene;
+    RECT bounds;
+    int status;
+    if (!GetWindowRect(hwnd, &bounds)) {
+        host->surface.last_error = GetLastError();
+        status = CCLOVER_LAYERED_FAILED;
+    } else {
+        cclover_scene(host, &scene);
+        status = cclover_layered_present(&host->surface, &host->renderer, hwnd, &scene,
+                                         cclover_display_dpi(&host->display),
+                                         bounds.right - bounds.left,
+                                         bounds.bottom - bounds.top);
+    }
+    if (status == CCLOVER_LAYERED_OK) {
+        host->present_failure_reported = 0;
+    } else if (status == CCLOVER_LAYERED_FAILED && !host->present_failure_reported) {
+        char message[96];
+        snprintf(message, sizeof(message),
+                 "cclover-mon: layered surface publication failed (error %lu)\n",
+                 (unsigned long)host->surface.last_error);
+        fputs(message, stderr);
+        OutputDebugStringA(message);
+        host->present_failure_reported = 1;
+    }
+    return status;
 }
 
 static void cclover_add_tray(HWND hwnd, CcloverHost *host) {
@@ -104,7 +138,7 @@ static LRESULT CALLBACK cclover_wndproc(HWND hwnd, UINT message, WPARAM wparam, 
         cclover_scene(host, &scene);
         cclover_place(host, hwnd, scene.width, scene.height);
         cclover_add_tray(hwnd, host);
-        InvalidateRect(hwnd, NULL, FALSE);
+        cclover_present(host, hwnd);
         return 0;
     }
 
@@ -116,7 +150,7 @@ static LRESULT CALLBACK cclover_wndproc(HWND hwnd, UINT message, WPARAM wparam, 
         cclover_display_set(&host->display, monitor, LOWORD(wparam));
         cclover_scene(host, &scene);
         cclover_place(host, hwnd, scene.width, scene.height);
-        InvalidateRect(hwnd, NULL, FALSE);
+        cclover_present(host, hwnd);
         return 0;
     }
     case CCLOVER_WM_STATE: {
@@ -126,29 +160,14 @@ static LRESULT CALLBACK cclover_wndproc(HWND hwnd, UINT message, WPARAM wparam, 
             cclover_display_refresh(&host->display, hwnd);
             cclover_scene(host, &scene);
             cclover_place(host, hwnd, scene.width, scene.height);
-            InvalidateRect(hwnd, NULL, FALSE);
+            cclover_present(host, hwnd);
         }
         return 0;
     }
     case WM_PAINT: {
+        /* Content is published through UpdateLayeredWindow; only validate. */
         PAINTSTRUCT paint;
-        CcloverScene scene;
-        HDC target = BeginPaint(hwnd, &paint);
-        HDC buffer = CreateCompatibleDC(target);
-        HBITMAP bitmap;
-        HGDIOBJ old_bitmap;
-        RECT client;
-        GetClientRect(hwnd, &client);
-        bitmap = CreateCompatibleBitmap(target, client.right, client.bottom);
-        old_bitmap = SelectObject(buffer, bitmap);
-        FillRect(buffer, &client, (HBRUSH)GetStockObject(BLACK_BRUSH));
-        cclover_scene(host, &scene);
-        if (cclover_gdi_draw_scene(&host->renderer, buffer, &scene,
-                                   cclover_display_dpi(&host->display)) == 0)
-            BitBlt(target, 0, 0, client.right, client.bottom, buffer, 0, 0, SRCCOPY);
-        SelectObject(buffer, old_bitmap);
-        DeleteObject(bitmap);
-        DeleteDC(buffer);
+        BeginPaint(hwnd, &paint);
         EndPaint(hwnd, &paint);
         return 0;
     }
@@ -167,6 +186,7 @@ static LRESULT CALLBACK cclover_wndproc(HWND hwnd, UINT message, WPARAM wparam, 
         Shell_NotifyIconW(NIM_DELETE, &host->tray);
         if (host->icon_large) DestroyIcon(host->icon_large);
         if (host->icon_small) DestroyIcon(host->icon_small);
+        cclover_layered_destroy(&host->surface);
         cclover_gdi_renderer_destroy(&host->renderer);
         cclover_display_destroy(&host->display);
         PostQuitMessage(0);
@@ -256,15 +276,13 @@ int cclover_win32_run(void *context, const CcloverCallbacks *callbacks) {
     cclover_display_refresh(&host.display, hwnd);
     cclover_scene(&host, &scene);
 
-    if (!SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)) {
-        int error = (int)GetLastError();
+    cclover_place(&host, hwnd, scene.width, scene.height);
+    if (cclover_present(&host, hwnd) == CCLOVER_LAYERED_FAILED) {
+        int error = (int)host.surface.last_error;
         DestroyWindow(hwnd);
         return error;
     }
-
-    cclover_place(&host, hwnd, scene.width, scene.height);
     cclover_add_tray(hwnd, &host);
-    InvalidateRect(hwnd, NULL, FALSE);
 
     while (GetMessageW(&message, NULL, 0, 0) > 0) {
         if (cclover_win32_should_relay_state(

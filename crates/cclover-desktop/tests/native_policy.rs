@@ -30,6 +30,13 @@ fn native_policies_are_deterministic_without_desktop_runtimes() {
     );
     run_c_test(
         &manifest,
+        "windows-alpha-policy",
+        &["native/windows/alpha_policy.c"],
+        "tests/native/windows_alpha_policy_test.c",
+        "native/windows",
+    );
+    run_c_test(
+        &manifest,
         "wayland-buffer-policy",
         &[],
         "tests/native/wayland_buffer_policy_test.c",

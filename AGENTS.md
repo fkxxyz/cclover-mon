@@ -53,7 +53,7 @@ crates/cclover-desktop/src/linux.rs    Linux Wayland/X11 hosting and tray integr
 crates/cclover-desktop/src/native.rs   shared Scene FFI bridge
 crates/cclover-desktop/src/windows.rs  Windows native host bridge
 crates/cclover-desktop/native/windows_host.c  Win32 desktop-availability ABI entry point
-crates/cclover-desktop/native/windows/         Win32 shell, display/DPI, GDI drawing, and message-policy translation units
+crates/cclover-desktop/native/windows/         Win32 shell, display/DPI, GDI drawing, layered per-pixel-alpha surface, and message-policy translation units
 crates/cclover-desktop/native/linux_host.c    Linux native-host error ABI entry point
 crates/cclover-desktop/native/linux/           X11, Wayland, Cairo rendering/buffers, and lifecycle-policy translation units
 crates/cclover-core/src/model.rs    shared typed snapshots and history model
@@ -174,7 +174,7 @@ For Linux UI or window-placement changes, also perform a real Wayland runtime ch
 - Native Linux desktop rendering requires Cairo, X11/Xext, Wayland client libraries, and the checked-in generated layer-shell protocol sources. Do not reintroduce Iced/winit/wgpu to avoid native host work.
 - `cclover-mon-server` is an independent product artifact. It must not depend on `cclover-desktop`, `cclover-tui`, Cairo, X11, Wayland, or desktop-session integration. Shared sampling belongs in `cclover-runtime`; shared HTTP/API delivery belongs in `cclover-http`.
 - Every `cargo xwin` build must use exactly `XWIN_ARCH=x86,x86_64`, including builds targeting only `i686-pc-windows-msvc` or only `x86_64-pc-windows-msvc`. Do not omit it or switch to a per-target value: cargo-xwin's default architecture set differs, and changing this setting can force CRT/SDK cache re-download/re-splat work.
-- Linux is implemented and runtime-validated. Windows native collectors for CPU, memory, processes, network interfaces, physical disks, temperatures, NVIDIA/AMD GPU telemetry, per-process network attribution through NDU, and per-process disk attribution through FileIo ETW are implemented. Windows ETW disk attribution has real-Windows exact completion-semantic coverage in `windows-etw-runtime`. NDU uses an undocumented Windows ABI; preserve the isolated wrapper and keep real-Windows compatibility and end-to-end acceptance gaps aligned with the corresponding technical-debt records.
+- Linux is implemented and runtime-validated. Windows native collectors for CPU, memory, processes, network interfaces, physical disks, temperatures, NVIDIA/AMD GPU telemetry, per-process network attribution through NDU, and per-process disk attribution through FileIo ETW are implemented. Windows ETW disk attribution has real-Windows exact completion-semantic coverage in `windows-etw-runtime`. NDU uses an undocumented Windows ABI; preserve the isolated wrapper and keep real-Windows compatibility and end-to-end acceptance gaps aligned with the corresponding records under `docs/architecture/11-risks-and-technical-debt/`.
 - Static compilation is insufficient for UI changes. Previous runtime checks caught layout overlap and virtual block devices that passed Rust tests and Clippy.
 - The Linux panel intentionally uses top-right anchoring, bottom layer, and zero exclusive zone. Preserve these semantics unless the product behavior is intentionally changed.
 

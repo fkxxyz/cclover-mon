@@ -95,6 +95,22 @@ mod tests {
     #[cfg(target_os = "windows")]
     unsafe extern "C" {
         fn cclover_gdi_validate_scene(dc: *mut c_void, scene: *const SceneView, dpi: u32) -> i32;
+        fn cclover_layered_sample(
+            scene: *const SceneView,
+            dpi: u32,
+            width: i32,
+            height: i32,
+            points: *const SamplePoint,
+            argb: *mut u32,
+            count: usize,
+        ) -> i32;
+    }
+
+    #[cfg(target_os = "windows")]
+    #[repr(C)]
+    struct SamplePoint {
+        x: i32,
+        y: i32,
     }
 
     #[cfg(target_os = "windows")]
@@ -273,5 +289,94 @@ mod tests {
         );
 
         unsafe { DeleteDC(dc) };
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn layered_surface_preserves_scene_alpha_per_pixel() {
+        let fill = |x, y, width, height, color, radius| NativeCommand {
+            kind: COMMAND_FILL_RECT,
+            x,
+            y,
+            width,
+            height,
+            color,
+            radius,
+            stroke_width: 0.0,
+            point_offset: 0,
+            point_count: 0,
+            text: std::ptr::null(),
+            text_len: 0,
+            text_size: 0,
+            flags: 0,
+        };
+        // Panel #0b1020 at alpha 217 with a rounded corner, and a card #151b2d at alpha 204 over it.
+        let commands = [
+            fill(0.0, 0.0, 100.0, 60.0, 0xd90b_1020, 16.0),
+            fill(20.0, 20.0, 60.0, 20.0, 0xcc15_1b2d, 0.0),
+        ];
+        let scene = SceneView {
+            width: 100,
+            height: 60,
+            static_revision: 1,
+            full_redraw: 1,
+            damage_rects: std::ptr::null(),
+            damage_count: 0,
+            redraw_mask: std::ptr::null(),
+            redraw_mask_count: 0,
+            commands: commands.as_ptr(),
+            command_count: commands.len(),
+            points: std::ptr::null(),
+            point_count: 0,
+        };
+        let points = [
+            SamplePoint { x: 0, y: 0 },   // outside the rounded corner
+            SamplePoint { x: 50, y: 10 }, // panel only
+            SamplePoint { x: 50, y: 30 }, // card over panel
+        ];
+        let mut argb = [0_u32; 3];
+        let status = unsafe {
+            cclover_layered_sample(
+                &scene,
+                96,
+                100,
+                60,
+                points.as_ptr(),
+                argb.as_mut_ptr(),
+                points.len(),
+            )
+        };
+        assert_eq!(status, 0, "layered surface must render the scene");
+
+        let channel = |pixel: u32, shift: u32| ((pixel >> shift) & 0xff) as i32;
+        let near = |actual: i32, expected: i32| (actual - expected).abs() <= 3;
+
+        assert_eq!(
+            argb[0], 0,
+            "pixels outside the rounded corner must stay fully transparent"
+        );
+
+        let panel = argb[1];
+        assert!(
+            near(channel(panel, 24), 217),
+            "panel alpha must be preserved, got {panel:#010x}"
+        );
+        // Premultiplied colour: channel * alpha / 255.
+        assert!(near(channel(panel, 16), 9), "red, got {panel:#010x}");
+        assert!(near(channel(panel, 8), 14), "green, got {panel:#010x}");
+        assert!(near(channel(panel, 0), 27), "blue, got {panel:#010x}");
+
+        // Two translucent layers compose to 1 - (1 - 217/255) * (1 - 204/255).
+        let card = argb[2];
+        assert!(
+            near(channel(card, 24), 247),
+            "overlapping fills must compose alpha, got {card:#010x}"
+        );
+        for shift in [0, 8, 16] {
+            assert!(
+                channel(card, shift) <= channel(card, 24),
+                "premultiplied channels cannot exceed alpha, got {card:#010x}"
+            );
+        }
     }
 }

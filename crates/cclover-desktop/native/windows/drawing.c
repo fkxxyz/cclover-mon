@@ -6,18 +6,44 @@
 #include <stdio.h>
 #include <stdint.h>
 
+/*
+ * Colour of an opaque primitive. Coverage alpha is not baked into the colour: the host
+ * recovers it per pixel from two renders (see alpha_policy.h). Only fills carry alpha in
+ * the Scene contract; strokes, polylines and text are always realized opaque.
+ */
 static COLORREF cclover_color(uint32_t argb) {
-    unsigned a = (argb >> 24) & 0xff;
-    unsigned r = (argb >> 16) & 0xff;
-    unsigned g = ((argb >> 8) & 0xff);
-    unsigned b = argb & 0xff;
-    if (a < 255) {
-        const unsigned br = 0x0b, bg = 0x10, bb = 0x20;
-        r = (r * a + br * (255 - a)) / 255;
-        g = (g * a + bg * (255 - a)) / 255;
-        b = (b * a + bb * (255 - a)) / 255;
+    return RGB((argb >> 16) & 0xff, (argb >> 8) & 0xff, argb & 0xff);
+}
+
+static unsigned cclover_alpha(uint32_t argb) {
+    return (argb >> 24) & 0xff;
+}
+
+/* Blends a solid colour through `region` using the destination's current content. */
+static void cclover_blend_region(HDC dc, HRGN region, uint32_t argb) {
+    RECT box;
+    HDC source;
+    HBITMAP bitmap;
+    BLENDFUNCTION blend;
+    if (!region || GetRgnBox(region, &box) == NULLREGION) return;
+    source = CreateCompatibleDC(dc);
+    if (!source) return;
+    bitmap = CreateCompatibleBitmap(dc, 1, 1);
+    if (bitmap) {
+        HGDIOBJ old = SelectObject(source, bitmap);
+        blend.BlendOp = AC_SRC_OVER;
+        blend.BlendFlags = 0;
+        blend.SourceConstantAlpha = (BYTE)cclover_alpha(argb);
+        blend.AlphaFormat = 0;
+        SetPixelV(source, 0, 0, cclover_color(argb));
+        SelectClipRgn(dc, region);
+        AlphaBlend(dc, box.left, box.top, box.right - box.left, box.bottom - box.top,
+                   source, 0, 0, 1, 1, blend);
+        SelectClipRgn(dc, NULL);
+        SelectObject(source, old);
+        DeleteObject(bitmap);
     }
-    return RGB(r, g, b);
+    DeleteDC(source);
 }
 
 static int cclover_px(UINT dpi, float logical) {
@@ -50,9 +76,11 @@ static HFONT cclover_font(CcloverGdiRenderer *renderer, uint32_t size, int bold)
     if (cached) return cached;
     int pixels = -cclover_px(renderer->dpi, (float)size);
     if (pixels == 0) pixels = -(int)size;
+    /* Grayscale antialiasing: ClearType sub-pixel fringes are meaningless over a
+     * per-pixel-alpha surface. */
     cached = CreateFontW(pixels, 0, 0, 0, bold ? FW_BOLD : FW_NORMAL,
         FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, L"Inconsolata");
+        ANTIALIASED_QUALITY, FIXED_PITCH | FF_MODERN, L"Inconsolata");
     renderer->fonts[slot][bold ? 1 : 0] = cached;
     return cached;
 }
@@ -65,12 +93,23 @@ static void cclover_draw_rect(CcloverGdiRenderer *renderer, HDC dc,
     int bottom = cclover_px(renderer->dpi, cmd->y + cmd->height);
     int diameter = cclover_px(renderer->dpi, cmd->radius * 2.0f);
     HGDIOBJ old_brush, old_pen;
-    HBRUSH brush = fill ? CreateSolidBrush(cclover_color(cmd->color))
-                        : (HBRUSH)GetStockObject(NULL_BRUSH);
-    HPEN pen = fill ? (HPEN)GetStockObject(NULL_PEN)
-                    : CreatePen(PS_SOLID,
-                                max(1, cclover_px(renderer->dpi, cmd->stroke_width)),
-                                cclover_color(cmd->color));
+    HBRUSH brush;
+    HPEN pen;
+    if (fill && cclover_alpha(cmd->color) < 255) {
+        HRGN region;
+        if (cclover_alpha(cmd->color) == 0) return;
+        region = diameter > 0 ? CreateRoundRectRgn(left, top, right, bottom, diameter, diameter)
+                              : CreateRectRgn(left, top, right, bottom);
+        cclover_blend_region(dc, region, cmd->color);
+        if (region) DeleteObject(region);
+        return;
+    }
+    brush = fill ? CreateSolidBrush(cclover_color(cmd->color))
+                 : (HBRUSH)GetStockObject(NULL_BRUSH);
+    pen = fill ? (HPEN)GetStockObject(NULL_PEN)
+               : CreatePen(PS_SOLID,
+                           max(1, cclover_px(renderer->dpi, cmd->stroke_width)),
+                           cclover_color(cmd->color));
     old_brush = SelectObject(dc, brush);
     old_pen = SelectObject(dc, pen);
     if (diameter > 0) RoundRect(dc, left, top, right, bottom, diameter, diameter);
@@ -175,11 +214,10 @@ static int cclover_gdi_scene_fits(CcloverGdiRenderer *renderer, HDC dc,
     return 1;
 }
 
-int cclover_gdi_draw_scene(CcloverGdiRenderer *renderer, HDC dc,
-                           const CcloverScene *scene, UINT dpi) {
+void cclover_gdi_paint_scene(CcloverGdiRenderer *renderer, HDC dc,
+                             const CcloverScene *scene, UINT dpi) {
     size_t i;
     cclover_prepare_dpi(renderer, dpi);
-    if (!cclover_gdi_scene_fits(renderer, dc, scene)) return 1;
     SetBkMode(dc, TRANSPARENT);
     for (i = 0; i < scene->command_count; ++i) {
         const CcloverCommand *cmd = &scene->commands[i];
@@ -215,6 +253,14 @@ int cclover_gdi_draw_scene(CcloverGdiRenderer *renderer, HDC dc,
                 Polyline(dc, points, (int)cmd->point_count);
                 SelectObject(dc, old_pen);
                 DeleteObject(pen);
+            } else if (cclover_alpha(cmd->color) == 0) {
+                /* Fully transparent fill: nothing to realize. */
+            } else if (cclover_alpha(cmd->color) < 255) {
+                HRGN region = cmd->point_count >= 3
+                    ? CreatePolygonRgn(points, (int)cmd->point_count, WINDING)
+                    : NULL;
+                cclover_blend_region(dc, region, cmd->color);
+                if (region) DeleteObject(region);
             } else {
                 HBRUSH brush = CreateSolidBrush(cclover_color(cmd->color));
                 HGDIOBJ old_brush = SelectObject(dc, brush);
@@ -227,6 +273,13 @@ int cclover_gdi_draw_scene(CcloverGdiRenderer *renderer, HDC dc,
             if (points != stack_points) HeapFree(GetProcessHeap(), 0, points);
         }
     }
+}
+
+int cclover_gdi_draw_scene(CcloverGdiRenderer *renderer, HDC dc,
+                           const CcloverScene *scene, UINT dpi) {
+    cclover_prepare_dpi(renderer, dpi);
+    if (!cclover_gdi_scene_fits(renderer, dc, scene)) return 1;
+    cclover_gdi_paint_scene(renderer, dc, scene, dpi);
     return 0;
 }
 

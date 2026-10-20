@@ -98,8 +98,10 @@ fn build_windows(out_dir: &Path) {
     }
     cc::Build::new()
         .file("native/windows_host.c")
+        .file("native/windows/alpha_policy.c")
         .file("native/windows/display.c")
         .file("native/windows/drawing.c")
+        .file("native/windows/layered.c")
         .file("native/windows/shell.c")
         .file("native/windows_geometry.c")
         .file("native/windows/message_policy.c")
@@ -110,6 +112,7 @@ fn build_windows(out_dir: &Path) {
 
     println!("cargo:rustc-link-lib=user32");
     println!("cargo:rustc-link-lib=gdi32");
+    println!("cargo:rustc-link-lib=msimg32");
     println!("cargo:rustc-link-lib=shell32");
 }
 

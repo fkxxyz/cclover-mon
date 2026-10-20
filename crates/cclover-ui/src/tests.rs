@@ -164,3 +164,39 @@ fn rounded_memory_value_stays_within_shared_text_slot() {
     );
     assert!(!memory.1);
 }
+
+#[test]
+fn only_fill_primitives_may_be_translucent() {
+    // The Windows GDI renderer realizes alpha for fills only. Strokes, lines, and text
+    // must stay opaque in the shared Scene so every renderer shows the same result.
+    let mut state = MonitorState::default();
+    state.snapshot.temperatures = Collection::available(vec![TemperatureSnapshot {
+        id: cclover_core::model::TemperatureId::from_opaque_key("cpu-temperature"),
+        name: "CPU".to_owned(),
+        celsius: 50.0,
+    }]);
+    let scene = build_scene(Dashboard::new(&state));
+
+    let mut translucent_fills = 0;
+    for primitive in &scene.primitives {
+        match primitive {
+            Primitive::FillRect { color, .. } | Primitive::Polygon { color, .. } => {
+                if color.a < 1.0 {
+                    translucent_fills += 1;
+                }
+            }
+            Primitive::StrokeRect { color, .. }
+            | Primitive::Text { color, .. }
+            | Primitive::Polyline { color, .. } => {
+                assert!(
+                    color.a >= 1.0,
+                    "non-fill primitive must be opaque: {primitive:?}"
+                );
+            }
+        }
+    }
+    assert!(
+        translucent_fills > 0,
+        "the dashboard panel is translucent, so the guard must observe translucent fills"
+    );
+}

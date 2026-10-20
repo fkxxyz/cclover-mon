@@ -107,7 +107,7 @@ bun archdoc.ts check
 
 - Preserve product behavior when porting from the legacy Quickshell monitor, but implement it according to this repository's architecture rather than copying the old code structure.
 - Add new metrics by extending the shared typed model and core derivation first, then implement platform collectors, then render them in UI.
-- Keep Linux device discovery capability-based where practical. For example, physical block devices are identified through sysfs capability (`/sys/block/<dev>/device`) rather than maintained name blacklists.
+- Keep Linux device discovery structural and capability-based rather than name-based. Physical block-device selection is owned by `docs/architecture/09-architecture-decisions/011-physical-disk-display-aliases.md`.
 - Treat unavailable metrics as unavailable data, not fabricated zeroes, unless zero is the correct semantic value.
 - Keep platform-specific names, handles, structs, and APIs out of shared UI and core-facing contracts.
 - Preserve the single-process, single-executable deployment model for each target platform.
@@ -155,11 +155,13 @@ Run the real-browser Web smoke test only when Chromium/Chrome is available:
 bun validate.ts web-browser
 ```
 
-Run the headless server build/dependency/runtime/SIGTERM smoke with:
+Run the headless server build/dependency/runtime/SIGTERM smoke for the default and no-eBPF variants with:
 
 ```bash
 bun validate.ts server
 ```
+
+Run the static aarch64 no-eBPF server build and self-containment check with `bun validate.ts server-static`. It needs `rustup target add aarch64-unknown-linux-musl` beforehand and sets `CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld` itself; every manual build of that target needs the same variable. For on-device runtime evidence use `docs/maintenance/static-server-device-trial.md`.
 
 `web-browser` is intentionally separate from `fast`, `linux`, and `portable`; ordinary development and builds do not require a browser. CI provisions Chromium/Chrome explicitly for this profile.
 
@@ -172,10 +174,10 @@ For Linux UI or window-placement changes, also perform a real Wayland runtime ch
 ## Common Pitfalls
 
 - Native Linux desktop rendering requires Cairo, X11/Xext, Wayland client libraries, and the checked-in generated layer-shell protocol sources. Do not reintroduce Iced/winit/wgpu to avoid native host work.
-- `cclover-mon-server` is an independent product artifact. It must not depend on `cclover-desktop`, `cclover-tui`, Cairo, X11, Wayland, or desktop-session integration. Shared sampling belongs in `cclover-runtime`; shared HTTP/API delivery belongs in `cclover-http`.
+- `cclover-mon-server` is an independent product artifact. It must not depend on `cclover-desktop`, `cclover-tui`, Cairo, X11, Wayland, or desktop-session integration. Shared sampling belongs in `cclover-runtime`; shared HTTP/API delivery belongs in `cclover-http`. Its `ebpf-io` feature (default on) is its only build-time capability; see `docs/architecture/09-architecture-decisions/016-server-build-capabilities.md`.
 - Every `cargo xwin` build must use exactly `XWIN_ARCH=x86,x86_64`, including builds targeting only `i686-pc-windows-msvc` or only `x86_64-pc-windows-msvc`. Do not omit it or switch to a per-target value: cargo-xwin's default architecture set differs, and changing this setting can force CRT/SDK cache re-download/re-splat work.
-- Linux is implemented and runtime-validated. Windows native collectors for CPU, memory, processes, network interfaces, physical disks, temperatures, NVIDIA/AMD GPU telemetry, per-process network attribution through NDU, and per-process disk attribution through FileIo ETW are implemented. Windows ETW disk attribution has real-Windows exact completion-semantic coverage in `windows-etw-runtime`. NDU uses an undocumented Windows ABI; preserve the isolated wrapper and keep real-Windows compatibility and end-to-end acceptance gaps aligned with the corresponding records under `docs/architecture/11-risks-and-technical-debt/`.
-- Static compilation is insufficient for UI changes. Previous runtime checks caught layout overlap and virtual block devices that passed Rust tests and Clippy.
+- Linux is implemented and runtime-validated on x86_64. On aarch64 only the static no-eBPF server is validated; the eBPF path has no aarch64 compile or runtime evidence. Windows native collectors for CPU, memory, processes, network interfaces, physical disks, temperatures, NVIDIA/AMD GPU telemetry, per-process network attribution through NDU, and per-process disk attribution through FileIo ETW are implemented. Windows ETW disk attribution has real-Windows exact completion-semantic coverage in `windows-etw-runtime`. NDU uses an undocumented Windows ABI; preserve the isolated wrapper and keep real-Windows compatibility and end-to-end acceptance gaps aligned with the corresponding records under `docs/architecture/11-risks-and-technical-debt/`.
+- Static compilation is insufficient for UI and device-discovery changes: layout overlap and virtual block devices pass Rust tests and Clippy, so verify those at runtime.
 - The Linux panel intentionally uses top-right anchoring, bottom layer, and zero exclusive zone. Preserve these semantics unless the product behavior is intentionally changed.
 
 ## Build and Run

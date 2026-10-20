@@ -13,6 +13,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cli::print_help();
             Ok(())
         }
+        cli::Command::Version => {
+            cli::print_version();
+            Ok(())
+        }
         cli::Command::Run(config) => run_foreground(config),
         cli::Command::Service(config) => run_service(config),
     }

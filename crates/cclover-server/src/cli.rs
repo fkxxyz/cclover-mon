@@ -6,6 +6,7 @@ pub enum Command {
     Run(HttpConfig),
     Service(HttpConfig),
     Help,
+    Version,
 }
 
 pub fn parse() -> Result<Command, String> {
@@ -43,6 +44,12 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Command, String>
                 }
                 return Ok(Command::Help);
             }
+            "--version" | "-V" => {
+                if args.next().is_some() || bind_seen || service {
+                    return Err("--version cannot be combined with other arguments".to_owned());
+                }
+                return Ok(Command::Version);
+            }
             other => return Err(format!("unknown argument: {other}")),
         }
     }
@@ -57,8 +64,25 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Command, String>
 
 pub fn print_help() {
     println!(
-        "cclover-mon-server\n\nUSAGE:\n    cclover-mon-server [--bind <ip:port>] [--service]\n\nOPTIONS:\n    --bind <ip:port>  HTTP listen address (default 127.0.0.1:9847)\n    --service         Run under Windows Service Control Manager\n    -h, --help        Show this help"
+        "cclover-mon-server\n\nUSAGE:\n    cclover-mon-server [--bind <ip:port>] [--service]\n\nOPTIONS:\n    --bind <ip:port>  HTTP listen address (default 127.0.0.1:9847)\n    --service         Run under Windows Service Control Manager\n    -V, --version     Show version and build capabilities\n    -h, --help        Show this help"
     );
+}
+
+pub fn print_version() {
+    println!(
+        "cclover-mon-server {}\nfeatures: {}",
+        env!("CARGO_PKG_VERSION"),
+        enabled_features()
+    );
+}
+
+/// Build-time capabilities compiled into this executable. Runtime availability is reported separately.
+fn enabled_features() -> &'static str {
+    if cfg!(feature = "ebpf-io") {
+        "ebpf-io"
+    } else {
+        "none"
+    }
 }
 
 #[cfg(test)]
@@ -83,6 +107,14 @@ mod tests {
             panic!("expected run command");
         };
         assert_eq!(config.bind, "0.0.0.0:9847".parse().unwrap());
+    }
+
+    #[test]
+    fn version_flag_is_standalone() {
+        assert!(matches!(parse(&["--version"]).unwrap(), Command::Version));
+        assert!(matches!(parse(&["-V"]).unwrap(), Command::Version));
+        assert!(parse(&["--version", "--bind", "0.0.0.0:9847"]).is_err());
+        assert!(parse(&["--bind", "0.0.0.0:9847", "-V"]).is_err());
     }
 
     #[test]

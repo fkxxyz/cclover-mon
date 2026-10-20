@@ -27,6 +27,7 @@ describe("validation profiles", () => {
         "validate.test.ts",
         "windows-validate.test.ts",
         "sync-linux-hwmon.test.ts",
+        "server-static-check.test.ts",
       ],
       ["cargo", "fmt", "--all", "--check"],
       ["bun", "archdoc.ts", "check"],
@@ -183,6 +184,7 @@ describe("validation profiles", () => {
   test("server validation owns the headless product smoke and runtime ABI check", () => {
     expect(validationSteps("server").map((step) => step.command)).toEqual([
       ["cargo", "test", "--locked", "-p", "cclover-server"],
+      ["cargo", "test", "--locked", "-p", "cclover-server", "--no-default-features"],
       ["cargo", "build", "--locked", "--release", "-p", "cclover-server"],
       [
         "bun",
@@ -191,15 +193,65 @@ describe("validation profiles", () => {
         "cclover-mon-server-x86_64-unknown-linux-gnu",
         "target/release/cclover-mon-server",
       ],
-      ["bun", "server-smoke.ts"],
+      ["bun", "server-smoke.ts", "--features", "ebpf-io"],
+      [
+        "cargo",
+        "build",
+        "--locked",
+        "--release",
+        "-p",
+        "cclover-server",
+        "--no-default-features",
+      ],
+      ["bun", "server-smoke.ts", "--features", "none"],
     ]);
   });
 
-  test("portable profile is exactly the three host-portable profiles in order", () => {
+  test("static server profile builds a dist artifact without eBPF and checks it statically", () => {
+    expect(validationSteps("server-static")).toEqual([
+      {
+        name: "static server release build without eBPF",
+        command: [
+          "cargo",
+          "build",
+          "--locked",
+          "--profile",
+          "dist",
+          "-p",
+          "cclover-server",
+          "--no-default-features",
+          "--target",
+          "aarch64-unknown-linux-musl",
+        ],
+        env: { CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: "rust-lld" },
+      },
+      {
+        name: "static server artifact check",
+        command: [
+          "bun",
+          "server-static-check.ts",
+          "--machine",
+          "AArch64",
+          "target/aarch64-unknown-linux-musl/dist/cclover-mon-server",
+        ],
+      },
+    ]);
+    // The profile must not modify the developer's toolchain.
+    expect(
+      validationSteps("server-static").some((step) => step.command[0] === "rustup"),
+    ).toBe(false);
+    expect(validationExecution("server-static")).toEqual({
+      host: "local",
+      privilegeRequirement: "ordinary",
+    });
+  });
+
+  test("portable profile is exactly the host-portable profiles in order", () => {
     expect(validationSteps("portable")).toEqual([
       ...VALIDATION_PROFILES.fast.steps,
       ...VALIDATION_PROFILES.linux.steps,
       ...VALIDATION_PROFILES.windows.steps,
+      ...VALIDATION_PROFILES["server-static"].steps,
     ]);
   });
 });

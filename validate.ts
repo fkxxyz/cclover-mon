@@ -38,6 +38,7 @@ const FAST_STEPS: readonly ValidationStep[] = [
       "validate.test.ts",
       "windows-validate.test.ts",
       "sync-linux-hwmon.test.ts",
+      "server-static-check.test.ts",
     ],
   },
   { name: "Rust formatting", command: ["cargo", "fmt", "--all", "--check"] },
@@ -214,6 +215,10 @@ const WEB_BROWSER_STEPS: readonly ValidationStep[] = [
 const SERVER_STEPS: readonly ValidationStep[] = [
   { name: "server tests", command: ["cargo", "test", "--locked", "-p", "cclover-server"] },
   {
+    name: "server tests without eBPF",
+    command: ["cargo", "test", "--locked", "-p", "cclover-server", "--no-default-features"],
+  },
+  {
     name: "server release build",
     command: ["cargo", "build", "--locked", "--release", "-p", "cclover-server"],
   },
@@ -227,7 +232,60 @@ const SERVER_STEPS: readonly ValidationStep[] = [
       "target/release/cclover-mon-server",
     ],
   },
-  { name: "server headless runtime smoke", command: ["bun", "server-smoke.ts"] },
+  {
+    name: "server headless runtime smoke",
+    command: ["bun", "server-smoke.ts", "--features", "ebpf-io"],
+  },
+  {
+    name: "server release build without eBPF",
+    command: [
+      "cargo",
+      "build",
+      "--locked",
+      "--release",
+      "-p",
+      "cclover-server",
+      "--no-default-features",
+    ],
+  },
+  {
+    name: "server headless runtime smoke without eBPF",
+    command: ["bun", "server-smoke.ts", "--features", "none"],
+  },
+];
+
+const SERVER_STATIC_TARGET = "aarch64-unknown-linux-musl";
+
+// The Rust target is provisioned by the environment (CI toolchain setup or `rustup target add`);
+// a validation profile does not modify the developer's toolchain.
+const SERVER_STATIC_STEPS: readonly ValidationStep[] = [
+  {
+    name: "static server release build without eBPF",
+    command: [
+      "cargo",
+      "build",
+      "--locked",
+      "--profile",
+      "dist",
+      "-p",
+      "cclover-server",
+      "--no-default-features",
+      "--target",
+      SERVER_STATIC_TARGET,
+    ],
+    // rust-lld ships with the Rust toolchain, so no separate C cross-linker is required.
+    env: { CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: "rust-lld" },
+  },
+  {
+    name: "static server artifact check",
+    command: [
+      "bun",
+      "server-static-check.ts",
+      "--machine",
+      "AArch64",
+      `target/${SERVER_STATIC_TARGET}/dist/cclover-mon-server`,
+    ],
+  },
 ];
 
 export const VALIDATION_PROFILES = {
@@ -267,8 +325,12 @@ export const VALIDATION_PROFILES = {
     steps: SERVER_STEPS,
     execution: { host: "local", privilegeRequirement: "ordinary" },
   },
+  "server-static": {
+    steps: SERVER_STATIC_STEPS,
+    execution: { host: "local", privilegeRequirement: "ordinary" },
+  },
   portable: {
-    steps: [...FAST_STEPS, ...LINUX_STEPS, ...WINDOWS_STEPS],
+    steps: [...FAST_STEPS, ...LINUX_STEPS, ...WINDOWS_STEPS, ...SERVER_STATIC_STEPS],
     execution: { host: "local", privilegeRequirement: "ordinary" },
   },
 } as const satisfies Record<string, ValidationProfileDefinition>;
@@ -297,7 +359,7 @@ export function formatValidationStep(step: ValidationStep): string {
 
 function usage(): void {
   console.log(
-    "usage: bun validate.ts <fast|linux|linux-ebpf-runtime|windows|windows-native|windows-etw-runtime|windows-server-scm-runtime|web-browser|server|portable>",
+    "usage: bun validate.ts <fast|linux|linux-ebpf-runtime|windows|windows-native|windows-etw-runtime|windows-server-scm-runtime|web-browser|server|server-static|portable>",
   );
 }
 

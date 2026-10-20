@@ -8,10 +8,15 @@ license.workspace = true
 name = "cclover-mon-server"
 path = "src/main.rs"
 
+[features]
+# Process I/O attribution through libbpf. Disable for builds without clang/libbpf or BTF support.
+default = ["ebpf-io"]
+ebpf-io = ["cclover-platform/ebpf-io"]
+
 [dependencies]
 cclover-http = { path = "../cclover-http" }
 cclover-runtime = { path = "../cclover-runtime" }
-cclover-platform = { path = "../cclover-platform", default-features = false, features = ["ebpf-io"] }
+cclover-platform = { path = "../cclover-platform", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.3"

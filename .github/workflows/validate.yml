@@ -50,6 +50,17 @@ jobs:
           clang libbpf-dev libelf-dev pkg-config
       - run: bun validate.ts server
 
+  server-static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - run: bun validate.ts server-static
+
   windows-cross:
     runs-on: ubuntu-latest
     steps:

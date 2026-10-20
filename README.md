@@ -42,6 +42,21 @@ cargo build --release -p cclover-server
 
 Its executable is written to `target/release/cclover-mon-server`. It does not depend on the desktop/TUI crates or Linux GUI libraries.
 
+Build without eBPF attribution when clang, libbpf, or BTF is unavailable:
+
+```bash
+cargo build --release -p cclover-server --no-default-features
+```
+
+For a self-contained aarch64 Linux executable (static musl, no eBPF), add the target once with `rustup target add aarch64-unknown-linux-musl`, then build with the linker that ships with Rust:
+
+```bash
+CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld \
+  cargo build --profile dist -p cclover-server --no-default-features --target aarch64-unknown-linux-musl
+```
+
+The executable is written to `target/aarch64-unknown-linux-musl/dist/cclover-mon-server`. `bun validate.ts server-static` builds and checks this configuration (no program interpreter, no dynamic library dependencies).
+
 For local inspection of the final distribution profile, use:
 
 ```bash
@@ -88,7 +103,7 @@ On a Windows host, run the deterministic Windows test suite with:
 bun validate.ts windows-native
 ```
 
-For local preflight and Linux validation, use `bun validate.ts fast` and `bun validate.ts linux`. Linux ABI validation requires `readelf` from binutils. On a Linux host where elevated BPF execution is available, `bun validate.ts linux-ebpf-runtime` verifies the production eBPF path and scalar map-lookup fallback; it uses the existing clang toolchain and requires root or `sudo`. Use `bun validate.ts server` for the headless product dependency/runtime/SIGTERM smoke. `bun validate.ts portable` runs the host-portable fast/Linux/Windows-cross profiles; CI additionally runs `windows-native` on a Windows runner.
+For local preflight and Linux validation, use `bun validate.ts fast` and `bun validate.ts linux`. Linux ABI validation requires `readelf` from binutils. On a Linux host where elevated BPF execution is available, `bun validate.ts linux-ebpf-runtime` verifies the production eBPF path and scalar map-lookup fallback; it uses the existing clang toolchain and requires root or `sudo`. Use `bun validate.ts server` for the headless product dependency/runtime/SIGTERM smoke, covering both the default and no-eBPF variants. `bun validate.ts server-static` builds the static aarch64 no-eBPF executable and checks that it is self-contained; the `aarch64-unknown-linux-musl` Rust target must already be installed. `bun validate.ts portable` runs the host-portable fast/Linux/Windows-cross profiles; CI additionally runs `windows-native` on a Windows runner.
 
 The 32-bit executable is written to:
 
@@ -113,6 +128,12 @@ For headless operation:
 ```bash
 ./target/release/cclover-mon-server
 ./target/release/cclover-mon-server --bind 0.0.0.0:9847
+```
+
+`--version` prints the version and compiled features (`ebpf-io` or `none`).
+
+```bash
+./target/release/cclover-mon-server --version
 ```
 
 The server defaults to `127.0.0.1:9847`. `/healthz` reports HTTP liveness, while `/readyz` becomes ready after the first real sample. Linux service files are under `packaging/server/systemd/`; Windows SCM installation support is under `packaging/server/windows/`.

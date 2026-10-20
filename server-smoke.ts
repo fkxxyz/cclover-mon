@@ -2,6 +2,16 @@ const SERVER_PACKAGE = "cclover-server";
 const SERVER_BINARY = "target/release/cclover-mon-server";
 const ADDRESS = "127.0.0.1:19847";
 
+// The build-time capability set this smoke run expects. It must match the binary that was built
+// immediately before, so that `--version` and the dependency checks prove the same configuration.
+const featureFlag = process.argv.indexOf("--features");
+const expectedFeatures = featureFlag >= 0 ? process.argv[featureFlag + 1] : undefined;
+if (expectedFeatures !== "ebpf-io" && expectedFeatures !== "none") {
+  console.error("usage: bun server-smoke.ts --features <ebpf-io|none>");
+  process.exit(2);
+}
+const cargoFeatureArgs = expectedFeatures === "none" ? ["--no-default-features"] : [];
+
 function run(command: string[]): string {
   const result = Bun.spawnSync({ cmd: command, stdout: "pipe", stderr: "inherit" });
   if (result.exitCode !== 0) process.exit(result.exitCode);
@@ -14,8 +24,13 @@ function assertAbsent(text: string, forbidden: readonly string[], context: strin
   }
 }
 
-const dependencyTree = run(["cargo", "tree", "--locked", "-p", SERVER_PACKAGE]);
+const dependencyTree = run(["cargo", "tree", "--locked", "-p", SERVER_PACKAGE, ...cargoFeatureArgs]);
 assertAbsent(dependencyTree, ["cclover-desktop", "cclover-tui"], "server dependency tree");
+
+const version = run([SERVER_BINARY, "--version"]);
+if (!version.includes(`features: ${expectedFeatures}\n`)) {
+  throw new Error(`--version does not report features ${expectedFeatures}: ${version}`);
+}
 
 if (process.platform === "linux") {
   const dynamicLibraries = run(["ldd", SERVER_BINARY]);
@@ -24,6 +39,9 @@ if (process.platform === "linux") {
     ["libcairo", "libX11", "libXext", "libXrender", "libwayland-client", "libgio-2.0"],
     "server dynamic dependencies",
   );
+  if (expectedFeatures === "none") {
+    assertAbsent(dynamicLibraries, ["libbpf", "libelf"], "server dynamic dependencies without eBPF");
+  }
 }
 
 const server = Bun.spawn({

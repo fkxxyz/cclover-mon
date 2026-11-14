@@ -2,7 +2,7 @@ use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 
-use cclover_core::model::{Collection, GpuId, GpuSnapshot, MonitorState};
+use cclover_core::model::{Collection, MonitorState};
 use cclover_runtime::{Shutdown, StateSource};
 
 use crate::config::HttpConfig;
@@ -169,12 +169,10 @@ fn split_state_apis_serve_only_requested_domains() {
         "/api/v1/temperatures",
         "/api/v1/fans",
         "/api/v1/gpus",
-        "/api/v1/gpu-memory",
         "/api/v1/processes",
         "/api/v1/history/cpu",
         "/api/v1/history/memory",
         "/api/v1/history/gpus",
-        "/api/v1/history/gpu-memory",
         "/api/v1/history/disks",
         "/api/v1/history/networks",
         "/api/v1/history/temperatures",
@@ -199,68 +197,6 @@ fn split_state_apis_serve_only_requested_domains() {
     assert_eq!(history["history_capacity"], 42);
     assert!(history.get("cpu").is_some());
     assert!(history.get("memory_used").is_none());
-}
-
-#[test]
-fn legacy_gpu_memory_routes_preserve_payload_not_only_url() {
-    let server = HttpServer::start(
-        HttpConfig {
-            bind: "127.0.0.1:0".parse().unwrap(),
-        },
-        StateSource::new(),
-        Shutdown::default(),
-    )
-    .unwrap();
-    let gpu_id = GpuId::from_opaque_key("gpu-a");
-    let mut state = MonitorState {
-        history_capacity: 120,
-        ..MonitorState::default()
-    };
-    state.snapshot.gpus = Collection::available(vec![GpuSnapshot {
-        id: gpu_id.clone(),
-        name: "GPU A".to_owned(),
-        utilization_percent: Some(42.0),
-        memory_used_bytes: Some(4),
-        memory_total_bytes: Some(8),
-        temperature_celsius: Some(63.0),
-        power_watts: None,
-        core_clock_mhz: None,
-        fan_percent: None,
-        fan_rpm: None,
-    }]);
-    state
-        .history
-        .gpu_memory_used
-        .insert(gpu_id, std::collections::VecDeque::from([2.0, 4.0]));
-    server.state_hub().publish(state);
-
-    let gpus = response_json(server.local_addr(), "/api/v1/gpus");
-    let legacy = response_json(server.local_addr(), "/api/v1/gpu-memory");
-    let legacy_history = response_json(server.local_addr(), "/api/v1/history/gpu-memory");
-
-    assert!(gpus.get("gpus").is_some());
-    assert!(gpus.get("gpu_memory").is_none());
-    assert_eq!(
-        legacy,
-        serde_json::json!({
-            "gpu_memory": {
-                "status": "available",
-                "value": [{
-                    "id": "gpu-a",
-                    "name": "GPU A",
-                    "used_bytes": 4,
-                    "total_bytes": 8
-                }]
-            }
-        })
-    );
-    assert_eq!(
-        legacy_history,
-        serde_json::json!({
-            "history_capacity": 120,
-            "gpu_memory_used": {"gpu-a": [2.0, 4.0]}
-        })
-    );
 }
 
 fn get(address: SocketAddr, path: &str) -> String {

@@ -6,7 +6,7 @@ use crate::{
 };
 
 pub fn build_scene(dashboard: Dashboard<'_>) -> Scene {
-    let ui = DashboardUi::new(dashboard);
+    let ui = DashboardUi::new(&dashboard);
     layout_dashboard(&ui)
 }
 
@@ -258,7 +258,8 @@ mod tests {
     #[test]
     fn scene_is_derived_from_shared_dashboard_tree() {
         let state = MonitorState::default();
-        let ui = DashboardUi::new(Dashboard::new(&state));
+        let dashboard = Dashboard::new(&state);
+        let ui = DashboardUi::new(&dashboard);
         let scene = layout_dashboard(&ui);
         assert_eq!(scene.width, PANEL_WIDTH);
         assert_eq!(scene.height, ui.height());

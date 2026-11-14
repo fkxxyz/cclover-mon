@@ -1,6 +1,6 @@
 use cclover_core::model::{
-    Collection, DiskMetadata, DiskSnapshot, GpuSnapshot, MemorySnapshot, MonitorState,
-    NetworkSnapshot, TemperatureSnapshot,
+    Collection, CollectionStatus, DiskMetadata, DiskSnapshot, GpuSnapshot, MemorySnapshot,
+    MonitorState, NetworkSnapshot, TemperatureSnapshot,
 };
 use cclover_presentation::{Dashboard, FAN_SECTION};
 
@@ -10,7 +10,8 @@ use crate::cards::{disk_card, network_card};
 #[test]
 fn dashboard_tree_drives_dynamic_height() {
     let empty = MonitorState::default();
-    let empty_ui = DashboardUi::new(Dashboard::new(&empty));
+    let empty_dashboard = Dashboard::new(&empty);
+    let empty_ui = DashboardUi::new(&empty_dashboard);
     assert_eq!(empty_ui.left.len(), 4);
     assert!(matches!(
         empty_ui.left.last(),
@@ -24,7 +25,8 @@ fn dashboard_tree_drives_dynamic_height() {
         name: "CPU".to_owned(),
         celsius: 50.0,
     }]);
-    let populated_ui = DashboardUi::new(Dashboard::new(&populated));
+    let populated_dashboard = Dashboard::new(&populated);
+    let populated_ui = DashboardUi::new(&populated_dashboard);
     assert_eq!(populated_ui.left.len(), 5);
     assert!(populated_ui.height() > empty_ui.height());
 }
@@ -51,8 +53,8 @@ fn io_top_regions_are_fixed_when_observable_and_omitted_when_unavailable() {
     let unavailable_disk_height = disk_card(dashboard.disk(0).unwrap(), 1).height();
     let unavailable_network_height = network_card(dashboard.network(0).unwrap(), 1).height();
 
-    state.snapshot.process_disk_io = Collection::available(Vec::new());
-    state.snapshot.process_network_io = Collection::available(Vec::new());
+    state.snapshot.processes.disk_io_status = CollectionStatus::Available;
+    state.snapshot.processes.network_io_status = CollectionStatus::Available;
     let dashboard = Dashboard::new(&state);
     let available_disk_height = disk_card(dashboard.disk(0).unwrap(), 1).height();
     let available_network_height = network_card(dashboard.network(0).unwrap(), 1).height();
@@ -70,7 +72,8 @@ fn io_top_regions_are_fixed_when_observable_and_omitted_when_unavailable() {
 #[test]
 fn tree_owns_visual_semantics_not_renderer_types() {
     let state = MonitorState::default();
-    let ui = DashboardUi::new(Dashboard::new(&state));
+    let dashboard = Dashboard::new(&state);
+    let ui = DashboardUi::new(&dashboard);
     let Block::Card(memory) = &ui.left[0] else {
         panic!("memory must be a card");
     };

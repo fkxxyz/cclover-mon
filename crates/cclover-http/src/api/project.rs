@@ -1,7 +1,7 @@
 use cclover_core::model::{
     DiskSnapshot, FanSnapshot, GpuSnapshot, MemorySnapshot, MonitorHistory, MonitorState,
-    NetworkDirectionHistory, NetworkSnapshot, ProcessCpuUsage, ProcessDiskIo, ProcessMemoryUsage,
-    ProcessNetworkIo, SystemSnapshot, TemperatureSnapshot,
+    NetworkDirectionHistory, NetworkSnapshot, ProcessCpuRank, ProcessDiskIo, ProcessMemoryRank,
+    ProcessNetworkIo, ProcessRef, SystemSnapshot, TemperatureSnapshot,
 };
 
 use super::model::*;
@@ -23,24 +23,28 @@ impl From<&SystemSnapshot> for ApiV1Snapshot {
             memory: ApiV1Collection::from_core(&snapshot.memory, |value| {
                 ApiV1MemorySnapshot::from(value)
             }),
-            top_cpu: ApiV1Collection::from_core(&snapshot.top_cpu, |rows| {
-                rows.iter().map(ApiV1ProcessCpu::from).collect()
-            }),
-            top_memory: ApiV1Collection::from_core(&snapshot.top_memory, |rows| {
-                rows.iter().map(ApiV1ProcessMemory::from).collect()
-            }),
+            top_cpu: ApiV1Collection::from_core(
+                &snapshot.processes.cpu_ranking(PROCESS_ROWS),
+                |rows| rows.iter().map(ApiV1ProcessCpu::from).collect(),
+            ),
+            top_memory: ApiV1Collection::from_core(
+                &snapshot.processes.memory_ranking(PROCESS_ROWS),
+                |rows| rows.iter().map(ApiV1ProcessMemory::from).collect(),
+            ),
             networks: ApiV1Collection::from_core(&snapshot.networks, |rows| {
                 rows.iter().map(ApiV1NetworkSnapshot::from).collect()
             }),
             disks: ApiV1Collection::from_core(&snapshot.disks, |rows| {
                 rows.iter().map(ApiV1DiskSnapshot::from).collect()
             }),
-            process_disk_io: ApiV1Collection::from_core(&snapshot.process_disk_io, |rows| {
-                rows.iter().map(ApiV1ProcessDiskIo::from).collect()
-            }),
-            process_network_io: ApiV1Collection::from_core(&snapshot.process_network_io, |rows| {
-                rows.iter().map(ApiV1ProcessNetworkIo::from).collect()
-            }),
+            process_disk_io: ApiV1Collection::from_core(
+                &snapshot.processes.disk_io_ranking(PROCESS_IO_ROWS),
+                |rows| rows.iter().map(ApiV1ProcessDiskIo::from).collect(),
+            ),
+            process_network_io: ApiV1Collection::from_core(
+                &snapshot.processes.network_io_ranking(PROCESS_IO_ROWS),
+                |rows| rows.iter().map(ApiV1ProcessNetworkIo::from).collect(),
+            ),
             temperatures: ApiV1Collection::from_core(&snapshot.temperatures, |rows| {
                 rows.iter().map(ApiV1TemperatureSnapshot::from).collect()
             }),
@@ -65,19 +69,30 @@ impl From<&MemorySnapshot> for ApiV1MemorySnapshot {
     }
 }
 
-impl From<&ProcessCpuUsage> for ApiV1ProcessCpu {
-    fn from(value: &ProcessCpuUsage) -> Self {
+impl From<&ProcessRef> for ApiV1ProcessRef {
+    fn from(value: &ProcessRef) -> Self {
         Self {
-            name: value.name.clone(),
+            pid: value.id.pid,
+            instance: value.id.instance.to_string(),
+        }
+    }
+}
+
+impl From<&ProcessCpuRank> for ApiV1ProcessCpu {
+    fn from(value: &ProcessCpuRank) -> Self {
+        Self {
+            process: ApiV1ProcessRef::from(&value.process),
+            name: value.process.name.as_deref().map(str::to_owned),
             percent: value.percent,
         }
     }
 }
 
-impl From<&ProcessMemoryUsage> for ApiV1ProcessMemory {
-    fn from(value: &ProcessMemoryUsage) -> Self {
+impl From<&ProcessMemoryRank> for ApiV1ProcessMemory {
+    fn from(value: &ProcessMemoryRank) -> Self {
         Self {
-            name: value.name.clone(),
+            process: ApiV1ProcessRef::from(&value.process),
+            name: value.process.name.as_deref().map(str::to_owned),
             bytes: value.bytes,
         }
     }
@@ -107,9 +122,8 @@ impl From<&DiskSnapshot> for ApiV1DiskSnapshot {
 impl From<&ProcessDiskIo> for ApiV1ProcessDiskIo {
     fn from(value: &ProcessDiskIo) -> Self {
         Self {
-            pid: value.process.pid,
-            birth_marker: value.process.birth_marker,
-            name: value.name.as_deref().map(str::to_owned),
+            process: ApiV1ProcessRef::from(&value.process),
+            name: value.process.name.as_deref().map(str::to_owned),
             disk_id: value.disk_id.as_opaque_key().to_owned(),
             device: value.device.clone(),
             read_bytes_per_sec: value.read_bytes_per_sec,
@@ -121,9 +135,8 @@ impl From<&ProcessDiskIo> for ApiV1ProcessDiskIo {
 impl From<&ProcessNetworkIo> for ApiV1ProcessNetworkIo {
     fn from(value: &ProcessNetworkIo) -> Self {
         Self {
-            pid: value.process.pid,
-            birth_marker: value.process.birth_marker,
-            name: value.name.as_deref().map(str::to_owned),
+            process: ApiV1ProcessRef::from(&value.process),
+            name: value.process.name.as_deref().map(str::to_owned),
             network_id: value.network_id.as_opaque_key().to_owned(),
             interface: value.interface.clone(),
             rx_bytes_per_sec: value.rx_bytes_per_sec,

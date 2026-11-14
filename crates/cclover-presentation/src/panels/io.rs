@@ -39,8 +39,8 @@ impl<'a> DiskPanel<'a> {
             .filter(move |process| &process.disk_id == disk_id)
             .filter(|process| process.read_bytes_per_sec + process.write_bytes_per_sec > 0.0)
             .map(|process| IoProcessRow {
-                name: process.name.as_deref(),
-                pid: process.process.pid,
+                name: process.process.name.as_deref(),
+                pid: process.process.id.pid,
                 first_value: format_rate(process.read_bytes_per_sec),
                 second_value: format_rate(process.write_bytes_per_sec),
                 compact_first_value: format_compact_rate(process.read_bytes_per_sec),
@@ -103,8 +103,8 @@ impl<'a> NetworkPanel<'a> {
             .filter(move |process| &process.network_id == network_id)
             .filter(|process| process.rx_bytes_per_sec + process.tx_bytes_per_sec > 0.0)
             .map(|process| IoProcessRow {
-                name: process.name.as_deref(),
-                pid: process.process.pid,
+                name: process.process.name.as_deref(),
+                pid: process.process.id.pid,
                 first_value: format_rate(process.rx_bytes_per_sec),
                 second_value: format_rate(process.tx_bytes_per_sec),
                 compact_first_value: format_compact_rate(process.rx_bytes_per_sec),

@@ -5,7 +5,7 @@ use crate::*;
 #[derive(Clone, Copy)]
 pub struct MemoryPanel<'a> {
     pub(crate) memory: Option<&'a MemorySnapshot>,
-    pub(crate) processes: &'a [ProcessMemoryUsage],
+    pub(crate) processes: &'a [ProcessMemoryRank],
     pub(crate) history: &'a VecDeque<f64>,
 }
 
@@ -82,7 +82,7 @@ impl<'a> MemoryPanel<'a> {
 
     pub fn processes(self) -> impl Iterator<Item = ProcessRow<'a>> + 'a {
         self.processes.iter().map(|process| ProcessRow {
-            name: &process.name,
+            name: process_label(&process.process),
             value: format_bytes(process.bytes),
             compact_value: format_compact_bytes(process.bytes),
         })
@@ -92,7 +92,7 @@ impl<'a> MemoryPanel<'a> {
 #[derive(Clone, Copy)]
 pub struct CpuPanel<'a> {
     pub(crate) percent: Option<f64>,
-    pub(crate) processes: &'a [ProcessCpuUsage],
+    pub(crate) processes: &'a [ProcessCpuRank],
     pub(crate) history: &'a VecDeque<f64>,
 }
 
@@ -123,7 +123,7 @@ impl<'a> CpuPanel<'a> {
 
     pub fn processes(self) -> impl Iterator<Item = ProcessRow<'a>> + 'a {
         self.processes.iter().map(|process| ProcessRow {
-            name: &process.name,
+            name: process_label(&process.process),
             value: format_percent(process.percent),
             compact_value: format_compact_percent(process.percent),
         })
@@ -131,7 +131,15 @@ impl<'a> CpuPanel<'a> {
 }
 
 pub struct ProcessRow<'a> {
-    pub name: &'a str,
+    /// Display label: the observed process name, or `pid <pid>` when metadata was not observed.
+    pub name: Cow<'a, str>,
     pub value: String,
     pub compact_value: BoundedText,
+}
+
+pub(crate) fn process_label(process: &ProcessRef) -> Cow<'_, str> {
+    match process.name.as_deref() {
+        Some(name) => Cow::Borrowed(name),
+        None => Cow::Owned(format!("pid {}", process.id.pid)),
+    }
 }

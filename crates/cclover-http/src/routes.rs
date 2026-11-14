@@ -78,14 +78,10 @@ pub(super) fn handle_connection(
         "/api/v1/temperatures" => write_api_slice(&mut stream, &hub, ApiV1Slice::Temperatures),
         "/api/v1/fans" => write_api_slice(&mut stream, &hub, ApiV1Slice::Fans),
         "/api/v1/gpus" => write_api_slice(&mut stream, &hub, ApiV1Slice::Gpus),
-        "/api/v1/gpu-memory" => write_api_slice(&mut stream, &hub, ApiV1Slice::GpuMemoryLegacy),
         "/api/v1/processes" => write_api_slice(&mut stream, &hub, ApiV1Slice::Processes),
         "/api/v1/history/cpu" => write_api_slice(&mut stream, &hub, ApiV1Slice::HistoryCpu),
         "/api/v1/history/memory" => write_api_slice(&mut stream, &hub, ApiV1Slice::HistoryMemory),
         "/api/v1/history/gpus" => write_api_slice(&mut stream, &hub, ApiV1Slice::HistoryGpus),
-        "/api/v1/history/gpu-memory" => {
-            write_api_slice(&mut stream, &hub, ApiV1Slice::HistoryGpuMemoryLegacy)
-        }
         "/api/v1/history/disks" => write_api_slice(&mut stream, &hub, ApiV1Slice::HistoryDisks),
         "/api/v1/history/networks" => {
             write_api_slice(&mut stream, &hub, ApiV1Slice::HistoryNetworks)

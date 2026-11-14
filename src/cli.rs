@@ -4,7 +4,10 @@ use std::time::{Duration, Instant};
 use crate::core::model::{CollectionStatus, CollectionUnavailable};
 use crate::core::{SampleCycle, Sampler};
 use crate::platform::{Backend, ProbeKind};
-use crate::presentation::{Dashboard, format_bytes, format_percent, format_rate, unavailable};
+use crate::presentation::{
+    Dashboard, IO_CARD_ROWS, PROCESS_CARD_ROWS, format_bytes, format_percent, format_rate,
+    unavailable,
+};
 use crate::runtime::StateSource;
 use crate::tui::TerminalUi;
 use crate::web::{DEFAULT_HTTP_BIND, HttpConfig};

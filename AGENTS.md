@@ -79,6 +79,8 @@ tools/release/archive.ts     archive creation, producer identity, and exact file
 tools/release/pipeline.ts    release build, staging, manifest, and aggregate verification execution
 tools/release/publication.ts GitHub draft reconciliation, remote verification, and publication execution
 docs/architecture/         architecture Views and governance data
+docs/maintenance/          one-off procedures, provisioning, and upstream-sync notes
+docs/api/                  published wire contract reference
 archdoc.ts                 architecture documentation navigator and validator
 ```
 
@@ -109,6 +111,7 @@ bun archdoc.ts check
 - Add new metrics by extending the shared typed model and core derivation first, then implement platform collectors, then render them in UI.
 - Keep Linux device discovery structural and capability-based rather than name-based. Physical block-device selection is owned by `docs/architecture/09-architecture-decisions/011-physical-disk-display-aliases.md`.
 - Treat unavailable metrics as unavailable data, not fabricated zeroes, unless zero is the correct semantic value.
+- `docs/api/v1.md` is the published wire contract. Any change to a `/api/v1` endpoint, field, row shape, or default row count updates it in the same change; core model types are not the wire schema, and a wire change is not complete while the contract still describes the old shape.
 - Keep platform-specific names, handles, structs, and APIs out of shared UI and core-facing contracts.
 - Preserve the single-process, single-executable deployment model for each target platform.
 - When updating Windows hardware-telemetry compatibility knowledge from LibreHardwareMonitor, read `docs/architecture/09-architecture-decisions/010-windows-hardware-telemetry-upstream.md` and follow `docs/maintenance/librehardwaremonitor-sync.md`. Run `bun lhm-sync.ts status <checkout>` before changing derived hardware support, and never auto-replace production register/I/O algorithms from upstream.
@@ -125,7 +128,7 @@ Run the fast deterministic profile during implementation:
 bun validate.ts fast
 ```
 
-`archgate.ts` remains the millisecond-scale source-dependency gate inside that profile. It may be run directly while editing, but do not add compilation, formatting, Clippy, or runtime checks to `archgate` itself.
+`archgate.ts` remains the millisecond-scale source-dependency gate inside that profile. It may be run directly while editing, but do not add compilation, formatting, Clippy, or runtime checks to `archgate` itself. The fast profile does not compile: use `cargo check`/`cargo clippy -p <crate>` and `cargo test -p <crate>` for the inner loop, and a compiled profile such as `linux` before claiming a change builds.
 
 Run Linux build/test/lint validation with:
 

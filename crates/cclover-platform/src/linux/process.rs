@@ -227,7 +227,7 @@ fn parse_stat_with_cached_name(
     Some(ProcessCounter {
         process: ProcessInstanceId {
             pid,
-            birth_marker: starttime,
+            instance: starttime,
         },
         name: cached_name
             .filter(|cached| cached.as_ref() == name)
@@ -289,7 +289,7 @@ fn parse_u64_decimal(bytes: &[u8]) -> Option<u64> {
 }
 
 #[cfg(any(feature = "ebpf-io", test))]
-pub(super) fn birth_marker_from_start_boottime_ns(start_boottime_ns: u64) -> u64 {
+pub(super) fn instance_from_start_boottime_ns(start_boottime_ns: u64) -> u64 {
     static TICKS_PER_SECOND: OnceLock<u64> = OnceLock::new();
     let ticks_per_second =
         *TICKS_PER_SECOND.get_or_init(|| native::clock_ticks_per_second().unwrap_or(100));
@@ -313,7 +313,7 @@ mod tests {
         assert_eq!(process.name.as_ref(), "name with space");
         assert_eq!(process.cpu_time_units, 23);
         assert_eq!(process.process.pid, 42);
-        assert_eq!(process.process.birth_marker, 19);
+        assert_eq!(process.process.instance, 19);
     }
 
     #[test]
@@ -390,7 +390,7 @@ mod tests {
             .find(|process| process.process.pid == 42)
             .unwrap();
         assert_eq!(process.name.as_ref(), "new process");
-        assert_ne!(process.process.birth_marker, first[0].process.birth_marker);
+        assert_ne!(process.process.instance, first[0].process.instance);
         assert_eq!(collector.stat_files.get(&42).unwrap().proc_inode, new_inode);
     }
 
@@ -408,7 +408,7 @@ mod tests {
     fn canonicalizes_start_boottime_to_proc_clock_ticks() {
         let ticks_per_second = native::clock_ticks_per_second().unwrap();
         assert_eq!(
-            birth_marker_from_start_boottime_ns(2_500_000_000),
+            instance_from_start_boottime_ns(2_500_000_000),
             2 * ticks_per_second + ticks_per_second / 2
         );
     }

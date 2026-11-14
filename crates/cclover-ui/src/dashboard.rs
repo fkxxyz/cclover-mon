@@ -18,7 +18,7 @@ pub struct DashboardUi<'a> {
 }
 
 impl<'a> DashboardUi<'a> {
-    pub fn new(dashboard: Dashboard<'a>) -> Self {
+    pub fn new(dashboard: &'a Dashboard<'_>) -> Self {
         let capacity = dashboard.history_capacity();
         let memory = dashboard.memory();
         let cpu = dashboard.cpu();

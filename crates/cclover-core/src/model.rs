@@ -10,22 +10,48 @@ pub struct MemorySnapshot {
     pub swap_total_bytes: u64,
 }
 
-#[derive(Clone, Debug)]
-pub struct ProcessCpuUsage {
-    pub name: String,
-    pub percent: f64,
-}
-
-#[derive(Clone, Debug)]
-pub struct ProcessMemoryUsage {
-    pub name: String,
-    pub bytes: u64,
-}
-
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ProcessInstanceId {
     pub pid: u32,
-    pub birth_marker: u64,
+    /// Opaque per-instance generation marker.
+    ///
+    /// It is stable for the lifetime of one process instance and differs when a pid is reused.
+    /// Its platform unit is deliberately unspecified: Linux uses `/proc/<pid>/stat` start ticks
+    /// and Windows uses the process creation timestamp. It is not a time and must not be parsed
+    /// as one outside the owning platform.
+    pub instance: u64,
+}
+
+/// The process a ranked row refers to.
+///
+/// Every process-facing row carries this pair so identity never has to be reconstructed from a
+/// display label. The name is optional because attribution-only processes can be ranked before
+/// their metadata is observed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProcessRef {
+    pub id: ProcessInstanceId,
+    pub name: Option<Arc<str>>,
+}
+
+impl From<&ProcessSnapshot> for ProcessRef {
+    fn from(process: &ProcessSnapshot) -> Self {
+        Self {
+            id: process.id,
+            name: process.name.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProcessCpuRank {
+    pub process: ProcessRef,
+    pub percent: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProcessMemoryRank {
+    pub process: ProcessRef,
+    pub bytes: u64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -192,8 +218,7 @@ pub struct ProcessNetworkIoCounter {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProcessDiskIo {
-    pub process: ProcessInstanceId,
-    pub name: Option<Arc<str>>,
+    pub process: ProcessRef,
     pub disk_id: DiskId,
     pub device: String,
     pub read_bytes_per_sec: f64,
@@ -202,8 +227,7 @@ pub struct ProcessDiskIo {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProcessNetworkIo {
-    pub process: ProcessInstanceId,
-    pub name: Option<Arc<str>>,
+    pub process: ProcessRef,
     pub network_id: NetworkId,
     pub interface: String,
     pub rx_bytes_per_sec: f64,
@@ -215,12 +239,8 @@ pub struct SystemSnapshot {
     pub cpu_percent: Collection<f64>,
     pub memory: Collection<MemorySnapshot>,
     pub processes: ProcessDomainSnapshot,
-    pub top_cpu: Collection<Vec<ProcessCpuUsage>>,
-    pub top_memory: Collection<Vec<ProcessMemoryUsage>>,
     pub networks: Collection<Vec<NetworkSnapshot>>,
     pub disks: Collection<Vec<DiskSnapshot>>,
-    pub process_disk_io: Collection<Vec<ProcessDiskIo>>,
-    pub process_network_io: Collection<Vec<ProcessNetworkIo>>,
     pub temperatures: Collection<Vec<TemperatureSnapshot>>,
     pub fans: Collection<Vec<FanSnapshot>>,
     pub gpus: Collection<Vec<GpuSnapshot>>,
@@ -298,6 +318,17 @@ pub enum CollectionStatus {
     Available,
     Degraded,
     Unavailable(CollectionUnavailable),
+}
+
+impl CollectionStatus {
+    /// Pair this observation status with a projection of the same observation.
+    pub fn wrap<T>(self, value: T) -> Collection<T> {
+        match self {
+            Self::Available => Collection::Available(value),
+            Self::Degraded => Collection::Degraded(value),
+            Self::Unavailable(reason) => Collection::Unavailable(reason),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -218,11 +218,11 @@ mod tests {
     fn stale_attribution_uses_full_process_instance_identity() {
         let current = ProcessInstanceId {
             pid: 42,
-            birth_marker: 100,
+            instance: 100,
         };
         let reused_pid = ProcessInstanceId {
             pid: 42,
-            birth_marker: 200,
+            instance: 200,
         };
         let active = HashSet::from([current]);
 

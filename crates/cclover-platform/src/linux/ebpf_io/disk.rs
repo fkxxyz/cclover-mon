@@ -10,7 +10,7 @@ use super::abi;
 use super::runtime::{LoadedObject, delete_map_keys, read_map};
 use super::{AttributionFailure, AttributionRows, FailureKind, is_stale_process};
 use crate::linux::disk as disk_metric;
-use crate::linux::process::birth_marker_from_start_boottime_ns;
+use crate::linux::process::instance_from_start_boottime_ns;
 
 const OBJECT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/disk_attribution.bpf.o"));
 const MAP: &CStr = c"disk_bytes";
@@ -76,7 +76,7 @@ impl Collector {
         for (key, value) in map_read.rows {
             let process = ProcessInstanceId {
                 pid: key.tgid,
-                birth_marker: birth_marker_from_start_boottime_ns(value.process_start_time),
+                instance: instance_from_start_boottime_ns(value.process_start_time),
             };
             if is_stale_process(active_processes, &process) {
                 stale_keys.push(key);
@@ -186,7 +186,7 @@ mod tests {
             ProcessDiskIoCounter {
                 process: ProcessInstanceId {
                     pid: 7,
-                    birth_marker: 1,
+                    instance: 1,
                 },
                 disk_id: disk_id("disk-a"),
                 device: "old-name".into(),
@@ -196,7 +196,7 @@ mod tests {
             ProcessDiskIoCounter {
                 process: ProcessInstanceId {
                     pid: 7,
-                    birth_marker: 1,
+                    instance: 1,
                 },
                 disk_id: disk_id("disk-a"),
                 device: "new-name".into(),
@@ -206,7 +206,7 @@ mod tests {
             ProcessDiskIoCounter {
                 process: ProcessInstanceId {
                     pid: 7,
-                    birth_marker: 1,
+                    instance: 1,
                 },
                 disk_id: disk_id("disk-b"),
                 device: "new-name".into(),
@@ -227,7 +227,7 @@ mod tests {
             ProcessDiskIoCounter {
                 process: ProcessInstanceId {
                     pid: 7,
-                    birth_marker: 1,
+                    instance: 1,
                 },
                 disk_id: disk_id("disk-a"),
                 device: "sda".into(),
@@ -237,7 +237,7 @@ mod tests {
             ProcessDiskIoCounter {
                 process: ProcessInstanceId {
                     pid: 7,
-                    birth_marker: 2,
+                    instance: 2,
                 },
                 disk_id: disk_id("disk-a"),
                 device: "sda".into(),

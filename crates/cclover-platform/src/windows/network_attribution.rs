@@ -257,8 +257,8 @@ mod tests {
     use super::*;
     use cclover_core::model::CollectionUnavailable;
 
-    fn process(pid: u32, birth_marker: u64) -> ProcessInstanceId {
-        ProcessInstanceId { pid, birth_marker }
+    fn process(pid: u32, instance: u64) -> ProcessInstanceId {
+        ProcessInstanceId { pid, instance }
     }
 
     fn snapshot(pid: u32, luid: u64, rx_bytes: u64, tx_bytes: u64) -> ndu::Snapshot {

@@ -1,7 +1,9 @@
 use std::time::{Duration, Instant};
 
 use super::super::*;
-use super::{disk_id, disk_metadata, network_id, process_id};
+use super::{
+    disk_id, disk_io, disk_metadata, network_id, network_io, process_id, top_cpu, top_memory,
+};
 
 #[test]
 fn sample_wait_fills_only_the_remaining_interval() {
@@ -77,10 +79,16 @@ fn first_sample_publishes_observed_entities_with_zero_baseline_rates() {
     let out = derive(None, &current);
 
     assert_eq!(out.cpu_percent.value().copied(), Some(0.0));
-    assert_eq!(out.top_cpu.value().unwrap().len(), 1);
-    assert_eq!(out.top_cpu.value().unwrap()[0].name, "worker");
-    assert_eq!(out.top_cpu.value().unwrap()[0].percent, 0.0);
-    assert_eq!(out.top_memory.value().unwrap()[0].name, "worker");
+    let cpu_rows = top_cpu(&out);
+    let cpu_rows = cpu_rows.value().unwrap();
+    assert_eq!(cpu_rows.len(), 1);
+    assert_eq!(cpu_rows[0].process.name.as_deref(), Some("worker"));
+    assert_eq!(cpu_rows[0].percent, 0.0);
+    let memory_rows = top_memory(&out);
+    assert_eq!(
+        memory_rows.value().unwrap()[0].process.name.as_deref(),
+        Some("worker")
+    );
     assert_eq!(out.memory.value().unwrap().used_bytes, 10);
     assert_eq!(out.temperatures.value().unwrap()[0].name, "CPU");
     assert_eq!(out.networks.value().unwrap()[0].name, "eth0");
@@ -97,13 +105,15 @@ fn first_sample_publishes_observed_entities_with_zero_baseline_rates() {
     );
     assert_eq!(out.disks.value().unwrap()[0].bytes_per_sec, 0.0);
 
-    let disk = out.process_disk_io.value().unwrap();
+    let disk = disk_io(&out);
+    let disk = disk.value().unwrap();
     assert_eq!(disk[0].device, "nvme0n1");
     assert_eq!(
         (disk[0].read_bytes_per_sec, disk[0].write_bytes_per_sec),
         (0.0, 0.0)
     );
-    let network = out.process_network_io.value().unwrap();
+    let network = network_io(&out);
+    let network = network.value().unwrap();
     assert_eq!(network[0].interface, "eth0");
     assert_eq!(
         (network[0].rx_bytes_per_sec, network[0].tx_bytes_per_sec),
@@ -173,7 +183,7 @@ fn derives_rates_and_cpu() {
     assert_eq!(out.networks.value().unwrap()[0].down_bytes_per_sec, 200.0);
     assert_eq!(out.networks.value().unwrap()[0].up_bytes_per_sec, 300.0);
     assert_eq!(out.disks.value().unwrap()[0].bytes_per_sec, 600.0);
-    assert!((out.top_cpu.value().unwrap()[0].percent - 40.0).abs() < 0.001);
+    assert!((top_cpu(&out).value().unwrap()[0].percent - 40.0).abs() < 0.001);
 }
 
 #[test]

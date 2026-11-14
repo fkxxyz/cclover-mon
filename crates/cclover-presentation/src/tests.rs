@@ -1,5 +1,8 @@
 use super::*;
-use cclover_core::model::DiskMetadata;
+use cclover_core::model::{
+    CollectionStatus, CollectionUnavailable, DiskMetadata, ProcessDiskIoSnapshot,
+    ProcessInstanceId, ProcessNetworkIoSnapshot, ProcessSnapshot,
+};
 
 #[test]
 fn disk_title_prefers_user_recognizable_associated_labels() {
@@ -136,7 +139,8 @@ fn gpu_panel_formats_public_metrics_and_histories() {
         .gpu_temperature
         .insert(gpu_id, VecDeque::from([61.0, 63.0]));
 
-    let panel = Dashboard::new(&state).gpu(0).unwrap();
+    let dashboard = Dashboard::new(&state);
+    let panel = dashboard.gpu(0).unwrap();
     assert_eq!(panel.name(), "RTX Test");
     assert_eq!(panel.utilization_value(), "42.0%");
     assert_eq!(panel.memory_value(), "4.00 GiB / 8.00 GiB");
@@ -189,18 +193,70 @@ fn unavailable_attribution_does_not_hide_available_parent_metric() {
         },
         bytes_per_sec: 10.0,
     }]);
-    state.snapshot.process_disk_io =
-        Collection::unavailable(cclover_core::model::CollectionUnavailable::PermissionDenied);
+    state.snapshot.processes.disk_io_status =
+        CollectionStatus::Unavailable(CollectionUnavailable::PermissionDenied);
 
-    let panel = Dashboard::new(&state).disk(0).unwrap();
+    let dashboard = Dashboard::new(&state);
+    let panel = dashboard.disk(0).unwrap();
     assert_eq!(panel.name(), "nvme0n1");
     assert!(!panel.process_rows_visible());
     assert_eq!(panel.processes().count(), 0);
 
-    state.snapshot.process_disk_io = Collection::available(Vec::new());
-    let panel = Dashboard::new(&state).disk(0).unwrap();
+    state.snapshot.processes.disk_io_status = CollectionStatus::Available;
+    let dashboard = Dashboard::new(&state);
+    let panel = dashboard.disk(0).unwrap();
     assert!(panel.process_rows_visible());
     assert_eq!(panel.processes().count(), 0);
+}
+
+fn process(id: ProcessInstanceId, name: &str) -> ProcessSnapshot {
+    ProcessSnapshot {
+        id,
+        name: Some(name.into()),
+        cpu_percent: Some(1.0),
+        memory_bytes: Some(1024),
+        disk_io: Vec::new(),
+        network_io: Vec::new(),
+    }
+}
+
+#[test]
+fn cpu_and_memory_rows_carry_process_identity_and_format_missing_names() {
+    let named = ProcessInstanceId {
+        pid: 42,
+        instance: 7,
+    };
+    let unnamed = ProcessInstanceId {
+        pid: 43,
+        instance: 8,
+    };
+    let mut state = MonitorState::default();
+    state.snapshot.processes.by_id = std::sync::Arc::new(
+        [
+            (named, process(named, "worker")),
+            (
+                unnamed,
+                ProcessSnapshot {
+                    name: None,
+                    ..process(unnamed, "unused")
+                },
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    state.snapshot.processes.cpu_status = CollectionStatus::Available;
+    state.snapshot.processes.memory_status = CollectionStatus::Available;
+
+    let dashboard = Dashboard::new(&state);
+    let cpu_rows: Vec<_> = dashboard.cpu().processes().collect();
+    let memory_rows: Vec<_> = dashboard.memory().processes().collect();
+
+    assert_eq!(cpu_rows.len(), 2);
+    assert_eq!(cpu_rows[0].name, "worker");
+    assert_eq!(cpu_rows[1].name, "pid 43");
+    assert_eq!(memory_rows.len(), 2);
+    assert_eq!(memory_rows[1].name, "pid 43");
 }
 
 #[test]
@@ -209,9 +265,13 @@ fn io_process_rows_match_stable_device_identity_and_hide_zero_rate() {
     let other_disk_id = cclover_core::model::DiskId::from_opaque_key("disk-b");
     let network_id = cclover_core::model::NetworkId::from_opaque_key("network-a");
     let other_network_id = cclover_core::model::NetworkId::from_opaque_key("network-b");
-    let process = cclover_core::model::ProcessInstanceId {
+    let worker = ProcessInstanceId {
         pid: 42,
-        birth_marker: 7,
+        instance: 7,
+    };
+    let idle = ProcessInstanceId {
+        pid: 43,
+        instance: 8,
     };
     let mut state = MonitorState::default();
     state.snapshot.disks = Collection::available(vec![DiskSnapshot {
@@ -228,69 +288,70 @@ fn io_process_rows_match_stable_device_identity_and_hide_zero_rate() {
         down_bytes_per_sec: 0.0,
         up_bytes_per_sec: 0.0,
     }]);
-    state.snapshot.process_disk_io = Collection::available(vec![
-        ProcessDiskIo {
-            process,
-            name: Some("worker".into()),
-            disk_id: disk_id.clone(),
-            device: "renamed-display-label".into(),
-            read_bytes_per_sec: 2048.0,
-            write_bytes_per_sec: 1024.0,
-        },
-        ProcessDiskIo {
-            process,
-            name: Some("idle".into()),
-            disk_id,
-            device: "nvme0n1".into(),
-            read_bytes_per_sec: 0.0,
-            write_bytes_per_sec: 0.0,
-        },
-        ProcessDiskIo {
-            process,
-            name: Some("other".into()),
-            disk_id: other_disk_id,
-            device: "nvme1n1".into(),
-            read_bytes_per_sec: 4096.0,
-            write_bytes_per_sec: 4096.0,
-        },
-    ]);
-    state.snapshot.process_network_io = Collection::available(vec![
-        ProcessNetworkIo {
-            process,
-            name: Some("worker".into()),
-            network_id: network_id.clone(),
-            interface: "renamed-display-label".into(),
-            rx_bytes_per_sec: 3072.0,
-            tx_bytes_per_sec: 1024.0,
-        },
-        ProcessNetworkIo {
-            process,
-            name: Some("idle".into()),
-            network_id,
-            interface: "eth0".into(),
-            rx_bytes_per_sec: 0.0,
-            tx_bytes_per_sec: 0.0,
-        },
-        ProcessNetworkIo {
-            process,
-            name: Some("other".into()),
-            network_id: other_network_id,
-            interface: "eth1".into(),
-            rx_bytes_per_sec: 4096.0,
-            tx_bytes_per_sec: 4096.0,
-        },
-    ]);
+    state.snapshot.processes.by_id = std::sync::Arc::new(
+        [
+            (
+                worker,
+                ProcessSnapshot {
+                    disk_io: vec![
+                        ProcessDiskIoSnapshot {
+                            disk_id: disk_id.clone(),
+                            device: "renamed-display-label".into(),
+                            read_bytes_per_sec: 2048.0,
+                            write_bytes_per_sec: 1024.0,
+                        },
+                        ProcessDiskIoSnapshot {
+                            disk_id: other_disk_id,
+                            device: "nvme1n1".into(),
+                            read_bytes_per_sec: 4096.0,
+                            write_bytes_per_sec: 4096.0,
+                        },
+                    ],
+                    network_io: vec![
+                        ProcessNetworkIoSnapshot {
+                            network_id: network_id.clone(),
+                            interface: "renamed-display-label".into(),
+                            rx_bytes_per_sec: 3072.0,
+                            tx_bytes_per_sec: 1024.0,
+                        },
+                        ProcessNetworkIoSnapshot {
+                            network_id: other_network_id,
+                            interface: "eth1".into(),
+                            rx_bytes_per_sec: 4096.0,
+                            tx_bytes_per_sec: 4096.0,
+                        },
+                    ],
+                    ..process(worker, "worker")
+                },
+            ),
+            (
+                idle,
+                ProcessSnapshot {
+                    disk_io: vec![ProcessDiskIoSnapshot {
+                        disk_id,
+                        device: "nvme0n1".into(),
+                        read_bytes_per_sec: 0.0,
+                        write_bytes_per_sec: 0.0,
+                    }],
+                    network_io: vec![ProcessNetworkIoSnapshot {
+                        network_id,
+                        interface: "eth0".into(),
+                        rx_bytes_per_sec: 0.0,
+                        tx_bytes_per_sec: 0.0,
+                    }],
+                    ..process(idle, "idle")
+                },
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    state.snapshot.processes.disk_io_status = CollectionStatus::Available;
+    state.snapshot.processes.network_io_status = CollectionStatus::Available;
 
-    let disk_rows: Vec<_> = Dashboard::new(&state)
-        .disk(0)
-        .unwrap()
-        .processes()
-        .collect();
-    let network_rows: Vec<_> = Dashboard::new(&state)
-        .network(0)
-        .unwrap()
-        .processes()
-        .collect();
+    let dashboard = Dashboard::new(&state);
+    let disk_rows: Vec<_> = dashboard.disk(0).unwrap().processes().collect();
+    let network_rows: Vec<_> = dashboard.network(0).unwrap().processes().collect();
 
     assert_eq!(disk_rows.len(), 1);
     assert_eq!(disk_rows[0].name, Some("worker"));

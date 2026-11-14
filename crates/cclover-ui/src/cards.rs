@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::VecDeque;
 
 use cclover_presentation::BoundedText;
@@ -23,7 +24,7 @@ pub(crate) struct MetricCardParams<'a> {
     pub(crate) secondary_value: BoundedText,
     pub(crate) progress: f32,
     pub(crate) graph: GraphSpec<'a>,
-    pub(crate) processes: Vec<(&'a str, BoundedText)>,
+    pub(crate) processes: Vec<(Cow<'a, str>, BoundedText)>,
 }
 
 pub(crate) fn metric_card<'a>(params: MetricCardParams<'a>) -> Block<'a> {
@@ -58,7 +59,7 @@ pub(crate) fn metric_card<'a>(params: MetricCardParams<'a>) -> Block<'a> {
         .map(|(name, value)| {
             Element::Row(TextRow {
                 cells: vec![
-                    TextCell::borrowed(name, 12, Tone::Foreground).fill().clip(),
+                    text_cell(name, 12, Tone::Foreground).fill().clip(),
                     bounded_cell(value, 12, Tone::Muted, TEXT_SLOT_GEOMETRY.process_value),
                 ],
                 height: METRIC_CARD_GEOMETRY.process_row_height,
@@ -427,6 +428,13 @@ fn io_process_rows<'a>(
         children,
         gap: IO_PROCESS_GEOMETRY.spacing,
         height: Some(IO_PROCESS_GEOMETRY.height()),
+    }
+}
+
+fn text_cell<'a>(text: Cow<'a, str>, size: u32, tone: Tone) -> TextCell<'a> {
+    match text {
+        Cow::Borrowed(text) => TextCell::borrowed(text, size, tone),
+        Cow::Owned(text) => TextCell::owned(text, size, tone),
     }
 }
 

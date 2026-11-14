@@ -19,17 +19,24 @@ pub(crate) enum ApiV1Slice {
     Temperatures,
     Fans,
     Gpus,
-    GpuMemoryLegacy,
     Processes,
     HistoryCpu,
     HistoryMemory,
     HistoryGpus,
-    HistoryGpuMemoryLegacy,
     HistoryDisks,
     HistoryNetworks,
     HistoryTemperatures,
     HistoryFans,
 }
+
+/// Ranked process rows the default v1 views carry for CPU and memory.
+///
+/// This is a wire contract number and is deliberately independent from any dashboard card row
+/// count: the API states how many rows a default payload contains, not how a panel is laid out.
+pub(super) const PROCESS_ROWS: usize = 8;
+
+/// Ranked process rows the default v1 views carry per device for disk and network I/O.
+pub(super) const PROCESS_IO_ROWS: usize = 3;
 
 #[derive(Clone, Debug, Default, Serialize)]
 pub(super) struct ApiV1Snapshot {
@@ -70,30 +77,6 @@ impl<T> ApiV1Collection<T> {
     }
 }
 
-impl ApiV1Collection<Vec<ApiV1GpuSnapshot>> {
-    pub(super) fn project_legacy_gpu_memory(
-        &self,
-    ) -> ApiV1Collection<Vec<ApiV1LegacyGpuMemorySnapshot>> {
-        let project = |rows: &[ApiV1GpuSnapshot]| {
-            rows.iter()
-                .filter_map(|gpu| {
-                    Some(ApiV1LegacyGpuMemorySnapshot {
-                        id: gpu.id.clone(),
-                        name: gpu.name.clone(),
-                        used_bytes: gpu.memory_used_bytes?,
-                        total_bytes: gpu.memory_total_bytes?,
-                    })
-                })
-                .collect()
-        };
-        match self {
-            Self::Available(rows) => ApiV1Collection::Available(project(rows)),
-            Self::Degraded(rows) => ApiV1Collection::Degraded(project(rows)),
-            Self::Unavailable(reason) => ApiV1Collection::Unavailable(*reason),
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum ApiV1Unavailable {
@@ -124,15 +107,29 @@ pub(super) struct ApiV1MemorySnapshot {
     pub(super) swap_total_bytes: u64,
 }
 
+/// Identity of the process a ranked row refers to.
+///
+/// `pid` alone is insufficient because operating systems reuse it. `instance` is an opaque
+/// per-instance marker: it is stable for one process instance and differs when a pid is reused.
+/// It is a decimal string because the underlying platform marker does not fit the exactly
+/// representable JSON number range on every platform, and because it must not be read as a time.
+#[derive(Clone, Debug, Serialize)]
+pub(super) struct ApiV1ProcessRef {
+    pub(super) pid: u32,
+    pub(super) instance: String,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub(super) struct ApiV1ProcessCpu {
-    pub(super) name: String,
+    pub(super) process: ApiV1ProcessRef,
+    pub(super) name: Option<String>,
     pub(super) percent: f64,
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub(super) struct ApiV1ProcessMemory {
-    pub(super) name: String,
+    pub(super) process: ApiV1ProcessRef,
+    pub(super) name: Option<String>,
     pub(super) bytes: u64,
 }
 
@@ -153,8 +150,7 @@ pub(super) struct ApiV1DiskSnapshot {
 
 #[derive(Clone, Debug, Serialize)]
 pub(super) struct ApiV1ProcessDiskIo {
-    pub(super) pid: u32,
-    pub(super) birth_marker: u64,
+    pub(super) process: ApiV1ProcessRef,
     pub(super) name: Option<String>,
     pub(super) disk_id: String,
     pub(super) device: String,
@@ -164,8 +160,7 @@ pub(super) struct ApiV1ProcessDiskIo {
 
 #[derive(Clone, Debug, Serialize)]
 pub(super) struct ApiV1ProcessNetworkIo {
-    pub(super) pid: u32,
-    pub(super) birth_marker: u64,
+    pub(super) process: ApiV1ProcessRef,
     pub(super) name: Option<String>,
     pub(super) network_id: String,
     pub(super) interface: String,
@@ -199,14 +194,6 @@ pub(super) struct ApiV1GpuSnapshot {
     pub(super) core_clock_mhz: Option<u64>,
     pub(super) fan_percent: Option<f64>,
     pub(super) fan_rpm: Option<u64>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub(super) struct ApiV1LegacyGpuMemorySnapshot {
-    pub(super) id: String,
-    pub(super) name: String,
-    pub(super) used_bytes: u64,
-    pub(super) total_bytes: u64,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -269,11 +256,6 @@ pub(super) struct ApiV1Gpus<'a> {
 }
 
 #[derive(Serialize)]
-pub(super) struct ApiV1LegacyGpuMemory {
-    pub(super) gpu_memory: ApiV1Collection<Vec<ApiV1LegacyGpuMemorySnapshot>>,
-}
-
-#[derive(Serialize)]
 pub(super) struct ApiV1Processes<'a> {
     pub(super) top_cpu: &'a ApiV1Collection<Vec<ApiV1ProcessCpu>>,
     pub(super) top_memory: &'a ApiV1Collection<Vec<ApiV1ProcessMemory>>,
@@ -300,12 +282,6 @@ pub(super) struct ApiV1GpuHistory<'a> {
     pub(super) utilization: &'a BTreeMap<String, VecDeque<f64>>,
     pub(super) memory_used: &'a BTreeMap<String, VecDeque<f64>>,
     pub(super) temperature: &'a BTreeMap<String, VecDeque<f64>>,
-}
-
-#[derive(Serialize)]
-pub(super) struct ApiV1LegacyGpuMemoryHistory<'a> {
-    pub(super) history_capacity: usize,
-    pub(super) gpu_memory_used: &'a BTreeMap<String, VecDeque<f64>>,
 }
 
 #[derive(Serialize)]

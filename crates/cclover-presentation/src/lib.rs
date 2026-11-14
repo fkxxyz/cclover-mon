@@ -1,9 +1,10 @@
+use std::borrow::Cow;
 use std::collections::VecDeque;
 
 use cclover_core::model::{
     Collection, DiskSnapshot, FanSnapshot, GpuSnapshot, MemorySnapshot, MonitorState,
-    NetworkDirectionHistory, NetworkSnapshot, ProcessCpuUsage, ProcessDiskIo, ProcessMemoryUsage,
-    ProcessNetworkIo, TemperatureSnapshot,
+    NetworkDirectionHistory, NetworkSnapshot, ProcessCpuRank, ProcessDiskIo, ProcessMemoryRank,
+    ProcessNetworkIo, ProcessRef, TemperatureSnapshot,
 };
 
 mod dashboard;
@@ -19,6 +20,11 @@ pub use panels::{
 };
 #[cfg(test)]
 pub(crate) use panels::{disk_title, short_temperature_name};
+
+/// Ranked process rows the dashboard spends on the CPU and memory cards.
+pub const PROCESS_CARD_ROWS: usize = 8;
+/// Ranked process rows the dashboard spends per device on the disk and network cards.
+pub const IO_CARD_ROWS: usize = 3;
 
 pub const TEMPERATURE_SECTION: &str = "TEMPERATURE";
 pub const FAN_SECTION: &str = "FAN";

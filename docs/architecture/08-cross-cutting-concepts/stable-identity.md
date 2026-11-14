@@ -25,10 +25,12 @@ A platform canonicalizes every native source that describes the same entity into
 
 `ProcessInstanceId` identifies a process instance, not merely a PID.
 
-- Linux uses PID plus `/proc/<pid>/stat` field 22 (`starttime`) as the canonical birth-marker domain. Native sources such as eBPF `task_struct::start_boottime` normalize into that same clock-tick domain before constructing the identity.
+- Linux uses PID plus `/proc/<pid>/stat` field 22 (`starttime`) as the canonical instance-marker domain. Native sources such as eBPF `task_struct::start_boottime` normalize into that same clock-tick domain before constructing the identity.
 - Windows uses PID plus the process creation timestamp returned in the same `SystemProcessInformation` snapshot.
 
 PID reuse therefore creates a new identity and never inherits prior CPU or I/O counters.
+
+The identity has two representations. Inside the process, `ProcessInstanceId { pid, instance }` carries the marker in its platform unit, because delta derivation, joins, and history keys only compare it. On the public API, the same pair is projected as `pid` plus a decimal-string `instance`: the marker is opaque, is not a timestamp, and does not fit the exactly representable JSON number range on every platform. See [`docs/api/v1.md`](../../api/v1.md).
 
 ## Devices
 

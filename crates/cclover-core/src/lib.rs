@@ -4,6 +4,7 @@ pub mod devlog;
 #[cfg(not(target_arch = "wasm32"))]
 mod history;
 pub mod model;
+pub mod ranking;
 #[cfg(not(target_arch = "wasm32"))]
 mod sampler;
 

@@ -21,11 +21,3 @@ pub(super) fn combine_status<A, B, T>(
         (Collection::Available(_), Collection::Available(_)) => Collection::Available(value),
     }
 }
-
-pub(super) fn collection_from_status<T>(status: CollectionStatus, value: T) -> Collection<T> {
-    match status {
-        CollectionStatus::Available => Collection::Available(value),
-        CollectionStatus::Degraded => Collection::Degraded(value),
-        CollectionStatus::Unavailable(reason) => Collection::Unavailable(reason),
-    }
-}

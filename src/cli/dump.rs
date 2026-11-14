@@ -63,23 +63,38 @@ pub(super) fn dump(samples: u64) {
         }
     }
 
+    let processes = &snapshot.processes;
     print_section(
         "Top CPU",
-        snapshot
-            .top_cpu
+        processes
+            .cpu_ranking(PROCESS_CARD_ROWS)
             .value()
             .into_iter()
             .flatten()
-            .map(|item| format!("{}  {}", item.name, format_percent(item.percent))),
+            .map(|item| {
+                format!(
+                    "pid={}  {}  {}",
+                    item.process.id.pid,
+                    item.process.name.as_deref().unwrap_or("?"),
+                    format_percent(item.percent)
+                )
+            }),
     );
     print_section(
         "Top memory",
-        snapshot
-            .top_memory
+        processes
+            .memory_ranking(PROCESS_CARD_ROWS)
             .value()
             .into_iter()
             .flatten()
-            .map(|item| format!("{}  {}", item.name, format_bytes(item.bytes))),
+            .map(|item| {
+                format!(
+                    "pid={}  {}  {}",
+                    item.process.id.pid,
+                    item.process.name.as_deref().unwrap_or("?"),
+                    format_bytes(item.bytes)
+                )
+            }),
     );
     print_section(
         "Network",
@@ -102,14 +117,14 @@ pub(super) fn dump(samples: u64) {
             )
         }),
     );
-    match snapshot.process_disk_io.value() {
+    match processes.disk_io_ranking(IO_CARD_ROWS).into_value() {
         Some(rows) if rows.is_empty() => println!("Process disk I/O:\n  none"),
         Some(rows) => print_section(
             "Process disk I/O",
             rows.iter().map(|item| {
                 format!(
                     "pid={}  {}  read {}  write {}",
-                    item.process.pid,
+                    item.process.id.pid,
                     item.device,
                     format_rate(item.read_bytes_per_sec),
                     format_rate(item.write_bytes_per_sec)
@@ -118,14 +133,14 @@ pub(super) fn dump(samples: u64) {
         ),
         None => println!("Process disk I/O:\n  {}", unavailable()),
     }
-    match snapshot.process_network_io.value() {
+    match processes.network_io_ranking(IO_CARD_ROWS).into_value() {
         Some(rows) if rows.is_empty() => println!("Process network I/O:\n  none"),
         Some(rows) => print_section(
             "Process network I/O",
             rows.iter().map(|item| {
                 format!(
                     "pid={}  {}  rx {}  tx {}",
-                    item.process.pid,
+                    item.process.id.pid,
                     item.interface,
                     format_rate(item.rx_bytes_per_sec),
                     format_rate(item.tx_bytes_per_sec)

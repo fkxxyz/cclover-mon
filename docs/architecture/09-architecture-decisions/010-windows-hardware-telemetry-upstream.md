@@ -56,7 +56,7 @@ LHM-derived implementation is divided by stability:
 
 The reviewed LHM revision and provenance are pinned in `deps/librehardwaremonitor.ts`. `lhm-sync.ts status <checkout>` compares a candidate checkout against that reviewed revision and reports changes to the declared relevant hardware sources. Updating upstream compatibility knowledge is explicit: tooling may identify relevant upstream changes and regenerate declarative data, but production register-access algorithms are never silently replaced from upstream. Algorithm or I/O-sequence changes require review and deterministic tests before adoption.
 
-The operational update procedure is maintained separately in [`docs/maintenance/librehardwaremonitor-sync.md`](../../../maintenance/librehardwaremonitor-sync.md). This ADR remains the authority for stable architectural constraints; the runbook owns repository-maintenance steps.
+The operational update procedure is maintained separately in [`docs/maintenance/librehardwaremonitor-sync.md`](../../maintenance/librehardwaremonitor-sync.md). This ADR remains the authority for stable architectural constraints; the runbook owns repository-maintenance steps.
 
 ## Metric and Identity Semantics
 

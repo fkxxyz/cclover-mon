@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::status::{collection_from_status, combine_status, map_status};
+use super::status::{combine_status, map_status};
 use crate::model::*;
 
 pub(super) fn derive_cpu(
@@ -16,7 +16,7 @@ pub(super) fn derive_cpu(
         };
         return (
             Collection::Unavailable(reason),
-            collection_from_status(process_status, Vec::new()),
+            process_status.wrap(Vec::new()),
         );
     };
 
@@ -24,19 +24,13 @@ pub(super) fn derive_cpu(
         previous.and_then(|snapshot| snapshot.cpu.value().map(|counter| (snapshot, counter)))
     else {
         let values = vec![0.0; current_processes.len()];
-        return (
-            map_status(&current.cpu, 0.0),
-            collection_from_status(process_status, values),
-        );
+        return (map_status(&current.cpu, 0.0), process_status.wrap(values));
     };
 
     let total = new.total_time_units.saturating_sub(old.total_time_units);
     if total == 0 {
         let values = vec![0.0; current_processes.len()];
-        return (
-            map_status(&current.cpu, 0.0),
-            collection_from_status(process_status, values),
-        );
+        return (map_status(&current.cpu, 0.0), process_status.wrap(values));
     }
 
     let idle = new.idle_time_units.saturating_sub(old.idle_time_units);
@@ -61,6 +55,6 @@ pub(super) fn derive_cpu(
 
     (
         map_status(&current.cpu, percent),
-        collection_from_status(process_status, values),
+        process_status.wrap(values),
     )
 }

@@ -2,8 +2,8 @@
 mod tests {
     use super::*;
 
-    fn process(pid: u32, birth_marker: u64) -> ProcessInstanceId {
-        ProcessInstanceId { pid, birth_marker }
+    fn process(pid: u32, instance: u64) -> ProcessInstanceId {
+        ProcessInstanceId { pid, instance }
     }
 
     fn route(path: &str, target: FileTarget) -> VolumeRoute {

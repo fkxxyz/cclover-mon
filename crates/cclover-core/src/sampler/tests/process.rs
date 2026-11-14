@@ -1,10 +1,8 @@
 use std::time::{Duration, Instant};
 
-use super::super::process::{
-    PROCESS_IO_TOP_N, derive_process_disk_io_rates, derive_process_network_io_rates,
-};
+use super::super::process::{derive_process_disk_io_rates, derive_process_network_io_rates};
 use super::super::*;
-use super::{disk_id, network_id, process_id};
+use super::{IO_RANK_ROWS, disk_id, disk_io, network_id, network_io, process_id};
 
 #[test]
 fn derives_process_io_by_pid_and_native_identity() {
@@ -61,15 +59,17 @@ fn derives_process_io_by_pid_and_native_identity() {
     };
 
     let out = derive(Some(&old), &new);
-    let disk = &out.process_disk_io.value().unwrap()[0];
-    assert_eq!(disk.process.pid, 10);
-    assert_eq!(disk.name.as_deref(), Some("disk-worker"));
+    let rows = disk_io(&out);
+    let disk = &rows.value().unwrap()[0];
+    assert_eq!(disk.process.id.pid, 10);
+    assert_eq!(disk.process.name.as_deref(), Some("disk-worker"));
     assert_eq!(disk.device, "nvme0n1");
     assert_eq!(disk.read_bytes_per_sec, 200.0);
     assert_eq!(disk.write_bytes_per_sec, 400.0);
-    let network = &out.process_network_io.value().unwrap()[0];
-    assert_eq!(network.process.pid, 20);
-    assert_eq!(network.name.as_deref(), Some("network-worker"));
+    let rows = network_io(&out);
+    let network = &rows.value().unwrap()[0];
+    assert_eq!(network.process.id.pid, 20);
+    assert_eq!(network.process.name.as_deref(), Some("network-worker"));
     assert_eq!(network.interface, "eth0");
     assert_eq!(network.rx_bytes_per_sec, 300.0);
     assert_eq!(network.tx_bytes_per_sec, 500.0);
@@ -171,7 +171,7 @@ fn process_io_does_not_reuse_delta_when_display_name_is_reused_by_new_identity()
 }
 
 #[test]
-fn process_domain_keeps_complete_io_before_card_top_n_projection() {
+fn process_domain_keeps_complete_io_beyond_ranking() {
     let t = Instant::now();
     let mut old_disk: Vec<_> = (1..=4)
         .map(|pid| ProcessDiskIoCounter {
@@ -261,15 +261,17 @@ fn process_domain_keeps_complete_io_before_card_top_n_projection() {
     };
 
     let out = derive(Some(&old), &new);
-    let disk = out.process_disk_io.value().unwrap();
-    let network = out.process_network_io.value().unwrap();
+    let disk = disk_io(&out);
+    let disk = disk.value().unwrap();
+    let network = network_io(&out);
+    let network = network.value().unwrap();
 
-    assert_eq!(disk.len(), PROCESS_IO_TOP_N + 1);
-    assert_eq!(network.len(), PROCESS_IO_TOP_N + 1);
+    assert_eq!(disk.len(), IO_RANK_ROWS + 1);
+    assert_eq!(network.len(), IO_RANK_ROWS + 1);
     assert_eq!(
         disk.iter()
             .filter(|row| row.disk_id == disk_id("disk-a"))
-            .map(|row| row.process.pid)
+            .map(|row| row.process.id.pid)
             .collect::<Vec<_>>(),
         [4, 3, 2]
     );
@@ -277,15 +279,15 @@ fn process_domain_keeps_complete_io_before_card_top_n_projection() {
         network
             .iter()
             .filter(|row| row.network_id == network_id("network-a"))
-            .map(|row| row.process.pid)
+            .map(|row| row.process.id.pid)
             .collect::<Vec<_>>(),
         [4, 3, 2]
     );
     assert_eq!(out.processes.by_id.len(), 5);
     assert_eq!(out.processes.by_id[&process_id(1, 1)].disk_io.len(), 1);
     assert_eq!(out.processes.by_id[&process_id(1, 1)].network_io.len(), 1);
-    assert_eq!(disk[0].name.as_deref(), Some("p4"));
-    assert_eq!(network[0].name.as_deref(), Some("p4"));
+    assert_eq!(disk[0].process.name.as_deref(), Some("p4"));
+    assert_eq!(network[0].process.name.as_deref(), Some("p4"));
 }
 
 #[test]
@@ -329,12 +331,14 @@ fn attribution_counter_reset_does_not_create_a_rate_spike() {
     };
 
     let out = derive(Some(&old), &new);
-    let disk = &out.process_disk_io.value().unwrap()[0];
+    let rows = disk_io(&out);
+    let disk = &rows.value().unwrap()[0];
     assert_eq!(
         (disk.read_bytes_per_sec, disk.write_bytes_per_sec),
         (0.0, 0.0)
     );
-    let network = &out.process_network_io.value().unwrap()[0];
+    let rows = network_io(&out);
+    let network = &rows.value().unwrap()[0];
     assert_eq!(
         (network.rx_bytes_per_sec, network.tx_bytes_per_sec),
         (0.0, 0.0)
@@ -445,11 +449,11 @@ fn preserves_attribution_unavailability() {
 
     let out = derive(Some(&old), &new);
     assert_eq!(
-        out.process_disk_io.status(),
+        disk_io(&out).status(),
         CollectionStatus::Unavailable(CollectionUnavailable::PermissionDenied)
     );
     assert_eq!(
-        out.process_network_io.status(),
+        network_io(&out).status(),
         CollectionStatus::Unavailable(CollectionUnavailable::PermissionDenied)
     );
     assert_eq!(
@@ -478,8 +482,8 @@ fn derivation_preserves_degraded_observation_status() {
     let out = derive(None, &current);
 
     assert_eq!(out.networks.status(), CollectionStatus::Degraded);
-    assert_eq!(out.process_disk_io.status(), CollectionStatus::Degraded);
+    assert_eq!(disk_io(&out).status(), CollectionStatus::Degraded);
     assert_eq!(out.processes.disk_io_status, CollectionStatus::Degraded);
     assert_eq!(out.networks.value().unwrap().len(), 1);
-    assert!(out.process_disk_io.value().unwrap().is_empty());
+    assert!(disk_io(&out).value().unwrap().is_empty());
 }

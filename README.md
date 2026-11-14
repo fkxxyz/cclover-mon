@@ -162,6 +162,8 @@ Use the actual socket name on the system; it is not necessarily `wayland-1`.
 
 Architecture documentation is under [`docs/architecture/`](docs/architecture/).
 
+The machine-readable HTTP contract is documented in [`docs/api/v1.md`](docs/api/v1.md).
+
 ## License
 
 `cclover-mon` is licensed under the GNU General Public License, version 2 or later (`GPL-2.0-or-later`). See [`LICENSE`](LICENSE).

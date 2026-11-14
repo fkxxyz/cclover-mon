@@ -1,8 +1,7 @@
 use std::time::{Duration, Instant};
 
-use super::super::process::TOP_N;
 use super::super::*;
-use super::process_id;
+use super::{RANK_ROWS, process_id, top_cpu, top_memory};
 
 #[test]
 fn top_memory_keeps_only_highest_processes_in_order() {
@@ -20,10 +19,12 @@ fn top_memory_keeps_only_highest_processes_in_order() {
     };
 
     let out = derive(None, &current);
-    let top = out.top_memory.value().unwrap();
-    assert_eq!(top.len(), TOP_N);
-    assert_eq!(top[0].name, "p11");
-    assert_eq!(top[TOP_N - 1].name, "p4");
+    let top = top_memory(&out);
+    let top = top.value().unwrap();
+    assert_eq!(top.len(), RANK_ROWS);
+    assert_eq!(top[0].process.name.as_deref(), Some("p11"));
+    assert_eq!(top[0].process.id, process_id(11, 1));
+    assert_eq!(top[RANK_ROWS - 1].process.name.as_deref(), Some("p4"));
     assert_eq!(out.processes.by_id.len(), 12);
 }
 
@@ -67,9 +68,11 @@ fn top_cpu_keeps_only_highest_processes_in_order() {
     };
 
     let out = derive(Some(&previous), &current);
-    let top = out.top_cpu.value().unwrap();
-    assert_eq!(top.len(), TOP_N);
-    assert_eq!(top[0].name, "p11");
-    assert_eq!(top[TOP_N - 1].name, "p4");
+    let top = top_cpu(&out);
+    let top = top.value().unwrap();
+    assert_eq!(top.len(), RANK_ROWS);
+    assert_eq!(top[0].process.name.as_deref(), Some("p11"));
+    assert_eq!(top[0].process.id, process_id(11, 1));
+    assert_eq!(top[RANK_ROWS - 1].process.name.as_deref(), Some("p4"));
     assert_eq!(out.processes.by_id.len(), 12);
 }

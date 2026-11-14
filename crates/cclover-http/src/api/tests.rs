@@ -1,8 +1,9 @@
 use std::collections::VecDeque;
 
 use cclover_core::model::{
-    Collection, CollectionUnavailable, DiskId, GpuId, GpuSnapshot, MemorySnapshot, MonitorState,
-    ProcessDiskIo, ProcessInstanceId,
+    Collection, CollectionStatus, CollectionUnavailable, DiskId, GpuId, GpuSnapshot,
+    MemorySnapshot, MonitorState, ProcessDiskIoSnapshot, ProcessInstanceId,
+    ProcessNetworkIoSnapshot, ProcessSnapshot,
 };
 use serde_json::json;
 
@@ -46,17 +47,61 @@ fn representative_state() -> MonitorState {
             fan_rpm: None,
         },
     ]);
-    state.snapshot.process_disk_io = Collection::available(vec![ProcessDiskIo {
-        process: ProcessInstanceId {
-            pid: 42,
-            birth_marker: 7,
-        },
-        name: Some("worker".into()),
-        disk_id: DiskId::from_opaque_key("disk-a"),
-        device: "nvme0n1".to_owned(),
-        read_bytes_per_sec: 1.0,
-        write_bytes_per_sec: 2.0,
-    }]);
+    let worker = ProcessInstanceId {
+        pid: 42,
+        instance: 7,
+    };
+    let unattributed = ProcessInstanceId {
+        pid: 43,
+        instance: 9007199254740993,
+    };
+    state.snapshot.processes = cclover_core::model::ProcessDomainSnapshot {
+        by_id: std::sync::Arc::new(
+            [
+                (
+                    worker,
+                    ProcessSnapshot {
+                        id: worker,
+                        name: Some("worker".into()),
+                        cpu_percent: Some(12.5),
+                        memory_bytes: Some(4096),
+                        disk_io: vec![ProcessDiskIoSnapshot {
+                            disk_id: DiskId::from_opaque_key("disk-a"),
+                            device: "nvme0n1".to_owned(),
+                            read_bytes_per_sec: 1.0,
+                            write_bytes_per_sec: 2.0,
+                        }],
+                        network_io: vec![ProcessNetworkIoSnapshot {
+                            network_id: cclover_core::model::NetworkId::from_opaque_key(
+                                "network-a",
+                            ),
+                            interface: "eth0".to_owned(),
+                            rx_bytes_per_sec: 8.0,
+                            tx_bytes_per_sec: 16.0,
+                        }],
+                    },
+                ),
+                (
+                    unattributed,
+                    ProcessSnapshot {
+                        id: unattributed,
+                        name: None,
+                        cpu_percent: Some(0.5),
+                        memory_bytes: Some(512),
+                        disk_io: Vec::new(),
+                        network_io: Vec::new(),
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        ),
+        metadata_status: CollectionStatus::Available,
+        cpu_status: CollectionStatus::Available,
+        memory_status: CollectionStatus::Available,
+        disk_io_status: CollectionStatus::Available,
+        network_io_status: CollectionStatus::Available,
+    };
     state.history.cpu = VecDeque::from([11.0, 12.0]);
     state
         .history
@@ -108,41 +153,6 @@ fn gpu_wire_shape_is_an_explicit_v1_contract() {
 }
 
 #[test]
-fn legacy_gpu_memory_routes_keep_their_original_payload_shape() {
-    let state = ApiV1State::from(&representative_state());
-    let snapshot: serde_json::Value =
-        serde_json::from_str(&state.serialize_slice(ApiV1Slice::GpuMemoryLegacy).unwrap()).unwrap();
-    let history: serde_json::Value = serde_json::from_str(
-        &state
-            .serialize_slice(ApiV1Slice::HistoryGpuMemoryLegacy)
-            .unwrap(),
-    )
-    .unwrap();
-
-    assert_eq!(
-        snapshot,
-        json!({
-            "gpu_memory": {
-                "status": "available",
-                "value": [{
-                    "id": "gpu-a",
-                    "name": "GPU A",
-                    "used_bytes": 4,
-                    "total_bytes": 8
-                }]
-            }
-        })
-    );
-    assert_eq!(
-        history,
-        json!({
-            "history_capacity": 120,
-            "gpu_memory_used": {"gpu-a": [2.0, 4.0]}
-        })
-    );
-}
-
-#[test]
 fn collection_status_and_unavailable_reason_are_part_of_v1() {
     let mut state = MonitorState::default();
     state.snapshot.cpu_percent = Collection::unavailable(CollectionUnavailable::PermissionDenied);
@@ -165,6 +175,71 @@ fn collection_status_and_unavailable_reason_are_part_of_v1() {
 }
 
 #[test]
+fn process_rows_carry_identity_and_never_drop_a_row_for_a_missing_name() {
+    let state = ApiV1State::from(&representative_state());
+    let actual: serde_json::Value =
+        serde_json::from_str(&state.serialize_slice(ApiV1Slice::Processes).unwrap()).unwrap();
+
+    assert_eq!(
+        actual,
+        json!({
+            "top_cpu": {
+                "status": "available",
+                "value": [
+                    {
+                        "process": {"pid": 42, "instance": "7"},
+                        "name": "worker",
+                        "percent": 12.5
+                    },
+                    {
+                        "process": {"pid": 43, "instance": "9007199254740993"},
+                        "name": null,
+                        "percent": 0.5
+                    }
+                ]
+            },
+            "top_memory": {
+                "status": "available",
+                "value": [
+                    {
+                        "process": {"pid": 42, "instance": "7"},
+                        "name": "worker",
+                        "bytes": 4096
+                    },
+                    {
+                        "process": {"pid": 43, "instance": "9007199254740993"},
+                        "name": null,
+                        "bytes": 512
+                    }
+                ]
+            },
+            "disk_io": {
+                "status": "available",
+                "value": [{
+                    "process": {"pid": 42, "instance": "7"},
+                    "name": "worker",
+                    "disk_id": "disk-a",
+                    "device": "nvme0n1",
+                    "read_bytes_per_sec": 1.0,
+                    "write_bytes_per_sec": 2.0
+                }]
+            },
+            "network_io": {
+                "status": "available",
+                "value": [{
+                    "process": {"pid": 42, "instance": "7"},
+                    "name": "worker",
+                    "network_id": "network-a",
+                    "interface": "eth0",
+                    "rx_bytes_per_sec": 8.0,
+                    "tx_bytes_per_sec": 16.0
+                }]
+            }
+        })
+    );
+}
+
+#[test]
 fn full_state_shape_is_owned_by_api_v1() {
     let actual = serde_json::to_value(ApiV1State::from(&representative_state())).unwrap();
 
@@ -172,6 +247,10 @@ fn full_state_shape_is_owned_by_api_v1() {
     assert_eq!(actual["snapshot"]["cpu_percent"]["status"], "available");
     assert_eq!(actual["snapshot"]["cpu_percent"]["value"], 37.5);
     assert_eq!(actual["snapshot"]["gpus"]["value"][0]["id"], "gpu-a");
+    assert_eq!(
+        actual["snapshot"]["top_cpu"]["value"][0]["process"]["instance"],
+        json!("7"),
+        "the process instance marker is a string, never a JSON number"
+    );
     assert_eq!(actual["history"]["cpu"], json!([11.0, 12.0]));
-    assert!(actual["snapshot"].get("gpu_memory").is_none());
 }

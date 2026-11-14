@@ -25,7 +25,7 @@ fn process_counter(process: native::NativeProcess) -> Option<ProcessCounter> {
     Some(ProcessCounter {
         process: ProcessInstanceId {
             pid,
-            birth_marker: process.create_time,
+            instance: process.create_time,
         },
         name: process.name.into(),
         cpu_time_units: process.user_time.saturating_add(process.kernel_time),

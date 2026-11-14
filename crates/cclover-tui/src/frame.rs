@@ -68,9 +68,9 @@ pub(crate) fn build(dashboard: Dashboard<'_>) -> Frame {
                 clock: gpu.core_clock_value(),
             })
             .collect(),
-        thermals: thermal_rows(dashboard),
-        disks: disk_rows(dashboard),
-        networks: network_rows(dashboard),
+        thermals: thermal_rows(&dashboard),
+        disks: disk_rows(&dashboard),
+        networks: network_rows(&dashboard),
     }
 }
 
@@ -81,7 +81,7 @@ fn cpu(panel: CpuPanel<'_>) -> Overview {
         processes: panel
             .processes()
             .map(|process| Metric {
-                name: process.name.to_owned(),
+                name: process.name.into_owned(),
                 value: process.value,
             })
             .collect(),
@@ -102,7 +102,7 @@ fn memory(panel: MemoryPanel<'_>) -> Overview {
         processes: panel
             .processes()
             .map(|process| Metric {
-                name: process.name.to_owned(),
+                name: process.name.into_owned(),
                 value: process.value,
             })
             .collect(),
@@ -111,7 +111,7 @@ fn memory(panel: MemoryPanel<'_>) -> Overview {
     }
 }
 
-fn thermal_rows(dashboard: Dashboard<'_>) -> Vec<Metric> {
+fn thermal_rows(dashboard: &Dashboard<'_>) -> Vec<Metric> {
     let mut rows = Vec::new();
     rows.extend(
         (0..dashboard.temperature_count())
@@ -132,7 +132,7 @@ fn thermal_rows(dashboard: Dashboard<'_>) -> Vec<Metric> {
     rows
 }
 
-fn disk_rows(dashboard: Dashboard<'_>) -> Vec<IoDevice> {
+fn disk_rows(dashboard: &Dashboard<'_>) -> Vec<IoDevice> {
     (0..dashboard.disk_count())
         .filter_map(|index| dashboard.disk(index))
         .map(|disk| IoDevice {
@@ -153,7 +153,7 @@ fn disk_rows(dashboard: Dashboard<'_>) -> Vec<IoDevice> {
         .collect()
 }
 
-fn network_rows(dashboard: Dashboard<'_>) -> Vec<NetworkDevice> {
+fn network_rows(dashboard: &Dashboard<'_>) -> Vec<NetworkDevice> {
     (0..dashboard.network_count())
         .filter_map(|index| dashboard.network(index))
         .map(|network| NetworkDevice {

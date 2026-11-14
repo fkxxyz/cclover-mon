@@ -319,9 +319,9 @@ mod tests {
     use super::*;
     use cclover_core::model::{CollectionUnavailable, GpuId};
 
-    fn process_counter(pid: u32, birth_marker: u64) -> ProcessCounter {
+    fn process_counter(pid: u32, instance: u64) -> ProcessCounter {
         ProcessCounter {
-            process: ProcessInstanceId { pid, birth_marker },
+            process: ProcessInstanceId { pid, instance },
             name: std::sync::Arc::from("test"),
             cpu_time_units: 0,
             rss_bytes: 0,
@@ -362,11 +362,11 @@ mod tests {
         let mut context = ActiveProcessContext::default();
         let first = ProcessInstanceId {
             pid: 42,
-            birth_marker: 100,
+            instance: 100,
         };
         let reused = ProcessInstanceId {
             pid: 42,
-            birth_marker: 200,
+            instance: 200,
         };
 
         context.refresh(&Collection::available(vec![process_counter(42, 100)]));

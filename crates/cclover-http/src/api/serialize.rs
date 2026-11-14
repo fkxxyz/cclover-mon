@@ -28,9 +28,6 @@ impl ApiV1State {
             ApiV1Slice::Gpus => serde_json::to_string(&ApiV1Gpus {
                 gpus: &self.snapshot.gpus,
             }),
-            ApiV1Slice::GpuMemoryLegacy => serde_json::to_string(&ApiV1LegacyGpuMemory {
-                gpu_memory: self.snapshot.gpus.project_legacy_gpu_memory(),
-            }),
             ApiV1Slice::Processes => serde_json::to_string(&ApiV1Processes {
                 top_cpu: &self.snapshot.top_cpu,
                 top_memory: &self.snapshot.top_memory,
@@ -52,12 +49,6 @@ impl ApiV1State {
                 memory_used: &self.history.gpu_memory_used,
                 temperature: &self.history.gpu_temperature,
             }),
-            ApiV1Slice::HistoryGpuMemoryLegacy => {
-                serde_json::to_string(&ApiV1LegacyGpuMemoryHistory {
-                    history_capacity: self.history_capacity,
-                    gpu_memory_used: &self.history.gpu_memory_used,
-                })
-            }
             ApiV1Slice::HistoryDisks => serde_json::to_string(&ApiV1DisksHistory {
                 history_capacity: self.history_capacity,
                 disks: &self.history.disks,
